@@ -4,7 +4,7 @@
   Usa la publishable/anon key, NUNCA una service_role o secret key aquí.
 */
 window.NEXUS_CONFIG = {
-  SUPABASE_URL: "https://TU-PROYECTO.supabase.co",
-  SUPABASE_ANON_KEY: "TU-PUBLISHABLE-ANON-KEY",
+  SUPABASE_URL: "https://nxmirthwcpsdygveobyq.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_sZD8tY9v4_edaE7MlfMIcg_Iz6-GYsm",
   APP_NAME: "Nexus"
 };
