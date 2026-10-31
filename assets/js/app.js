@@ -1,0 +1,756 @@
+/* Nexus front-end. The database rules in supabase/schema.sql are the security boundary. */
+(() => {
+  'use strict';
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const cfg = window.NEXUS_CONFIG || {};
+  const hasConfig = Boolean(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_URL.includes('TU-PROYECTO') && !cfg.SUPABASE_ANON_KEY.includes('TU-PUBLISHABLE'));
+  const client = hasConfig ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+
+  let currentUser = null;
+  let profile = null;
+  let currentView = 'chats';
+  let currentContext = null; // {type:'conversation'|'channel', id, title, subtitle, icon}
+  let activeMessageChannel = null;
+  let conversations = [];
+  let currentCommunity = null;
+  let currentCommunityChannels = [];
+  let friendsCache = [];
+  let isAdmin = false;
+
+  const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const initials = (value = '?') => String(value).trim().slice(0, 1).toUpperCase() || '?';
+  const toast = (message, type = '') => {
+    const node = document.createElement('div');
+    node.className = `toast ${type}`;
+    node.textContent = message;
+    $('#toast-region').append(node);
+    setTimeout(() => node.remove(), 4200);
+  };
+  const showError = (error, fallback = 'Ha ocurrido un error.') => {
+    console.error(error);
+    toast(error?.message || fallback, 'error');
+  };
+  const requireClient = () => {
+    if (!client) {
+      toast('Primero configura la URL y la clave pública de Supabase en assets/js/config.js.', 'error');
+      return false;
+    }
+    return true;
+  };
+  const avatarStyle = (url) => {
+    const safe = typeof url === 'string' && /^https:\/\//i.test(url) ? url : '';
+    return safe ? `style="background-image:url('${escapeHtml(safe)}');color:transparent"` : '';
+  };
+  const avatarMarkup = (p, extra = '') => `<span class="avatar ${extra}" ${avatarStyle(p?.avatar_url)}>${p?.avatar_url ? '' : escapeHtml(initials(p?.nickname || p?.username || '?'))}</span>`;
+  const dateLabel = value => {
+    try { return new Date(value).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}); }
+    catch { return ''; }
+  };
+  const showAuth = () => { $('#auth-screen').classList.remove('hidden'); $('#app-screen').classList.add('hidden'); };
+  const showApp = () => { $('#auth-screen').classList.add('hidden'); $('#app-screen').classList.remove('hidden'); };
+
+  // ---------- Authentication ----------
+  let authMode = 'login';
+  function setAuthMode(mode) {
+    authMode = mode;
+    const signup = mode === 'signup';
+    $('#auth-title').textContent = signup ? 'Crea tu cuenta' : 'Inicia sesión';
+    $('#auth-subtitle').textContent = signup ? 'Tu próximo espacio empieza aquí.' : 'Vuelve a tus conversaciones.';
+    $('#username-field').classList.toggle('hidden', !signup);
+    $('#auth-username').required = signup;
+    $('#auth-submit').textContent = signup ? 'Crear cuenta' : 'Entrar';
+    $('#auth-toggle').textContent = signup ? 'Ya tengo una cuenta' : 'Crear cuenta';
+    $('#auth-password').autocomplete = signup ? 'new-password' : 'current-password';
+  }
+
+  $('#auth-toggle').addEventListener('click', () => setAuthMode(authMode === 'login' ? 'signup' : 'login'));
+  $('#auth-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!requireClient()) return;
+    const email = $('#auth-email').value.trim();
+    const password = $('#auth-password').value;
+    const button = $('#auth-submit');
+    button.disabled = true;
+    try {
+      if (authMode === 'signup') {
+        const username = $('#auth-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (username.length < 3) throw new Error('El usuario debe tener al menos 3 caracteres (letras, números o _).');
+        const { error } = await client.auth.signUp({email, password, options:{data:{username}}});
+        if (error) throw error;
+        toast('Cuenta creada. Revisa tu correo si Supabase exige confirmación.', 'success');
+      } else {
+        const { error } = await client.auth.signInWithPassword({email, password});
+        if (error) throw error;
+      }
+    } catch (error) { showError(error, 'No se pudo completar el acceso.'); }
+    finally { button.disabled = false; }
+  });
+
+  $('#forgot-password').addEventListener('click', async () => {
+    if (!requireClient()) return;
+    const email = $('#auth-email').value.trim();
+    if (!email) { toast('Escribe primero tu correo electrónico.'); $('#auth-email').focus(); return; }
+    try {
+      const redirectTo = `${location.origin}${location.pathname}`;
+      const { error } = await client.auth.resetPasswordForEmail(email, {redirectTo});
+      if (error) throw error;
+      toast('Si la cuenta existe, recibirás un enlace de recuperación.', 'success');
+    } catch (error) { showError(error); }
+  });
+
+  $('#auth-note').textContent = hasConfig
+    ? 'Tus datos se guardan en tu propio proyecto de Supabase.'
+    : 'Antes de usar la plataforma, configura tu proyecto Supabase en assets/js/config.js. La guía está en README.md.';
+
+  async function startApp(user) {
+    currentUser = user;
+    showApp();
+    try {
+      const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
+      if (error) throw error;
+      profile = data;
+      renderIdentity();
+      loadInitialData();
+    } catch (error) {
+      showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
+    }
+  }
+
+  async function signOut() {
+    if (!client) return;
+    await client.auth.signOut();
+    currentUser = null; profile = null; currentContext = null;
+    showAuth();
+  }
+
+  if (client) {
+    client.auth.onAuthStateChange((event, session) => {
+      if (session?.user && !currentUser) startApp(session.user);
+      if (!session?.user) { currentUser = null; profile = null; showAuth(); }
+    });
+    client.auth.getSession().then(({data}) => data.session?.user ? startApp(data.session.user) : showAuth());
+  } else showAuth();
+
+  // ---------- Navigation and identity ----------
+  function switchView(view) {
+    currentView = view;
+    $$('.view').forEach(node => node.classList.toggle('active', node.id === `view-${view}`));
+    $$('[data-view]').forEach(node => node.classList.toggle('active', node.dataset.view === view));
+    const labels = {
+      chats:['Mensajes','Tus conversaciones, en un mismo lugar.','◫'],
+      friends:['Amigos','Tu círculo de Nexus.','♧'],
+      workshop:['Workshop','Presets creados por la comunidad.','✧'],
+      profile:['Tu perfil','Tu identidad en Nexus.','●'],
+      settings:['Configuración','Preferencias y administración.','⚙'],
+      community:[currentCommunity?.name || 'Megagrupo','Canales y comunidad.','▦']
+    };
+    const [title, subtitle, icon] = labels[view] || labels.chats;
+    $('#context-title').textContent = title;
+    $('#context-subtitle').textContent = subtitle;
+    $('#context-icon').textContent = icon;
+    $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
+    if (view === 'profile') fillProfileForm();
+    if (view === 'settings') fillSettingsForm();
+  }
+  $$('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
+  $('#rail-profile').addEventListener('click', () => switchView('profile'));
+  $('#open-profile').addEventListener('click', () => switchView('profile'));
+  $('#top-profile').addEventListener('click', () => switchView('profile'));
+  $('#open-settings').addEventListener('click', () => switchView('settings'));
+  $('#logout-button').addEventListener('click', signOut);
+  $('#global-search').addEventListener('click', () => addFriendFlow());
+
+  function renderIdentity() {
+    const username = profile?.nickname || profile?.username || currentUser?.email?.split('@')[0] || 'Usuario';
+    $('#sidebar-username').textContent = username;
+    $('#sidebar-handle').textContent = `@${profile?.username || 'usuario'}`;
+    $('#sidebar-avatar').style.backgroundImage = profile?.avatar_url ? `url('${profile.avatar_url}')` : '';
+    $('#sidebar-avatar').textContent = profile?.avatar_url ? '' : initials(username);
+    $('#rail-avatar').style.backgroundImage = profile?.avatar_url ? `url('${profile.avatar_url}')` : '';
+    $('#rail-avatar').textContent = profile?.avatar_url ? '' : initials(username);
+    if (/^#[0-9a-f]{6}$/i.test(profile?.settings?.accent || '')) document.documentElement.style.setProperty('--accent', profile.settings.accent);
+    if (/^https:\/\//i.test(profile?.settings?.background || '')) document.body.style.backgroundImage = `url('${profile.settings.background}')`;
+  }
+
+  async function loadInitialData() {
+    await Promise.allSettled([loadConversations(), loadFriends(), loadCommunities(), checkAdmin()]);
+    if (location.hash.includes('access_token') || location.hash.includes('type=recovery')) {
+      const password = prompt('Escribe tu nueva contraseña (mínimo 8 caracteres):');
+      if (password && password.length >= 8) {
+        const {error} = await client.auth.updateUser({password});
+        if (error) showError(error); else toast('Contraseña actualizada.', 'success');
+      }
+      history.replaceState(null, '', location.pathname);
+    }
+  }
+
+  // ---------- Prompt dialog ----------
+  function ask(title, description, label, placeholder = '', initial = '') {
+    return new Promise(resolve => {
+      const dialog = $('#prompt-dialog');
+      $('#prompt-title').textContent = title;
+      $('#prompt-description').textContent = description || '';
+      $('#prompt-field-label').querySelector('span').textContent = label;
+      $('#prompt-input').placeholder = placeholder;
+      $('#prompt-input').value = initial;
+      const onClose = () => {
+        dialog.removeEventListener('close', onClose);
+        resolve(dialog.returnValue === 'default' ? $('#prompt-input').value.trim() : null);
+      };
+      dialog.addEventListener('close', onClose);
+      dialog.showModal();
+      setTimeout(() => $('#prompt-input').focus(), 40);
+    });
+  }
+
+  // ---------- Conversations and realtime messages ----------
+  async function loadConversations() {
+    if (!currentUser) return;
+    const {data: memberships, error: memberError} = await client.from('conversation_members').select('conversation_id,personal_name').eq('user_id', currentUser.id);
+    if (memberError) throw memberError;
+    const ids = [...new Set((memberships || []).map(row => row.conversation_id))];
+    if (!ids.length) {
+      conversations = [];
+      $('#conversation-list').innerHTML = '<div class="empty-state compact">Todavía no tienes conversaciones.<br>Empieza añadiendo amigos.</div>';
+      $('#dm-count').textContent = '';
+      return;
+    }
+    const {data: rows, error} = await client.from('conversations').select('*').in('id', ids).order('updated_at', {ascending:false});
+    if (error) throw error;
+    const {data: participants} = await client.from('conversation_members').select('conversation_id,user_id,personal_name').in('conversation_id', ids);
+    const otherIds = [...new Set((participants || []).filter(m => m.user_id !== currentUser.id).map(m => m.user_id))];
+    const otherProfiles = await fetchProfiles(otherIds);
+    conversations = (rows || []).map(row => {
+      const members = (participants || []).filter(member => member.conversation_id === row.id);
+      const other = members.find(member => member.user_id !== currentUser.id);
+      const otherProfile = other ? otherProfiles[other.user_id] : null;
+      const mine = members.find(member => member.user_id === currentUser.id);
+      const title = mine?.personal_name || row.title || (row.kind === 'direct' ? (otherProfile?.nickname || otherProfile?.username || 'Mensaje directo') : 'Grupo sin nombre');
+      const avatar = row.icon_url || (row.kind === 'direct' ? otherProfile?.avatar_url : null);
+      return {...row, displayTitle:title, displayAvatar:avatar};
+    });
+    $('#dm-count').textContent = conversations.length || '';
+    $('#conversation-list').innerHTML = conversations.map(row => `
+      <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
+        <span class="avatar" ${avatarStyle(row.displayAvatar)}>${row.displayAvatar ? '' : escapeHtml(initials(row.displayTitle))}</span>
+        <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}</small></span>
+      </button>`).join('');
+    $$('[data-conversation]').forEach(button => button.addEventListener('click', () => {
+      const row = conversations.find(item => item.id === button.dataset.conversation);
+      if (row) openConversation(row);
+    }));
+  }
+
+  async function openConversation(row) {
+    currentContext = {type:'conversation', id:row.id, title:row.displayTitle, subtitle:row.kind === 'direct' ? 'Mensaje directo' : 'Chat grupal', icon:row.displayAvatar};
+    switchView('chats');
+    await showMessagePanel();
+    await loadMessages();
+    subscribeMessages();
+    $$('.conversation-item').forEach(button => button.classList.toggle('active', button.dataset.conversation === row.id));
+  }
+
+  async function showMessagePanel() {
+    const panel = $('#conversation-panel');
+    const c = currentContext;
+    panel.innerHTML = `
+      <div class="active-conversation">
+        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
+        <div class="composer-wrap"><div class="composer-tools"><button id="attach-file">＋ Archivo</button><button id="create-poll">▤ Encuesta</button><button id="insert-bold"><b>B</b></button><button id="insert-italic"><i>I</i></button><button id="insert-code">&lt;/&gt;</button><input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div><form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="Escribe un mensaje… (Markdown disponible)"></textarea><button class="composer-send" type="submit" aria-label="Enviar">➤</button></form><div class="composer-hint">Enter para enviar · Shift + Enter para nueva línea · Markdown y HTML saneado</div></div>
+      </div>`;
+    $('#message-form').addEventListener('submit', sendMessage);
+    $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#message-form').requestSubmit(); } });
+    $('#attach-file').addEventListener('click', () => $('#chat-file').click());
+    $('#chat-file').addEventListener('change', uploadAttachment);
+    $('#create-poll').addEventListener('click', createPoll);
+    $('#insert-bold').addEventListener('click', () => wrapSelection('**'));
+    $('#insert-italic').addEventListener('click', () => wrapSelection('*'));
+    $('#insert-code').addEventListener('click', () => wrapSelection('`'));
+    $('#conversation-info').addEventListener('click', () => toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.'));
+  }
+
+  function wrapSelection(mark) {
+    const input = $('#message-input');
+    const start = input.selectionStart, end = input.selectionEnd;
+    const selected = input.value.slice(start, end);
+    input.setRangeText(`${mark}${selected || 'texto'}${mark}`, start, end, 'select');
+    input.focus();
+  }
+
+  async function fetchProfiles(ids) {
+    const unique = [...new Set(ids)].filter(Boolean);
+    if (!unique.length) return {};
+    const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color').in('id', unique);
+    if (error) { console.warn(error); return {}; }
+    return Object.fromEntries((data || []).map(row => [row.id,row]));
+  }
+
+  async function loadMessages() {
+    if (!currentContext) return;
+    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
+    const {data, error} = await client.from('messages').select('*').eq(field, currentContext.id).order('created_at', {ascending:true}).limit(100);
+    if (error) { showError(error, 'No se pudieron cargar los mensajes.'); return; }
+    const container = $('#messages-container');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!data?.length) container.innerHTML = '<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>';
+    const profiles = await fetchProfiles((data || []).map(row => row.sender_id));
+    for (const message of (data || [])) await appendMessage(message, profiles[message.sender_id]);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function appendMessage(message, sender) {
+    const container = $('#messages-container');
+    if (!container || $(`[data-message-id="${message.id}"]`, container)) return;
+    const template = $('#message-template').content.cloneNode(true);
+    const article = $('.message', template);
+    article.dataset.messageId = message.id;
+    const avatar = $('.avatar-message', article);
+    if (sender?.avatar_url) avatar.style.backgroundImage = `url('${sender.avatar_url}')`;
+    else avatar.textContent = initials(sender?.nickname || sender?.username || 'U');
+    const author = $('.message-author', article);
+    author.textContent = sender?.nickname || sender?.username || 'Usuario';
+    if (sender?.default_name_color) author.style.color = sender.default_name_color;
+    $('time', article).textContent = dateLabel(message.created_at);
+    const body = $('.message-body', article);
+    const source = String(message.body || '');
+    try {
+      const rendered = window.marked ? marked.parse(source, {breaks:true, gfm:true}) : escapeHtml(source).replace(/\n/g,'<br>');
+      body.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rendered, {USE_PROFILES:{html:true}}) : escapeHtml(source);
+    } catch { body.textContent = source; }
+    if (message.message_type === 'poll') {
+      const {data: poll} = await client.from('polls').select('*').eq('message_id',message.id).maybeSingle();
+      if (poll) {
+        const {data: votes} = await client.from('poll_votes').select('option_index,user_id').eq('poll_id',poll.id);
+        const counts = (poll.options || []).map((_,index) => (votes || []).filter(vote => vote.option_index === index).length);
+        const mine = (votes || []).find(vote => vote.user_id === currentUser.id);
+        const card = document.createElement('div');
+        card.className = 'poll-card';
+        const heading = document.createElement('strong');
+        heading.textContent = poll.question;
+        card.append(heading);
+        (poll.options || []).forEach((option,index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = `poll-option ${mine?.option_index === index ? 'selected' : ''}`;
+          button.textContent = `${option} · ${counts[index] || 0}`;
+          button.disabled = Boolean(poll.ends_at && new Date(poll.ends_at) < new Date());
+          button.addEventListener('click', async () => {
+            const {error} = await client.from('poll_votes').upsert({poll_id:poll.id,user_id:currentUser.id,option_index:index},{onConflict:'poll_id,user_id'});
+            if (error) showError(error); else loadMessages();
+          });
+          card.append(button);
+        });
+        $('.message-attachment', article).append(card);
+      }
+    }
+    if (message.attachment?.path) {
+      const {data} = await client.storage.from('chat-media').createSignedUrl(message.attachment.path, 3600);
+      if (data?.signedUrl) {
+        const attachment = $('.message-attachment', article);
+        const type = message.attachment.mimetype || '';
+        const name = escapeHtml(message.attachment.name || 'archivo');
+        if (type.startsWith('image/')) attachment.innerHTML = `<a href="${data.signedUrl}" target="_blank" rel="noopener"><img src="${data.signedUrl}" alt="${name}" loading="lazy"></a>`;
+        else if (type.startsWith('video/')) attachment.innerHTML = `<video controls preload="metadata" src="${data.signedUrl}"></video><a href="${data.signedUrl}" download="${name}">Descargar vídeo</a>`;
+        else attachment.innerHTML = `<a href="${data.signedUrl}" download="${name}">Descargar ${name}</a>`;
+      }
+    }
+    container.append(template);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function subscribeMessages() {
+    if (activeMessageChannel) client.removeChannel(activeMessageChannel);
+    if (!currentContext) return;
+    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
+    activeMessageChannel = client.channel(`nexus-${currentContext.type}-${currentContext.id}`)
+      .on('postgres_changes', {event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async payload => {
+        const profiles = await fetchProfiles([payload.new.sender_id]);
+        await appendMessage(payload.new, profiles[payload.new.sender_id]);
+      })
+      .subscribe(status => {
+        const node = $('#connection-status');
+        node.classList.toggle('online', status === 'SUBSCRIBED');
+        node.innerHTML = `<i></i> ${status === 'SUBSCRIBED' ? 'En directo' : status === 'CHANNEL_ERROR' ? 'Sin conexión' : 'Conectando'}`;
+      });
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault();
+    if (!currentContext) return;
+    const input = $('#message-input');
+    const body = input.value.trim();
+    if (!body) return;
+    input.disabled = true;
+    const payload = {sender_id:currentUser.id, body};
+    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
+    const {error} = await client.from('messages').insert(payload);
+    input.disabled = false;
+    if (error) { showError(error, 'No se pudo enviar el mensaje.'); return; }
+    input.value = '';
+    input.focus();
+  }
+
+  async function uploadAttachment(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !currentContext) return;
+    if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
+    const ext = file.name.split('.').pop().replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
+    const folder = currentContext.type === 'conversation' ? `dm/${currentContext.id}` : `community/${currentContext.id}`;
+    const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+    toast('Subiendo archivo…');
+    const {error: uploadError} = await client.storage.from('chat-media').upload(path, file, {contentType:file.type || 'application/octet-stream',upsert:false});
+    if (uploadError) { showError(uploadError, 'No se pudo subir el archivo.'); return; }
+    const payload = {sender_id:currentUser.id,body:file.name,attachment:{path,name:file.name,mimetype:file.type}};
+    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
+    const {error} = await client.from('messages').insert(payload);
+    if (error) showError(error, 'El archivo se subió, pero no se pudo publicar el mensaje.');
+    else toast('Archivo enviado.', 'success');
+  }
+
+  async function createPoll() {
+    if (!currentContext) return;
+    const raw = await ask('Crear encuesta','Escribe la pregunta y dos o más opciones separadas por |.','Pregunta y opciones','¿Qué hacemos? | Opción A | Opción B');
+    if (!raw) return;
+    const parts = raw.split('|').map(value => value.trim()).filter(Boolean);
+    if (parts.length < 3) { toast('Incluye una pregunta y al menos dos opciones.','error'); return; }
+    const payload = {sender_id:currentUser.id,body:`📊 ${parts[0]}`,message_type:'poll'};
+    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
+    const {data: message, error} = await client.from('messages').insert(payload).select().single();
+    if (error) { showError(error); return; }
+    const {error: pollError} = await client.from('polls').insert({message_id:message.id,question:parts[0],options:parts.slice(1),ends_at:null});
+    if (pollError) showError(pollError); else { await loadMessages(); toast('Encuesta publicada.','success'); }
+  }
+
+  $('#new-chat').addEventListener('click', createNewChat);
+  $('#welcome-new-chat').addEventListener('click', createNewChat);
+  async function createNewChat() {
+    const selection = await ask('Nueva conversación','Escribe el nombre de usuario de un amigo. Para un grupo, separa varios usuarios con comas.','Usuarios','ejemplo o ana, mario');
+    if (!selection) return;
+    const usernames = selection.split(',').map(value => value.trim().replace(/^@/,'').toLowerCase()).filter(Boolean);
+    const {data: people, error} = await client.from('profiles').select('id,username').in('username', usernames);
+    if (error) { showError(error); return; }
+    const found = people || [];
+    const missing = usernames.filter(name => !found.some(p => p.username === name));
+    if (missing.length) { toast(`No se encontró: ${missing.join(', ')}`, 'error'); return; }
+    const isGroup = found.length > 1;
+    const groupTitle = isGroup ? await ask('Nombre del grupo','Dale un nombre a esta conversación.','Nombre','Mi grupo') : null;
+    const {data: conversationId, error: createError} = await client.rpc('create_conversation', {
+      p_kind:isGroup ? 'group' : 'direct', p_title:groupTitle || null, p_member_ids:found.map(person => person.id)
+    });
+    if (createError) { showError(createError, 'No se pudo crear la conversación. Comprueba que sois amigos.'); return; }
+    await loadConversations();
+    const conversation = conversations.find(row => row.id === conversationId);
+    if (conversation) openConversation(conversation);
+    toast('Conversación creada.', 'success');
+  }
+
+  // ---------- Friends ----------
+  async function loadFriends() {
+    if (!currentUser) return;
+    const {data, error} = await client.from('friends').select('*').or(`requester.eq.${currentUser.id},addressee.eq.${currentUser.id}`).order('created_at',{ascending:false});
+    if (error) throw error;
+    const rows = data || [];
+    const otherIds = rows.map(row => row.requester === currentUser.id ? row.addressee : row.requester);
+    const profiles = await fetchProfiles(otherIds);
+    friendsCache = rows.filter(row => row.status === 'accepted').map(row => ({...row,person:profiles[row.requester === currentUser.id ? row.addressee : row.requester]}));
+    const incoming = rows.filter(row => row.status === 'pending' && row.addressee === currentUser.id);
+    const outgoing = rows.filter(row => row.status === 'pending' && row.requester === currentUser.id);
+    $('#friend-count').textContent = friendsCache.length || '';
+    $('#friend-list').innerHTML = friendsCache.length ? friendsCache.map(row => personRow(row.person, `<button class="button button-secondary" data-dm="${row.person.id}">Mensaje</button>`)).join('') : '<div class="empty-state compact">Todavía no has añadido a nadie.</div>';
+    $('#friend-requests').innerHTML = incoming.length ? incoming.map(row => personRow(profiles[row.requester], `<button class="button button-primary" data-accept="${row.id}">Aceptar</button>`)).join('') : '<div class="empty-state compact">No hay solicitudes pendientes.</div>';
+    if (outgoing.length) $('#friend-requests').insertAdjacentHTML('beforeend', outgoing.map(row => personRow(profiles[row.addressee], '<span class="tag">Enviada</span>')).join(''));
+    $$('[data-dm]').forEach(button => button.addEventListener('click', () => startDirect(button.dataset.dm)));
+    $$('[data-accept]').forEach(button => button.addEventListener('click', () => acceptFriend(button.dataset.accept)));
+  }
+  function personRow(person, actions = '') {
+    if (!person) return '';
+    return `<div class="person-row">${avatarMarkup(person)}<div class="person-row-copy"><strong>${escapeHtml(person.nickname || person.username)}</strong><small>@${escapeHtml(person.username)}</small></div><div class="person-actions">${actions}</div></div>`;
+  }
+  $('#add-friend').addEventListener('click', addFriendFlow);
+  async function addFriendFlow() {
+    const username = await ask('Añadir amigo','Busca a alguien por su nombre de usuario.','Usuario','nombre_de_usuario');
+    if (!username) return;
+    const clean = username.replace(/^@/,'').toLowerCase();
+    const {data:person,error} = await client.from('profiles').select('id,username').eq('username',clean).maybeSingle();
+    if (error) { showError(error); return; }
+    if (!person) { toast('No se ha encontrado ese usuario.','error'); return; }
+    if (person.id === currentUser.id) { toast('No puedes enviarte una solicitud a ti mismo.'); return; }
+    const {error: insertError} = await client.from('friends').insert({requester:currentUser.id,addressee:person.id,status:'pending'});
+    if (insertError) { showError(insertError, 'Ya existe una solicitud o ya sois amigos.'); return; }
+    toast('Solicitud de amistad enviada.','success');
+    loadFriends();
+  }
+  async function acceptFriend(id) {
+    const {error} = await client.from('friends').update({status:'accepted'}).eq('id',id).eq('addressee',currentUser.id);
+    if (error) showError(error); else { toast('Ahora sois amigos.','success'); loadFriends(); }
+  }
+  async function startDirect(userId) {
+    const {data:id,error} = await client.rpc('create_conversation',{p_kind:'direct',p_title:null,p_member_ids:[userId]});
+    if (error) { showError(error,'No se pudo iniciar el MD. Añadid primero vuestra amistad.'); return; }
+    await loadConversations();
+    const row = conversations.find(item => item.id === id);
+    if (row) openConversation(row); else toast('Conversación iniciada. Recarga la bandeja si no aparece.','success');
+  }
+
+  // ---------- Megagroups / channels / alliances ----------
+  async function loadCommunities() {
+    const {data: memberships,error} = await client.from('community_members').select('community_id').eq('user_id',currentUser.id);
+    if (error) throw error;
+    const ids = [...new Set((memberships || []).map(row => row.community_id))];
+    let rows = [];
+    if (ids.length) {
+      const response = await client.from('communities').select('*').in('id',ids).order('created_at',{ascending:true});
+      if (response.error) throw response.error;
+      rows = response.data || [];
+    }
+    const rail = $('#community-rail');
+    rail.innerHTML = rows.map(row => `<button title="${escapeHtml(row.name)}" data-community="${row.id}" class="${currentCommunity?.id === row.id ? 'active' : ''}" ${avatarStyle(row.icon_url)}>${row.icon_url ? '' : escapeHtml(initials(row.name))}</button>`).join('');
+    $$('[data-community]').forEach(button => button.addEventListener('click', () => selectCommunity(rows.find(row => row.id === button.dataset.community))));
+  }
+  $('#create-community-shortcut').addEventListener('click', createCommunity);
+  async function createCommunity() {
+    const name = await ask('Crear megagrupo','Crea un espacio público para tu comunidad.','Nombre','Mi comunidad');
+    if (!name) return;
+    const {data:id,error} = await client.rpc('create_community',{p_name:name,p_description:'Una nueva comunidad en Nexus.'});
+    if (error) { showError(error); return; }
+    await loadCommunities();
+    const {data:community} = await client.from('communities').select('*').eq('id',id).single();
+    selectCommunity(community);
+    toast('Megagrupo creado con un canal #general.','success');
+  }
+  async function selectCommunity(community) {
+    if (!community) return;
+    currentCommunity = community;
+    await loadCommunities();
+    $('#community-name').textContent = community.name;
+    $('#community-description').textContent = community.description || 'Sin descripción.';
+    $('#community-id-short').textContent = community.id.slice(0,8);
+    $('#community-hero').style.backgroundImage = community.banner_url ? `linear-gradient(90deg,#10131caa,#10131c66),url('${community.banner_url}')` : '';
+    switchView('community');
+    await loadChannels();
+    await loadAllies();
+    const {count} = await client.from('community_members').select('*',{count:'exact',head:true}).eq('community_id',community.id);
+    $('#community-members-count').textContent = count ?? '—';
+  }
+  async function loadChannels() {
+    if (!currentCommunity) return;
+    const {data,error} = await client.from('channels').select('*').eq('community_id',currentCommunity.id).order('position',{ascending:true});
+    if (error) { showError(error); return; }
+    currentCommunityChannels = data || [];
+    $('#community-channels-count').textContent = currentCommunityChannels.length;
+    $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}"><span class="channel-hash">${channel.type === 'voice' ? '◖' : channel.type === 'media' ? '▧' : channel.type === 'announcements' ? '⚑' : '#'}</span>${escapeHtml(channel.name)}</button>`).join('');
+    $$('[data-channel]').forEach(button => button.addEventListener('click', () => {
+      const channel = currentCommunityChannels.find(row => row.id === button.dataset.channel);
+      if (channel) openCommunityChannel(channel);
+    }));
+  }
+  async function openCommunityChannel(channel) {
+    if (channel.type === 'voice') { toast('Canal de voz creado. La conexión de audio requiere integrar un proveedor WebRTC en la siguiente fase.'); return; }
+    currentContext = {type:'channel',id:channel.id,title:`# ${channel.name}`,subtitle:`${currentCommunity.name} · ${channel.type}`};
+    switchView('chats');
+    await showMessagePanel();
+    if (channel.type === 'media') $('#message-input').placeholder = 'Comparte una imagen o un vídeo…';
+    await loadMessages();
+    subscribeMessages();
+    $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
+  }
+  $('#add-channel').addEventListener('click', async () => {
+    if (!currentCommunity) return;
+    const name = await ask('Crear canal','Nombre breve, sin #.','Nombre','general');
+    if (!name) return;
+    const type = await ask('Tipo de canal','Escribe text, announcements, voice o media.','Tipo','text');
+    if (!['text','announcements','voice','media'].includes((type || '').toLowerCase())) { toast('Tipo no válido.','error'); return; }
+    const {error} = await client.from('channels').insert({community_id:currentCommunity.id,name:name.toLowerCase().replace(/\s+/g,'-'),type:type.toLowerCase()});
+    if (error) showError(error,'No tienes permisos para crear canales.'); else { loadChannels(); toast('Canal creado.','success'); }
+  });
+  $('#community-settings').addEventListener('click', () => {
+    if (!currentCommunity) return;
+    $('#community-edit-name').value = currentCommunity.name;
+    $('#community-edit-description').value = currentCommunity.description || '';
+    $('#community-edit-color').value = currentCommunity.name_color || '#a99bff';
+    $('#community-settings-dialog').showModal();
+  });
+  $('#community-settings-form').addEventListener('submit', async event => {
+    if (event.submitter?.value === 'cancel') return;
+    event.preventDefault();
+    const {error} = await client.from('communities').update({name:$('#community-edit-name').value.trim(),description:$('#community-edit-description').value.trim(),name_color:$('#community-edit-color').value}).eq('id',currentCommunity.id);
+    if (error) showError(error,'Solo el propietario puede editar estos ajustes.');
+    else {
+      Object.assign(currentCommunity,{name:$('#community-edit-name').value.trim(),description:$('#community-edit-description').value.trim(),name_color:$('#community-edit-color').value});
+      $('#community-settings-dialog').close(); selectCommunity(currentCommunity); toast('Megagrupo actualizado.','success');
+    }
+  });
+  $('#add-alliance').addEventListener('click', async () => {
+    if (!currentCommunity) return;
+    const target = await ask('Solicitar alianza','Pega el ID del megagrupo con el que quieres aliarte.','ID del megagrupo','xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+    if (!target) return;
+    if (target === currentCommunity.id) { toast('No puedes aliar un megagrupo consigo mismo.'); return; }
+    const {error} = await client.from('alliance_requests').insert({source_community_id:currentCommunity.id,target_community_id:target,status:'pending'});
+    if (error) showError(error,'No se pudo enviar la solicitud. Comprueba el ID y tus permisos.'); else toast('Solicitud de alianza enviada.','success');
+  });
+  async function loadAllies() {
+    if (!currentCommunity) return;
+    const {data:accepted,error} = await client.from('alliance_requests').select('*').eq('status','accepted').or(`source_community_id.eq.${currentCommunity.id},target_community_id.eq.${currentCommunity.id}`);
+    if (error) { console.warn(error); return; }
+    const {data:pending,error:pendingError} = await client.from('alliance_requests').select('*').eq('target_community_id',currentCommunity.id).eq('status','pending');
+    if (pendingError) console.warn(pendingError);
+    const ids = [
+      ...(accepted || []).map(row => row.source_community_id === currentCommunity.id ? row.target_community_id : row.source_community_id),
+      ...(pending || []).map(row => row.source_community_id)
+    ];
+    const {data:partners} = ids.length ? await client.from('communities').select('id,name').in('id',[...new Set(ids)]) : {data:[]};
+    const partnerMap = Object.fromEntries((partners || []).map(row => [row.id,row]));
+    const acceptedMarkup = (accepted || []).map(row => {
+      const id = row.source_community_id === currentCommunity.id ? row.target_community_id : row.source_community_id;
+      const partner = partnerMap[id];
+      return partner ? `<button class="channel-item" data-ally="${id}"><span class="channel-hash">◇</span>${escapeHtml(partner.name)}</button>` : '';
+    }).join('');
+    const canAccept = currentCommunity.owner_id === currentUser.id;
+    const pendingMarkup = (pending || []).map(row => `<div class="alliance-request"><span>${escapeHtml(partnerMap[row.source_community_id]?.name || 'Otro megagrupo')}</span>${canAccept ? `<button class="button button-primary" data-accept-alliance="${row.id}">Aceptar</button>` : '<span class="tag">Pendiente</span>'}</div>`).join('');
+    $('#allied-list').innerHTML = `${pendingMarkup}${acceptedMarkup}` || '<p class="muted" style="font-size:10px;padding:0 10px">Sin alianzas todavía.</p>';
+    $$('[data-ally]').forEach(button => button.addEventListener('click', async () => {
+      const {data:community} = await client.from('communities').select('*').eq('id',button.dataset.ally).single();
+      if (!community) return;
+      // The alliance grants discovery; each account still joins the public community explicitly.
+      const {error:joinError} = await client.from('community_members').insert({community_id:community.id,user_id:currentUser.id});
+      if (joinError && !String(joinError.message).includes('duplicate')) { showError(joinError,'No se pudo entrar al megagrupo aliado.'); return; }
+      selectCommunity(community);
+    }));
+    $$('[data-accept-alliance]').forEach(button => button.addEventListener('click', async () => {
+      const {error:acceptError} = await client.from('alliance_requests').update({status:'accepted'}).eq('id',button.dataset.acceptAlliance).eq('target_community_id',currentCommunity.id);
+      if (acceptError) showError(acceptError,'No se pudo aceptar la alianza.'); else {toast('Alianza aceptada.','success');loadAllies();}
+    }));
+  }
+
+  // ---------- Profile and client settings ----------
+  function fillProfileForm() {
+    if (!profile) return;
+    $('#profile-nickname').value = profile.nickname || '';
+    $('#profile-pronouns').value = profile.pronouns || '';
+    $('#profile-bio').value = profile.bio || '';
+    $('#profile-color').value = profile.default_name_color || '#a99bff';
+  }
+  $('#profile-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const patch = {nickname:$('#profile-nickname').value.trim(),pronouns:$('#profile-pronouns').value.trim(),bio:$('#profile-bio').value.trim(),default_name_color:$('#profile-color').value};
+    const {error} = await client.from('profiles').update(patch).eq('id',currentUser.id);
+    if (error) { showError(error); return; }
+    Object.assign(profile,patch); renderIdentity(); toast('Perfil actualizado.','success');
+  });
+  async function uploadProfileImage(file, kind) {
+    if (!file) return;
+    if (file.size > 8*1024*1024 || !file.type.startsWith('image/')) { toast('Usa una imagen de máximo 8 MB.','error'); return; }
+    const ext = file.name.split('.').pop().replace(/[^a-z0-9]/gi,'').slice(0,8) || 'png';
+    const path = `${currentUser.id}/${kind}-${Date.now()}.${ext}`;
+    const {error:uploadError} = await client.storage.from('profile-media').upload(path,file,{contentType:file.type,upsert:false});
+    if (uploadError) { showError(uploadError); return; }
+    const {data} = client.storage.from('profile-media').getPublicUrl(path);
+    const field = kind === 'avatar' ? 'avatar_url' : 'banner_url';
+    const {error} = await client.from('profiles').update({[field]:data.publicUrl}).eq('id',currentUser.id);
+    if (error) showError(error); else { profile[field] = data.publicUrl; renderIdentity(); toast('Imagen actualizada.','success'); }
+  }
+  $('#profile-avatar-file').addEventListener('change',event => uploadProfileImage(event.target.files?.[0],'avatar'));
+  $('#profile-banner-file').addEventListener('change',event => uploadProfileImage(event.target.files?.[0],'banner'));
+  function fillSettingsForm() {
+    const settings = profile?.settings || {};
+    $('#setting-accent').value = settings.accent || '#8d7cff';
+    $('#setting-density').value = settings.density || 'comfortable';
+    $('#setting-background').value = settings.background || '';
+  }
+  $('#settings-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const settings = {accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim()};
+    const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
+    if (error) showError(error); else { profile.settings = settings; renderIdentity(); toast('Apariencia guardada.','success'); }
+  });
+  $('#change-password').addEventListener('click', async () => {
+    const {error} = await client.auth.resetPasswordForEmail(currentUser.email,{redirectTo:`${location.origin}${location.pathname}`});
+    if (error) showError(error); else toast('Enlace de recuperación enviado a tu correo.','success');
+  });
+
+  // ---------- Workshop ----------
+  $('#publish-preset').addEventListener('click', publishPreset);
+  async function loadPresets() {
+    const {data,error} = await client.from('presets').select('id,name,description,preset_type,config,owner_id,created_at').eq('is_public',true).order('created_at',{ascending:false}).limit(60);
+    if (error) { console.warn(error); return; }
+    const ownerMap = await fetchProfiles((data || []).map(row => row.owner_id));
+    $('#preset-grid').innerHTML = data?.length ? data.map(row => `<article class="preset-card"><div class="preset-swatch" style="background:linear-gradient(125deg,${escapeHtml(row.config?.accent || '#8d7cff')},#252d42)"></div><h3>${escapeHtml(row.name)}</h3><p>${escapeHtml(row.description || 'Sin descripción.')}</p><small class="muted">${escapeHtml(row.preset_type)} · @${escapeHtml(ownerMap[row.owner_id]?.username || 'usuario')}</small><br><button class="button button-secondary" data-apply-preset="${row.id}">Aplicar preset</button></article>`).join('') : '<div class="empty-state">Todavía no hay presets publicados. Puedes ser la primera persona en compartir uno.</div>';
+    $$('[data-apply-preset]').forEach(button => button.addEventListener('click', async () => {
+      const row = data.find(item => item.id === button.dataset.applyPreset);
+      const settings = {...(profile.settings || {}),...row.config};
+      const {error:saveError} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
+      if (saveError) showError(saveError); else {profile.settings=settings;renderIdentity();toast('Preset aplicado.','success');}
+    }));
+  }
+  async function publishPreset() {
+    const name = await ask('Publicar preset','Se compartirá tu color de acento y tus preferencias básicas, no contraseñas ni datos privados.','Nombre','Mi tema');
+    if (!name) return;
+    const description = await ask('Descripción','Explica brevemente qué aspecto tiene.','Descripción','Un tema oscuro violeta.');
+    const config = {accent:profile.settings?.accent || '#8d7cff',density:profile.settings?.density || 'comfortable'};
+    const {error} = await client.from('presets').insert({owner_id:currentUser.id,name,description:description || '',preset_type:'client',config,is_public:true});
+    if (error) showError(error); else {toast('Preset publicado.','success');loadPresets();}
+  }
+
+  // ---------- Administration ----------
+  async function checkAdmin() {
+    const {data,error} = await client.rpc('is_admin');
+    if (error) { console.warn('Admin RPC:',error.message); return; }
+    isAdmin = Boolean(data);
+    $('#admin-area').classList.toggle('hidden',!isAdmin);
+  }
+  $('#admin-search-button').addEventListener('click', searchAdminUsers);
+  $('#admin-search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchAdminUsers();}});
+  async function searchAdminUsers() {
+    if (!isAdmin) return;
+    const term = $('#admin-search').value.trim().replace(/^@/,'');
+    if (!term) return;
+    const {data,error} = await client.from('profiles').select('id,username,nickname,avatar_url').ilike('username',`%${term}%`).limit(20);
+    if (error) { showError(error); return; }
+    $('#admin-results').innerHTML = data?.length ? data.map(person => personRow(person, `<button class="button button-danger" data-ban="${person.id}">Banear</button><button class="button button-secondary" data-reset="${person.id}">Reset</button><button class="button button-secondary" data-unban="${person.id}">Desbanear</button>`)).join('') : '<div class="empty-state compact">No se han encontrado usuarios.</div>';
+    $$('[data-ban]').forEach(button => button.addEventListener('click',()=>adminBan(button.dataset.ban)));
+    $$('[data-unban]').forEach(button => button.addEventListener('click',()=>adminUnban(button.dataset.unban)));
+    $$('[data-reset]').forEach(button => button.addEventListener('click',()=>adminReset(button.dataset.reset)));
+  }
+  async function adminBan(target) {
+    const raw = await ask('Banear cuenta','Introduce horas. Deja vacío para un ban permanente.','Duración en horas','24');
+    if (raw === null) return;
+    const hours = raw === '' ? null : Number(raw);
+    if (hours !== null && (!Number.isInteger(hours) || hours < 1 || hours > 87600)) { toast('Introduce horas válidas (1 a 87600), o deja el campo vacío.','error'); return; }
+    const reason = await ask('Motivo del ban','Este motivo quedará registrado para el equipo de moderación.','Motivo','Incumplimiento de las normas.');
+    const {error} = await client.rpc('admin_ban_user',{p_target:target,p_reason:reason || '',p_hours:hours});
+    if (error) showError(error,'No se pudo aplicar el ban.'); else toast('Cuenta baneada.','success');
+  }
+  async function adminUnban(target) {
+    const {error} = await client.rpc('admin_unban_user',{p_target:target});
+    if (error) showError(error); else toast('Ban retirado.','success');
+  }
+  async function adminReset(target) {
+    const {data,error} = await client.functions.invoke('admin-send-reset',{body:{targetUserId:target}});
+    if (error) { showError(error,'No se pudo enviar la recuperación. Configura la función y el proveedor de correo según README.md.'); return; }
+    toast(data?.message || 'Correo de recuperación enviado.','success');
+  }
+
+  // ---------- Community navigation / initial page data ----------
+  async function loadInitialDataSafe() {
+    try { await loadPresets(); } catch (error) { console.warn(error); }
+  }
+
+  // Additional actions and welcome shortcuts.
+  $('#create-community-shortcut').title = 'Crear un megagrupo';
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && currentUser && currentContext) loadMessages(); });
+
+  // Replace the initial data loader after all module functions are defined.
+  const originalLoadInitialData = loadInitialData;
+  loadInitialData = async function() {
+    await originalLoadInitialData();
+    await loadInitialDataSafe();
+  };
+
+  // Helpful inline formatting shortcuts.
+  $('#message-template').setAttribute('aria-hidden','true');
+})();

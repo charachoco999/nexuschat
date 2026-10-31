@@ -1,0 +1,2 @@
+[functions.admin-send-reset]
+verify_jwt = true
