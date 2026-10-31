@@ -544,7 +544,29 @@ create policy badges_create_owner on public.badges for insert to authenticated w
 drop policy if exists member_badges_read_signed_in on public.member_badges;
 create policy member_badges_read_signed_in on public.member_badges for select to authenticated using (true);
 drop policy if exists member_badges_assign_admin on public.member_badges;
-create policy member_badges_assign_admin on public.member_badges for all to authenticated using (exists(select 1 from public.badges b where b.id=badge_id and (b.owner_id::text=auth.uid()::text or (b.community_id is not null and public.has_community_permission(b.community_id,'manage_badges'))))) with check (exists(select 1 from public.badges b where b.id=badge_id and (b.owner_id::text=auth.uid()::text or (b.community_id is not null and public.has_community_permission(b.community_id,'manage_badges')))));
+create policy member_badges_assign_admin on public.member_badges for all to authenticated
+using (
+  exists (
+    select 1 from public.badges b
+    where b.id=member_badges.badge_id and (
+      (b.community_id is null and member_badges.community_id is null and b.owner_id=auth.uid() and member_badges.user_id=auth.uid())
+      or (b.community_id is not null and b.community_id=member_badges.community_id
+          and public.has_community_permission(b.community_id,'manage_badges')
+          and exists(select 1 from public.community_members cm where cm.community_id=b.community_id and cm.user_id=member_badges.user_id))
+    )
+  )
+)
+with check (
+  exists (
+    select 1 from public.badges b
+    where b.id=member_badges.badge_id and (
+      (b.community_id is null and member_badges.community_id is null and b.owner_id=auth.uid() and member_badges.user_id=auth.uid())
+      or (b.community_id is not null and b.community_id=member_badges.community_id
+          and public.has_community_permission(b.community_id,'manage_badges')
+          and exists(select 1 from public.community_members cm where cm.community_id=b.community_id and cm.user_id=member_badges.user_id))
+    )
+  )
+);
 
 -- Alliances are visible only to people in either community. Target owner accepts/declines.
 drop policy if exists alliances_read_members on public.alliance_requests;
@@ -619,6 +641,79 @@ values
  ('chat-media','chat-media',false,52428800,array['image/png','image/jpeg','image/webp','image/gif','video/mp4','video/webm','application/pdf','text/plain','application/zip'])
 on conflict(id) do update set public=excluded.public,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
 
+-- Storage policies call narrow SECURITY DEFINER helpers rather than querying
+-- RLS-protected application tables inline from storage.objects policies.
+create or replace function public.can_upload_chat_media(p_object_name text)
+returns boolean
+language plpgsql stable security definer
+set search_path = public, auth, storage, pg_temp
+as $$
+declare
+  folders text[];
+  target_id uuid;
+  target_community uuid;
+begin
+  if auth.uid() is null or public.is_user_banned() then return false; end if;
+  folders := storage.foldername(coalesce(p_object_name,''));
+  if coalesce(array_length(folders,1),0) <> 2 then return false; end if;
+  begin
+    target_id := folders[2]::uuid;
+  exception when invalid_text_representation then
+    return false;
+  end;
+  if folders[1] = 'dm' then
+    return exists (
+      select 1 from public.conversation_members cm
+      where cm.conversation_id=target_id and cm.user_id=auth.uid()
+    );
+  elsif folders[1] = 'community' then
+    select ch.community_id into target_community
+    from public.channels ch where ch.id=target_id;
+    return target_community is not null
+      and public.is_community_member(target_community)
+      and public.has_community_permission(target_community,'send_messages');
+  end if;
+  return false;
+end;
+$$;
+
+create or replace function public.can_read_chat_media(p_object_name text)
+returns boolean
+language plpgsql stable security definer
+set search_path = public, auth, storage, pg_temp
+as $$
+declare
+  folders text[];
+  target_id uuid;
+  target_community uuid;
+begin
+  if auth.uid() is null then return false; end if;
+  folders := storage.foldername(coalesce(p_object_name,''));
+  if coalesce(array_length(folders,1),0) <> 2 then return false; end if;
+  begin
+    target_id := folders[2]::uuid;
+  exception when invalid_text_representation then
+    return false;
+  end;
+  if folders[1] = 'dm' then
+    return exists (
+      select 1 from public.conversation_members cm
+      where cm.conversation_id=target_id and cm.user_id=auth.uid()
+    );
+  elsif folders[1] = 'community' then
+    select ch.community_id into target_community
+    from public.channels ch where ch.id=target_id;
+    return target_community is not null and public.is_community_member(target_community);
+  end if;
+  return false;
+end;
+$$;
+
+revoke all on function public.can_upload_chat_media(text) from public, anon;
+revoke all on function public.can_read_chat_media(text) from public, anon;
+grant execute on function public.can_upload_chat_media(text) to authenticated;
+grant execute on function public.can_read_chat_media(text) to authenticated;
+
 -- Profile images: anyone can view; users may write only inside their own folder.
 drop policy if exists profile_media_public_read on storage.objects;
 create policy profile_media_public_read on storage.objects for select to public using (bucket_id='profile-media');
@@ -629,24 +724,16 @@ create policy profile_media_update_own on storage.objects for update to authenti
 drop policy if exists profile_media_delete_own on storage.objects;
 create policy profile_media_delete_own on storage.objects for delete to authenticated using (bucket_id='profile-media' and (storage.foldername(name))[1]=auth.uid()::text);
 
--- Private chat uploads: first folder is dm/<conversation UUID> or community/<channel UUID>.
+-- Chat uploads must use dm/<conversation-uuid>/<file> or community/<channel-uuid>/<file>.
 drop policy if exists chat_media_read_member on storage.objects;
-create policy chat_media_read_member on storage.objects for select to authenticated using (
- bucket_id='chat-media' and (
-  ((storage.foldername(name))[1]='dm' and exists(select 1 from public.conversation_members cm where cm.conversation_id=((storage.foldername(name))[2])::uuid and cm.user_id=auth.uid()))
-  or ((storage.foldername(name))[1]='community' and exists(select 1 from public.channels ch where ch.id=((storage.foldername(name))[2])::uuid and public.is_community_member(ch.community_id)))
- )
-);
+create policy chat_media_read_member on storage.objects for select to authenticated
+using (bucket_id='chat-media' and public.can_read_chat_media(name));
 drop policy if exists chat_media_insert_member on storage.objects;
-create policy chat_media_insert_member on storage.objects for insert to authenticated with check (
- bucket_id='chat-media' and not public.is_user_banned() and (
-  ((storage.foldername(name))[1]='dm' and exists(select 1 from public.conversation_members cm where cm.conversation_id=((storage.foldername(name))[2])::uuid and cm.user_id=auth.uid()))
-  or ((storage.foldername(name))[1]='community' and exists(select 1 from public.channels ch where ch.id=((storage.foldername(name))[2])::uuid and public.is_community_member(ch.community_id) and public.has_community_permission(ch.community_id,'send_messages')))
- )
-);
+create policy chat_media_insert_member on storage.objects for insert to authenticated
+with check (bucket_id='chat-media' and public.can_upload_chat_media(name));
 drop policy if exists chat_media_delete_own on storage.objects;
-create policy chat_media_delete_own on storage.objects for delete to authenticated using (bucket_id='chat-media' and owner_id::text=auth.uid()::text);
-
+create policy chat_media_delete_own on storage.objects for delete to authenticated
+using (bucket_id='chat-media' and owner_id::text=auth.uid()::text);
 -- Realtime for messages.
 do $$
 begin

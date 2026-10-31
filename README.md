@@ -1,8 +1,8 @@
 # Nexus — chat y comunidades
 
-Nexus es una base inicial para una plataforma de mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
+Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** versión inicial funcional para cuentas, amistades, MDs, grupos, comunidades, canales básicos, mensajes, archivos, perfiles básicos y presets sencillos. No es todavía una alternativa completa a Discord. El esquema incluye puntos de extensión para roles, permisos, medallas, alianzas, stickers, emojis y cuentas alternativas; varios de esos editores y flujos todavía necesitan su interfaz.
+> **Estado:** v0.2 amplía la versión inicial con gestión de roles y permisos, asignación de roles a miembros, creación y asignación de medallas con visualización junto al nombre en los mensajes, y una corrección de las políticas de subida/lectura de archivos. No es todavía una alternativa completa a Discord. El esquema incluye puntos de extensión para roles, permisos, medallas, alianzas, stickers, emojis y cuentas alternativas; varios de esos editores y flujos todavía necesitan su interfaz.
 
 ## 1. Qué incluye esta versión
 
@@ -21,12 +21,13 @@ Nexus es una base inicial para una plataforma de mensajes y megagrupos. La inter
 - Encuestas básicas con opciones y votación.
 - Workshop básico para publicar y aplicar presets de color y densidad.
 - Funciones de moderación en base de datos para banear y desbanear usuarios.
+- Gestión visual de roles de megagrupo: nombre, color, permisos y asignación múltiple a miembros.
+- Gestión de medallas de megagrupo: crear medallas con emoji o URL HTTPS, asignarlas y retirarlas.
+- Los roles y medallas asignados se muestran junto al nombre en los mensajes de los canales del megagrupo.
 - Función Edge opcional para que un administrador envíe un correo de recuperación a otra cuenta.
 
 ### Preparado en la base de datos, pendiente de interfaz completa
 
-- Roles de megagrupo y permisos configurables (`community_roles`, `member_roles`).
-- Medallas y asignación de medallas (`badges`, `member_badges`).
 - Solicitudes y relaciones de alianza (`alliance_requests`).
 - Stickers y emojis personalizados, personales, de conversación o de comunidad (`custom_assets`).
 - Perfiles alternativos (`alt_profiles`).
@@ -41,7 +42,7 @@ Nexus es una base inicial para una plataforma de mensajes y megagrupos. La inter
 - **Vídeo avanzado:** controles propios para velocidad, reversa, recorte y otros efectos.
 - **Workshop completo:** revisión, permisos, versiones, importación y exportación segura de presets.
 - **Quick-Alt completo:** cambiar la identidad que se muestra en cada mensaje y aplicar su medalla requiere conectar `alt_profiles` al sistema de mensajes.
-- **Moderación y permisos visuales:** paneles completos para administrar roles, canales, medallas, alianzas y sanciones.
+- **Moderación avanzada:** paneles adicionales para administrar alianzas, canales y flujos completos de sanciones; los paneles de roles y medallas sí están incluidos en v0.2.
 
 Los mensajes tienen un máximo inicial de 12.000 caracteres y los archivos un límite inicial de 50 MB. Los límites reales de almacenamiento y tráfico dependen del plan y la configuración del proveedor; ningún servicio puede ofrecer almacenamiento literalmente infinito.
 
@@ -51,13 +52,14 @@ Los mensajes tienen un máximo inicial de 12.000 caracteres y los archivos un l�
 
 1. Crea un proyecto en [Supabase](https://supabase.com/).
 2. Abre **SQL Editor** en el panel del proyecto.
-3. Copia y ejecuta todo el contenido de `supabase/schema.sql`.
-4. En **Authentication → Providers**, comprueba que Email está habilitado.
-5. En **Authentication → URL Configuration**, establece:
+3. Copia y ejecuta todo el contenido de `supabase/schema.sql`. En instalaciones nuevas, esto incluye todas las correcciones de v0.2.
+4. Si ya tenías Nexus v0.1 instalado, ejecuta también `supabase/fix-chat-media-rls.sql` y `supabase/migrations/20261031_harden_community_badges.sql` en SQL Editor. Estos parches actualizan las políticas sin borrar los datos.
+5. En **Authentication → Providers**, comprueba que Email está habilitado.
+6. En **Authentication → URL Configuration**, establece:
    - **Site URL:** la URL de GitHub Pages que usarás.
    - **Redirect URLs:** añade esa URL exacta y, si vas a probar localmente, `http://localhost:5500/`.
-6. En **Project Settings → API**, copia la URL del proyecto y la clave pública (publishable/anon).
-7. Abre `assets/js/config.js` y sustituye los dos valores de ejemplo:
+7. En **Project Settings → API**, copia la URL del proyecto y la clave pública (publishable/anon).
+8. Abre `assets/js/config.js` y sustituye los dos valores de ejemplo:
 
 ```js
 window.NEXUS_CONFIG = {
@@ -82,6 +84,10 @@ values ('UUID-DE-TU-CUENTA', 'admin');
 
 No existe un botón para hacerse administrador desde la web. La concesión inicial debe hacerse desde el panel del propietario del proyecto.
 
+## 2.1. Actualizar desde v0.1
+
+Para una instalación que ya está publicada, sigue `UPGRADE-v0.2.md`. Ejecuta `supabase/fix-chat-media-rls.sql` en Supabase SQL Editor para corregir la subida de archivos y conserva tu `assets/js/config.js` al sustituir los archivos del frontend. La actualización también incorpora los paneles de roles y medallas; ejecuta `supabase/migrations/20261031_harden_community_badges.sql` para aplicar la política reforzada de asignación de medallas.
+
 ---
 
 ## 3. Publicar en GitHub Pages
@@ -98,7 +104,7 @@ También puedes probarlo localmente con un servidor estático (por ejemplo, Live
 
 ---
 
-## 4. Activar recuperación de contraseña por parte de administradores
+## 5. Activar recuperación de contraseña por parte de administradores
 
 La recuperación propia funciona con Supabase Auth. La acción desde el panel de administración utiliza una Edge Function y un proveedor de correo externo.
 
@@ -133,7 +139,7 @@ El enlace enviado permite al usuario elegir una contraseña nueva. Los administr
 
 ---
 
-## 5. Estructura del proyecto
+## 6. Estructura del proyecto
 
 ```text
 nexus-chat/
@@ -153,7 +159,7 @@ nexus-chat/
             └── index.ts
 ```
 
-## 6. Seguridad y mantenimiento
+## 7. Seguridad y mantenimiento
 
 - Mantén RLS activado. No elimines políticas para “hacer que funcione” una consulta.
 - Nunca subas claves privadas de Supabase ni del proveedor de correo a GitHub.
@@ -163,6 +169,6 @@ nexus-chat/
 - Configura límites de Auth, protección contra spam, confirmación de correo y copias de seguridad antes de usarlo con mucha gente.
 - Las bibliotecas de frontend se cargan desde CDN. Para una instalación de producción conviene fijar versiones, revisar actualizaciones y, si crece el proyecto, usar un proceso de compilación.
 
-## 7. Próxima evolución recomendada
+## 8. Próxima evolución recomendada
 
-La evolución más sensata es completar el sistema de roles y permisos con su panel, después los canales de anuncios y multimedia y la personalización de perfiles. Luego añadiría alianzas, medallas, Quick-Alt y finalmente voz y GIFs, que dependen de servicios externos. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.
+La siguiente evolución puede centrarse en edición de canales, ajustes avanzados de megagrupo, personalización detallada de perfil/cliente y alianza con flujo completo. Después conviene completar Quick-Alt, stickers/emojis y GIFs, y finalmente añadir voz con WebRTC/TURN. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.

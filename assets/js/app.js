@@ -18,6 +18,11 @@
   let currentCommunityChannels = [];
   let friendsCache = [];
   let isAdmin = false;
+  let communityRoles = [];
+  let communityMembers = [];
+  let communityMemberRoles = [];
+  let communityPermissions = {manage_roles:false,manage_badges:false,manage_messages:false,manage_channels:false};
+  const messageIdentityCache = new Map();
 
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const initials = (value = '?') => String(value).trim().slice(0, 1).toUpperCase() || '?';
@@ -302,6 +307,35 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  async function getMessageIdentity(senderId) {
+    const communityId = currentContext?.type === 'channel' ? currentCommunity?.id : null;
+    const key = `${communityId || 'personal'}:${senderId}`;
+    if (messageIdentityCache.has(key)) return messageIdentityCache.get(key);
+    const result = {roles:[],badges:[]};
+    try {
+      if (communityId) {
+        const {data:assignments} = await client.from('member_roles').select('role_id').eq('community_id',communityId).eq('user_id',senderId);
+        const roleIds = (assignments || []).map(row => row.role_id);
+        if (roleIds.length) {
+          const {data:roles} = await client.from('community_roles').select('name,color,position').in('id',roleIds).order('position',{ascending:false});
+          result.roles = roles || [];
+        }
+      }
+      let badgeQuery = client.from('member_badges').select('badge_id').eq('user_id',senderId);
+      badgeQuery = communityId ? badgeQuery.eq('community_id',communityId) : badgeQuery.is('community_id',null);
+      const {data:badgeAssignments} = await badgeQuery;
+      const badgeIds = (badgeAssignments || []).map(row => row.badge_id);
+      if (badgeIds.length) {
+        const {data:badges} = await client.from('badges').select('id,name,icon_url,animated').in('id',badgeIds);
+        result.badges = badges || [];
+      }
+    } catch (error) {
+      console.warn('No se pudieron cargar las insignias o roles del mensaje:',error);
+    }
+    messageIdentityCache.set(key,result);
+    return result;
+  }
+
   async function appendMessage(message, sender) {
     const container = $('#messages-container');
     if (!container || $(`[data-message-id="${message.id}"]`, container)) return;
@@ -314,7 +348,53 @@
     const author = $('.message-author', article);
     author.textContent = sender?.nickname || sender?.username || 'Usuario';
     if (sender?.default_name_color) author.style.color = sender.default_name_color;
+    const identity = await getMessageIdentity(message.sender_id);
+    if (identity.roles[0]?.color) author.style.color = identity.roles[0].color;
+    if (identity.roles.length || identity.badges.length) {
+      const decorations = document.createElement('span');
+      decorations.className = 'message-identity-decorations';
+      for (const role of identity.roles) {
+        const tag = document.createElement('span');
+        tag.className = 'message-role-tag';
+        tag.textContent = role.name;
+        tag.style.setProperty('--role-color', role.color || '#a99bff');
+        decorations.append(tag);
+      }
+      for (const badge of identity.badges) {
+        const safeIcon = /^https:\/\//i.test(badge.icon_url || '');
+        if (safeIcon) {
+          const icon = document.createElement('img');
+          icon.className = 'message-badge-icon';
+          icon.src = badge.icon_url;
+          icon.alt = badge.name;
+          icon.title = badge.name;
+          icon.loading = 'lazy';
+          decorations.append(icon);
+        } else {
+          const icon = document.createElement('span');
+          icon.className = 'message-badge-emoji';
+          icon.textContent = badge.icon_url || '★';
+          icon.title = badge.name;
+          decorations.append(icon);
+        }
+      }
+      $('.message-meta', article).insertBefore(decorations, $('time', article));
+    }
     $('time', article).textContent = dateLabel(message.created_at);
+    if (message.sender_id === currentUser.id || (currentContext?.type === 'channel' && communityPermissions.manage_messages)) {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'message-delete-button';
+      deleteButton.textContent = 'Eliminar';
+      deleteButton.title = 'Eliminar este mensaje';
+      deleteButton.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este mensaje?')) return;
+        const {error} = await client.from('messages').delete().eq('id',message.id);
+        if (error) showError(error,'No tienes permiso para eliminar este mensaje.');
+        else { article.remove(); toast('Mensaje eliminado.','success'); }
+      });
+      $('.message-meta',article).append(deleteButton);
+    }
     const body = $('.message-body', article);
     const source = String(message.body || '');
     try {
@@ -397,19 +477,53 @@
   async function uploadAttachment(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || !currentContext) return;
+    if (!file || !currentContext || !currentUser) return;
     if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
-    const ext = file.name.split('.').pop().replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
-    const folder = currentContext.type === 'conversation' ? `dm/${currentContext.id}` : `community/${currentContext.id}`;
-    const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+    const allowed = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm)|application\/(pdf|zip)|text\/plain)$/i;
+    if (file.type && !allowed.test(file.type)) { toast('Este tipo de archivo no está permitido.', 'error'); return; }
+
+    const isConversation = currentContext.type === 'conversation';
+    const folder = isConversation ? 'dm' : 'community';
+    const safeExtension = (file.name.split('.').pop() || 'bin').replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
+    const path = `${folder}/${currentContext.id}/${crypto.randomUUID()}.${safeExtension}`;
+    const storage = client.storage.from('chat-media');
     toast('Subiendo archivo…');
-    const {error: uploadError} = await client.storage.from('chat-media').upload(path, file, {contentType:file.type || 'application/octet-stream',upsert:false});
-    if (uploadError) { showError(uploadError, 'No se pudo subir el archivo.'); return; }
-    const payload = {sender_id:currentUser.id,body:file.name,attachment:{path,name:file.name,mimetype:file.type}};
-    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
-    const {error} = await client.from('messages').insert(payload);
-    if (error) showError(error, 'El archivo se subió, pero no se pudo publicar el mensaje.');
-    else toast('Archivo enviado.', 'success');
+
+    let uploaded = false;
+    try {
+      const {error: uploadError} = await storage.upload(path, file, {
+        contentType:file.type || 'application/octet-stream',
+        upsert:false
+      });
+      if (uploadError) {
+        if (/row-level security|security policy/i.test(uploadError.message || '')) {
+          throw new Error('Supabase ha bloqueado la subida por sus políticas de Storage. Ejecuta el parche supabase/fix-chat-media-rls.sql en el SQL Editor y vuelve a intentarlo.');
+        }
+        throw uploadError;
+      }
+      uploaded = true;
+      const payload = {
+        sender_id:currentUser.id,
+        body:file.name || 'Archivo adjunto',
+        message_type:'media',
+        attachment:{path,name:file.name || 'archivo',mimetype:file.type || 'application/octet-stream'}
+      };
+      payload[isConversation ? 'conversation_id' : 'channel_id'] = currentContext.id;
+      const {error: messageError} = await client.from('messages').insert(payload);
+      if (messageError) {
+        // Avoid leaving an inaccessible object behind when its message cannot be created.
+        await storage.remove([path]);
+        uploaded = false;
+        throw new Error(`El archivo se subió, pero no se pudo publicar el mensaje: ${messageError.message}`);
+      }
+      toast('Archivo enviado.', 'success');
+    } catch (error) {
+      showError(error, 'No se pudo subir el archivo.');
+    } finally {
+      if (uploaded) {
+        // Keep the object; its path is now referenced by the message row.
+      }
+    }
   }
 
   async function createPoll() {
@@ -532,21 +646,211 @@
     $('#community-id-short').textContent = community.id.slice(0,8);
     $('#community-hero').style.backgroundImage = community.banner_url ? `linear-gradient(90deg,#10131caa,#10131c66),url('${community.banner_url}')` : '';
     switchView('community');
+    const permissionNames = ['manage_roles','manage_badges','manage_messages','manage_channels'];
+    const permissionResults = await Promise.all(permissionNames.map(p_permission => client.rpc('has_community_permission',{p_community_id:community.id,p_permission})));
+    permissionNames.forEach((name,index) => { communityPermissions[name] = Boolean(permissionResults[index].data); });
     await loadChannels();
     await loadAllies();
     const {count} = await client.from('community_members').select('*',{count:'exact',head:true}).eq('community_id',community.id);
     $('#community-members-count').textContent = count ?? '—';
+    $('#community-roles-area').classList.toggle('hidden',!communityPermissions.manage_roles);
+    $('#community-badges-area').classList.toggle('hidden',!communityPermissions.manage_badges);
+    if (communityPermissions.manage_roles) await loadCommunityManagement();
+    if (communityPermissions.manage_badges) await loadCommunityBadgeManagement();
   }
+  // ---------- Community role and member management ----------
+  const ROLE_PERMISSIONS = [
+    ['send_messages','Enviar mensajes'],
+    ['manage_messages','Gestionar mensajes'],
+    ['manage_channels','Gestionar canales'],
+    ['manage_roles','Gestionar roles'],
+    ['manage_badges','Gestionar medallas'],
+  ];
+  async function loadCommunityManagement() {
+    if (!currentCommunity || !communityPermissions.manage_roles) return;
+    const [rolesResponse,membersResponse,assignmentsResponse] = await Promise.all([
+      client.from('community_roles').select('*').eq('community_id',currentCommunity.id).order('position',{ascending:true}).order('name'),
+      client.from('community_members').select('user_id,nickname,joined_at').eq('community_id',currentCommunity.id).order('joined_at',{ascending:true}),
+      client.from('member_roles').select('user_id,role_id').eq('community_id',currentCommunity.id)
+    ]);
+    for (const response of [rolesResponse,membersResponse,assignmentsResponse]) {
+      if (response.error) { showError(response.error,'No se pudo cargar la gestión de roles.'); return; }
+    }
+    communityRoles = rolesResponse.data || [];
+    communityMembers = membersResponse.data || [];
+    communityMemberRoles = assignmentsResponse.data || [];
+    const roleList = $('#community-role-list');
+    if (!communityRoles.length) {
+      roleList.innerHTML = '<div class="empty-state compact">Todavía no hay roles.</div>';
+    } else {
+      roleList.innerHTML = communityRoles.map(role => {
+        const permissionInputs = ROLE_PERMISSIONS.map(([key,label]) => `<label><input type="checkbox" data-role-permission="${key}" ${role.permissions?.[key] ? 'checked' : ''}> ${label}</label>`).join('');
+        return `<form class="role-card" data-role-form="${role.id}">
+          <div class="role-card-head"><span class="role-dot" style="background:${escapeHtml(role.color || '#a99bff')}"></span><input class="role-name-input" data-role-name maxlength="32" value="${escapeHtml(role.name)}" aria-label="Nombre del rol"><input type="color" data-role-color value="${/^#[0-9a-f]{6}$/i.test(role.color || '') ? role.color : '#a99bff'}" aria-label="Color del rol"></div>
+          <div class="permission-grid">${permissionInputs}</div>
+          <div class="role-card-actions"><button class="button button-secondary" type="submit">Guardar cambios</button><button class="button button-danger" type="button" data-delete-role="${role.id}">Eliminar</button></div>
+        </form>`;
+      }).join('');
+    }
+    const ids = communityMembers.map(member => member.user_id);
+    const profiles = await fetchProfiles(ids);
+    const memberList = $('#community-members-list');
+    memberList.innerHTML = communityMembers.length ? communityMembers.map(member => {
+      const person = profiles[member.user_id] || {username:'usuario',nickname:''};
+      const active = new Set(communityMemberRoles.filter(item => item.user_id === member.user_id).map(item => item.role_id));
+      const toggles = communityRoles.map(role => `<label class="member-role-toggle"><input type="checkbox" data-member-role="${role.id}" data-member-id="${member.user_id}" ${active.has(role.id) ? 'checked' : ''}><span style="color:${escapeHtml(role.color || '#a99bff')}">${escapeHtml(role.name)}</span></label>`).join('');
+      return `<div class="member-role-card"><div class="member-role-person"><strong>${escapeHtml(member.nickname || person.nickname || person.username)}</strong><small>@${escapeHtml(person.username || 'usuario')}${member.user_id === currentCommunity.owner_id ? ' · propietario' : ''}</small></div><div class="member-role-toggles">${toggles || '<span class="muted">Crea un rol para poder asignarlo.</span>'}</div></div>`;
+    }).join('') : '<div class="empty-state compact">No hay miembros.</div>';
+
+    $$('[data-role-form]').forEach(form => form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const roleId = form.dataset.roleForm;
+      const permissions = {};
+      $$('[data-role-permission]',form).forEach(input => permissions[input.dataset.rolePermission] = input.checked);
+      const name = $('[data-role-name]',form).value.trim();
+      const color = $('[data-role-color]',form).value;
+      if (name.length < 2) { toast('El nombre del rol debe tener al menos 2 caracteres.','error'); return; }
+      const {error} = await client.from('community_roles').update({name,color,permissions}).eq('id',roleId).eq('community_id',currentCommunity.id);
+      if (error) showError(error,'No se pudo guardar el rol.'); else { toast('Rol actualizado.','success'); await loadCommunityManagement(); }
+    }));
+    $$('[data-delete-role]').forEach(button => button.addEventListener('click', async () => {
+      const role = communityRoles.find(item => item.id === button.dataset.deleteRole);
+      if (!role || !confirm(`¿Eliminar el rol «${role.name}» y quitarlo de los miembros?`)) return;
+      const {error} = await client.from('community_roles').delete().eq('id',role.id).eq('community_id',currentCommunity.id);
+      if (error) showError(error,'No se pudo eliminar el rol.'); else { toast('Rol eliminado.','success'); await loadCommunityManagement(); }
+    }));
+    $$('[data-member-role]').forEach(input => input.addEventListener('change', async () => {
+      const payload = {community_id:currentCommunity.id,user_id:input.dataset.memberId,role_id:input.dataset.memberRole};
+      const response = input.checked
+        ? await client.from('member_roles').insert(payload)
+        : await client.from('member_roles').delete().match(payload);
+      if (response.error) { input.checked = !input.checked; showError(response.error,'No se pudo cambiar la asignación del rol.'); }
+      else {
+        if (input.checked) communityMemberRoles.push({user_id:payload.user_id,role_id:payload.role_id});
+        else communityMemberRoles = communityMemberRoles.filter(item => !(item.user_id === payload.user_id && item.role_id === payload.role_id));
+        messageIdentityCache.delete(`${currentCommunity.id}:${payload.user_id}`);
+        toast('Asignación actualizada.','success');
+      }
+    }));
+  }
+  $('#community-role-create').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!currentCommunity || !communityPermissions.manage_roles) return;
+    const name = $('#new-role-name').value.trim();
+    if (name.length < 2) { toast('El nombre del rol debe tener al menos 2 caracteres.','error'); return; }
+    const permissions = {};
+    $$('[data-new-role-perm]').forEach(input => permissions[input.dataset.newRolePerm] = input.checked);
+    const {error} = await client.from('community_roles').insert({community_id:currentCommunity.id,name,color:$('#new-role-color').value,permissions,position:communityRoles.length});
+    if (error) showError(error,'No se pudo crear el rol. Comprueba que no exista otro con ese nombre.');
+    else {
+      $('#community-role-create').reset();
+      $('#new-role-color').value = '#a99bff';
+      $('[data-new-role-perm="send_messages"]').checked = true;
+      toast('Rol creado.','success');
+      await loadCommunityManagement();
+    }
+  });
+
+  // ---------- Community badge management ----------
+  async function loadCommunityBadgeManagement() {
+    if (!currentCommunity || !communityPermissions.manage_badges) return;
+    const [badgesResponse,membersResponse,assignmentsResponse] = await Promise.all([
+      client.from('badges').select('*').eq('community_id',currentCommunity.id).order('created_at',{ascending:true}),
+      client.from('community_members').select('user_id,nickname').eq('community_id',currentCommunity.id).order('joined_at',{ascending:true}),
+      client.from('member_badges').select('badge_id,user_id').eq('community_id',currentCommunity.id)
+    ]);
+    for (const response of [badgesResponse,membersResponse,assignmentsResponse]) {
+      if (response.error) { showError(response.error,'No se pudo cargar la gestión de medallas.'); return; }
+    }
+    const badges = badgesResponse.data || [];
+    const members = membersResponse.data || [];
+    const assignments = assignmentsResponse.data || [];
+    const profiles = await fetchProfiles(members.map(item => item.user_id));
+    const list = $('#community-badges-list');
+    if (!badges.length) {
+      list.innerHTML = '<div class="empty-state compact">Todavía no hay medallas en este megagrupo.</div>';
+      return;
+    }
+    list.innerHTML = badges.map(badge => {
+      const icon = /^https:\/\//i.test(badge.icon_url || '')
+        ? `<img class="badge-preview-image" src="${escapeHtml(badge.icon_url)}" alt="" loading="lazy">`
+        : `<span class="badge-preview-emoji">${escapeHtml(badge.icon_url || '★')}</span>`;
+      const holders = assignments.filter(item => item.badge_id === badge.id);
+      const holderList = holders.map(item => {
+        const person = profiles[item.user_id] || {username:'usuario'};
+        return `<span class="badge-holder">@${escapeHtml(person.username)} <button type="button" title="Retirar medalla" data-remove-badge="${badge.id}" data-badge-member="${item.user_id}">×</button></span>`;
+      }).join('') || '<span class="muted">Sin asignar</span>';
+      const options = members.map(member => {
+        const person = profiles[member.user_id] || {username:'usuario'};
+        return `<option value="${member.user_id}">${escapeHtml(member.nickname || person.nickname || person.username)}</option>`;
+      }).join('');
+      return `<article class="badge-admin-card"><div class="badge-admin-head">${icon}<div><strong>${escapeHtml(badge.name)}</strong><small>${badge.animated ? 'Animada' : 'Estática'}</small></div></div><div class="badge-holders">${holderList}</div><form class="badge-assign-form" data-assign-badge="${badge.id}"><select data-badge-target aria-label="Miembro">${options}</select><button class="button button-secondary" type="submit" ${members.length ? '' : 'disabled'}>Asignar</button></form></article>`;
+    }).join('');
+    $$('[data-assign-badge]').forEach(form => form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const badgeId = form.dataset.assignBadge;
+      const userId = $('[data-badge-target]',form).value;
+      if (!userId) return;
+      const {error} = await client.from('member_badges').insert({badge_id:badgeId,user_id:userId,community_id:currentCommunity.id});
+      if (error) showError(error,'No se pudo asignar la medalla.');
+      else { messageIdentityCache.delete(`${currentCommunity.id}:${userId}`); toast('Medalla asignada.','success'); await loadCommunityBadgeManagement(); }
+    }));
+    $$('[data-remove-badge]').forEach(button => button.addEventListener('click', async () => {
+      const {error} = await client.from('member_badges').delete().eq('badge_id',button.dataset.removeBadge).eq('user_id',button.dataset.badgeMember).eq('community_id',currentCommunity.id);
+      if (error) showError(error,'No se pudo retirar la medalla.');
+      else { messageIdentityCache.delete(`${currentCommunity.id}:${button.dataset.badgeMember}`); toast('Medalla retirada.','success'); await loadCommunityBadgeManagement(); }
+    }));
+  }
+  $('#community-badge-create').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!currentCommunity || !communityPermissions.manage_badges) return;
+    const name = $('#new-badge-name').value.trim();
+    const icon = $('#new-badge-icon').value.trim();
+    if (name.length < 2 || !icon) { toast('Escribe un nombre y un icono para la medalla.','error'); return; }
+    if (/^https?:\/\//i.test(icon) && !/^https:\/\//i.test(icon)) { toast('Los iconos externos deben usar HTTPS.','error'); return; }
+    if (/^https:\/\//i.test(icon) && icon.length > 500) { toast('La URL del icono es demasiado larga.','error'); return; }
+    if (/[<>"']/.test(icon) && !/^https:\/\//i.test(icon)) { toast('Usa un emoji o una URL HTTPS como icono.','error'); return; }
+    const {error} = await client.from('badges').insert({owner_id:currentUser.id,community_id:currentCommunity.id,name,icon_url:icon,animated:$('#new-badge-animated').checked});
+    if (error) showError(error,'No se pudo crear la medalla.');
+    else {
+      $('#community-badge-create').reset();
+      messageIdentityCache.clear();
+      toast('Medalla creada.','success');
+      await loadCommunityBadgeManagement();
+    }
+  });
+
   async function loadChannels() {
     if (!currentCommunity) return;
     const {data,error} = await client.from('channels').select('*').eq('community_id',currentCommunity.id).order('position',{ascending:true});
     if (error) { showError(error); return; }
     currentCommunityChannels = data || [];
     $('#community-channels-count').textContent = currentCommunityChannels.length;
-    $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}"><span class="channel-hash">${channel.type === 'voice' ? '◖' : channel.type === 'media' ? '▧' : channel.type === 'announcements' ? '⚑' : '#'}</span>${escapeHtml(channel.name)}</button>`).join('');
+    $('#add-channel').classList.toggle('hidden',!communityPermissions.manage_channels);
+    $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}"><span class="channel-hash">${channel.type === 'voice' ? '◖' : channel.type === 'media' ? '▧' : channel.type === 'announcements' ? '⚑' : '#'}</span>${escapeHtml(channel.name)}</button>${communityPermissions.manage_channels ? `<span class="channel-admin-actions"><button type="button" data-rename-channel="${channel.id}" title="Renombrar canal">···</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button></span>` : ''}</div>`).join('');
     $$('[data-channel]').forEach(button => button.addEventListener('click', () => {
       const channel = currentCommunityChannels.find(row => row.id === button.dataset.channel);
       if (channel) openCommunityChannel(channel);
+    }));
+    $$('[data-rename-channel]').forEach(button => button.addEventListener('click', async () => {
+      const channel = currentCommunityChannels.find(row => row.id === button.dataset.renameChannel);
+      if (!channel) return;
+      const name = await ask('Renombrar canal','El nombre se actualizará para todos los miembros.','Nuevo nombre','general',channel.name);
+      if (!name || name === channel.name) return;
+      const {error:updateError} = await client.from('channels').update({name:name.trim().toLowerCase().replace(/\s+/g,'-')}).eq('id',channel.id).eq('community_id',currentCommunity.id);
+      if (updateError) showError(updateError,'No se pudo renombrar el canal.');
+      else { toast('Canal renombrado.','success'); await loadChannels(); if (currentContext?.id === channel.id) { channel.name = name.trim(); await openCommunityChannel(channel); } }
+    }));
+    $$('[data-delete-channel]').forEach(button => button.addEventListener('click', async () => {
+      const channel = currentCommunityChannels.find(row => row.id === button.dataset.deleteChannel);
+      if (!channel || !confirm(`¿Eliminar #${channel.name} y sus mensajes? Esta acción no se puede deshacer.`)) return;
+      const {error:deleteError} = await client.from('channels').delete().eq('id',channel.id).eq('community_id',currentCommunity.id);
+      if (deleteError) showError(deleteError,'No se pudo eliminar el canal.');
+      else {
+        if (currentContext?.id === channel.id) { currentContext = null; $('#conversation-panel').innerHTML = '<div class="welcome-state"><div class="welcome-orb">N</div><p class="eyebrow">BIENVENIDO A NEXUS</p><h2>Tu gente, tus espacios.</h2><p>Abre una conversación o crea una nueva para empezar.</p></div>'; }
+        toast('Canal eliminado.','success');
+        await loadChannels();
+      }
     }));
   }
   async function openCommunityChannel(channel) {

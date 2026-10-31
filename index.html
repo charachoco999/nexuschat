@@ -89,7 +89,38 @@
 
       <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
 
-      <section class="view" id="view-community"><div class="content-page"><div class="community-hero" id="community-hero"><div class="community-hero-copy"><p class="eyebrow">MEGAGRUPO</p><h1 id="community-name">Comunidad</h1><p id="community-description" class="muted"></p></div><button class="button button-secondary" id="community-settings">Administrar</button></div><div class="community-info-grid"><div class="surface"><p class="eyebrow">MIEMBROS</p><h2 id="community-members-count">—</h2></div><div class="surface"><p class="eyebrow">CANALES</p><h2 id="community-channels-count">—</h2></div><div class="surface"><p class="eyebrow">COMUNIDAD</p><h2 id="community-id-short">—</h2></div></div><div class="surface settings-surface"><div class="surface-heading"><h3>Acerca de este megagrupo</h3></div><p class="muted">Selecciona un canal en la barra lateral para conversar. Los canales de voz, anuncios y multimedia tienen su propio tipo y sus capacidades se irán habilitando por módulos.</p></div></div></section>
+      <section class="view" id="view-community"><div class="content-page"><div class="community-hero" id="community-hero"><div class="community-hero-copy"><p class="eyebrow">MEGAGRUPO</p><h1 id="community-name">Comunidad</h1><p id="community-description" class="muted"></p></div><button class="button button-secondary" id="community-settings">Administrar</button></div><div class="community-info-grid"><div class="surface"><p class="eyebrow">MIEMBROS</p><h2 id="community-members-count">—</h2></div><div class="surface"><p class="eyebrow">CANALES</p><h2 id="community-channels-count">—</h2></div><div class="surface"><p class="eyebrow">COMUNIDAD</p><h2 id="community-id-short">—</h2></div></div><div class="surface settings-surface"><div class="surface-heading"><h3>Acerca de este megagrupo</h3></div><p class="muted">Selecciona un canal en la barra lateral para conversar. Los canales de voz, anuncios y multimedia tienen su propio tipo y sus capacidades se irán habilitando por módulos.</p></div>
+        <section id="community-roles-area" class="surface settings-surface hidden">
+          <div class="surface-heading"><div><h3>Roles y permisos</h3><p class="muted small-muted">Crea roles, decide qué pueden hacer y asigna varios roles a cada miembro.</p></div><span class="tag">GESTIÓN</span></div>
+          <form id="community-role-create" class="role-create-form">
+            <label class="field">Nombre del rol<input id="new-role-name" maxlength="32" required placeholder="Ej. Moderador"></label>
+            <label class="field">Color del nombre<input id="new-role-color" type="color" value="#a99bff"></label>
+            <div class="permission-grid full-field">
+              <label><input type="checkbox" data-new-role-perm="send_messages" checked> Enviar mensajes</label>
+              <label><input type="checkbox" data-new-role-perm="manage_messages"> Gestionar mensajes</label>
+              <label><input type="checkbox" data-new-role-perm="manage_channels"> Gestionar canales</label>
+              <label><input type="checkbox" data-new-role-perm="manage_roles"> Gestionar roles</label>
+              <label><input type="checkbox" data-new-role-perm="manage_badges"> Gestionar medallas</label>
+              <label><input type="checkbox" data-new-role-perm="create_invites"> Crear invitaciones</label>
+            </div>
+            <div class="full-field form-actions"><button class="button button-primary" type="submit">Crear rol</button></div>
+          </form>
+          <div class="management-columns">
+            <section><div class="surface-heading"><h4>Roles existentes</h4></div><div id="community-role-list" class="list-stack"><div class="empty-state compact">Cargando roles…</div></div></section>
+            <section><div class="surface-heading"><h4>Miembros y asignaciones</h4></div><div id="community-members-list" class="list-stack"><div class="empty-state compact">Cargando miembros…</div></div></section>
+          </div>
+        </section>
+        <section id="community-badges-area" class="surface settings-surface hidden">
+          <div class="surface-heading"><div><h3>Medallas del megagrupo</h3><p class="muted small-muted">Crea iconos y asígnalos a miembros de esta comunidad.</p></div><span class="tag">MEDALLAS</span></div>
+          <form id="community-badge-create" class="badge-create-form">
+            <label class="field">Nombre de la medalla<input id="new-badge-name" maxlength="40" required placeholder="Ej. Fundador"></label>
+            <label class="field">Icono (emoji o URL HTTPS)<input id="new-badge-icon" maxlength="500" required placeholder="⭐ o https://…"></label>
+            <label class="badge-check"><input id="new-badge-animated" type="checkbox"> Icono animado</label>
+            <div class="form-actions"><button class="button button-primary" type="submit">Crear medalla</button></div>
+          </form>
+          <div id="community-badges-list" class="badge-admin-grid"><div class="empty-state compact">Cargando medallas…</div></div>
+        </section>
+      </div></section>
       <section class="view" id="view-admin"><div class="content-page"><h1>Administración</h1><p class="muted">Herramientas de moderación.</p><div id="admin-view-content"></div></div></section>
     </section>
   </div>
