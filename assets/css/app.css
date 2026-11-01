@@ -93,3 +93,28 @@
 @media(max-width:560px){.channel-type-mini{display:none}.wide-dialog{padding:16px}.channel-admin-actions{opacity:1}}
 
 .auth-captcha-wrap{display:grid;justify-items:center;gap:4px;min-height:76px;padding:8px 0}.auth-captcha-wrap p{margin:0;color:var(--muted2);font-size:10px}
+
+
+/* Nexus v0.4: replies, edits, reactions and live inbox polish */
+.message-meta{gap:8px;flex-wrap:wrap}
+.message-actions{display:inline-flex;align-items:center;gap:4px;margin-left:auto;opacity:.2;transition:opacity .15s ease}
+.message:hover .message-actions,.message:focus-within .message-actions{opacity:1}
+.message-action-button{border:0;background:transparent;color:var(--muted2);padding:2px 5px;border-radius:5px;font-size:9px;cursor:pointer}
+.message-action-button:hover{background:#ffffff10;color:#d9ddf1}
+.message-delete-button{margin-left:0}
+.message-reply-quote{display:block;max-width:min(620px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;margin:2px 0 7px;padding:6px 9px;border:0;border-left:2px solid var(--accent);border-radius:0 6px 6px 0;background:#242b3d;color:#aeb9d4;font-size:10px;cursor:pointer}
+.message-reply-quote:hover{background:#2a3349;color:#e2e7f8}
+.message-flash{animation:message-flash .9s ease}
+@keyframes message-flash{0%,100%{background:transparent}35%{background:#8374ff24}}
+.reply-composer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin-bottom:8px;border:1px solid #887aff55;border-left:3px solid var(--accent);border-radius:9px;background:#24263a}
+.reply-composer>div{display:grid;gap:3px;min-width:0}
+.reply-composer small{color:#b7acd8;font-size:10px}
+.reply-composer small strong{color:#f0edff}
+.reply-composer span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}
+.reply-composer .icon-button{width:27px;height:27px;flex:none}
+.message-reactions{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:7px;min-height:0}
+.reaction-chip,.reaction-add{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:24px;padding:3px 8px;border:1px solid #ffffff18;border-radius:999px;background:#1b2231;color:#c7d0e4;font-size:10px;cursor:pointer}
+.reaction-chip:hover,.reaction-add:hover{border-color:#8b7cff88;background:#282b43}
+.reaction-chip.selected{border-color:#8b7cff;background:#39345e;color:#fff}
+.reaction-add{width:25px;padding:0;color:#96a2bc}
+@media(max-width:760px){.message-actions{opacity:1}.reply-composer{padding:7px 8px}.message-action-button{font-size:10px}}

@@ -13,7 +13,14 @@
   let currentView = 'chats';
   let currentContext = null; // {type:'conversation'|'channel', id, title, subtitle, icon}
   let activeMessageChannel = null;
+  let friendsRealtimeChannel = null;
+  let inboxRealtimeChannel = null;
+  let listRefreshTimer = null;
+  const pendingListRefreshes = new Set();
+  let replyTarget = null;
+  let editingMessageId = null;
   let conversations = [];
+  const REACTION_OPTIONS = ['👍','❤️','😂','😮','🎉','🔥','👀','🥳'];
   let currentCommunity = null;
   let currentCommunityChannels = [];
   let friendsCache = [];
@@ -185,6 +192,7 @@
       if (error) throw error;
       profile = data;
       renderIdentity();
+      subscribeAccountRealtime();
       loadInitialData();
     } catch (error) {
       showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
@@ -194,7 +202,13 @@
   async function signOut() {
     if (!client) return;
     await client.auth.signOut();
-    currentUser = null; profile = null; currentContext = null;
+    if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
+    if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
+    if (activeMessageChannel) client.removeChannel(activeMessageChannel);
+    friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null;
+    if (listRefreshTimer) clearTimeout(listRefreshTimer);
+    pendingListRefreshes.clear();
+    currentUser = null; profile = null; currentContext = null; replyTarget = null;
     showAuth();
   }
 
@@ -278,6 +292,36 @@
     });
   }
 
+  // ---------- Realtime inbox and friends ----------
+  function scheduleAccountListRefresh(kind) {
+    pendingListRefreshes.add(kind);
+    if (listRefreshTimer) clearTimeout(listRefreshTimer);
+    listRefreshTimer = setTimeout(async () => {
+      listRefreshTimer = null;
+      const pending = new Set(pendingListRefreshes);
+      pendingListRefreshes.clear();
+      try {
+        if (pending.has('friends') || pending.has('all')) await loadFriends();
+        if (pending.has('conversations') || pending.has('all')) await loadConversations();
+      } catch (error) { console.warn('No se pudo actualizar la bandeja en tiempo real:', error); }
+    }, 180);
+  }
+
+  function subscribeAccountRealtime() {
+    if (!client || !currentUser) return;
+    if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
+    if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
+
+    friendsRealtimeChannel = client.channel(`nexus-friends-${currentUser.id}`)
+      .on('postgres_changes', {event:'*', schema:'public', table:'friends'}, () => scheduleAccountListRefresh('friends'))
+      .subscribe();
+
+    inboxRealtimeChannel = client.channel(`nexus-inbox-${currentUser.id}`)
+      .on('postgres_changes', {event:'*', schema:'public', table:'conversation_members', filter:`user_id=eq.${currentUser.id}`}, () => scheduleAccountListRefresh('conversations'))
+      .on('postgres_changes', {event:'*', schema:'public', table:'conversations'}, () => scheduleAccountListRefresh('conversations'))
+      .subscribe();
+  }
+
   // ---------- Conversations and realtime messages ----------
   async function loadConversations() {
     if (!currentUser) return;
@@ -317,6 +361,7 @@
   }
 
   async function openConversation(row) {
+    replyTarget = null;
     currentContext = {type:'conversation', id:row.id, title:row.displayTitle, subtitle:row.kind === 'direct' ? 'Mensaje directo' : 'Chat grupal', icon:row.displayAvatar};
     switchView('chats');
     await showMessagePanel();
@@ -345,11 +390,13 @@
         <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
         ${voiceNotice ? '<div class="voice-placeholder"><strong>Canal de voz</strong><p>Este canal ya está creado y tiene su propio tipo. La conexión de audio en tiempo real se añadirá en una fase WebRTC independiente.</p></div>' : `
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
+          <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
     if (!voiceNotice) {
+      $('#cancel-reply').addEventListener('click', clearReplyTarget);
       $('#message-form').addEventListener('submit', sendMessage);
       $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#message-form').requestSubmit(); } });
       $('#attach-file').addEventListener('click', () => $('#chat-file').click());
@@ -365,6 +412,21 @@
       if (isCommunityChannel && c.channelDescription) toast(c.channelDescription);
       else toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.');
     });
+  }
+
+  function clearReplyTarget() {
+    replyTarget = null;
+    const preview = $('#reply-composer');
+    if (preview) preview.classList.add('hidden');
+  }
+
+  function setReplyTarget(message, sender) {
+    if (!$('#reply-composer')) return;
+    replyTarget = {id:message.id, author:sender?.nickname || sender?.username || 'Usuario', body:String(message.body || message.attachment?.name || 'Mensaje').slice(0,180)};
+    $('#reply-author').textContent = replyTarget.author;
+    $('#reply-excerpt').textContent = replyTarget.body;
+    $('#reply-composer').classList.remove('hidden');
+    $('#message-input')?.focus();
   }
 
   function wrapSelection(mark) {
@@ -393,7 +455,14 @@
     container.innerHTML = '';
     if (!data?.length) container.innerHTML = '<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>';
     const profiles = await fetchProfiles((data || []).map(row => row.sender_id));
-    for (const message of (data || [])) await appendMessage(message, profiles[message.sender_id]);
+    const messageIds = (data || []).map(row => row.id);
+    const reactionsByMessage = {};
+    if (messageIds.length) {
+      const {data:reactionRows,error:reactionError} = await client.from('message_reactions').select('message_id,emoji,user_id').in('message_id',messageIds);
+      if (reactionError) console.warn('No se pudieron cargar las reacciones:',reactionError);
+      else for (const reaction of reactionRows || []) (reactionsByMessage[reaction.message_id] ||= []).push(reaction);
+    }
+    for (const message of (data || [])) await appendMessage(message, profiles[message.sender_id], reactionsByMessage[message.id] || []);
     container.scrollTop = container.scrollHeight;
   }
 
@@ -426,12 +495,13 @@
     return result;
   }
 
-  async function appendMessage(message, sender) {
+  async function appendMessage(message, sender, initialReactions = null) {
     const container = $('#messages-container');
     if (!container || $(`[data-message-id="${message.id}"]`, container)) return;
     const template = $('#message-template').content.cloneNode(true);
     const article = $('.message', template);
     article.dataset.messageId = message.id;
+    article.__nexusMessage = message;
     const avatar = $('.avatar-message', article);
     if (sender?.avatar_url) avatar.style.backgroundImage = `url('${sender.avatar_url}')`;
     else avatar.textContent = initials(sender?.nickname || sender?.username || 'U');
@@ -470,7 +540,23 @@
       }
       $('.message-meta', article).insertBefore(decorations, $('time', article));
     }
-    $('time', article).textContent = dateLabel(message.created_at);
+    $('time', article).textContent = `${dateLabel(message.created_at)}${message.edited_at ? ' · editado' : ''}`;
+    const messageActions = document.createElement('span');
+    messageActions.className = 'message-actions';
+    const replyButton = document.createElement('button');
+    replyButton.type = 'button';
+    replyButton.className = 'message-action-button';
+    replyButton.textContent = 'Responder';
+    replyButton.addEventListener('click', () => setReplyTarget(message, sender));
+    messageActions.append(replyButton);
+    if (message.sender_id === currentUser.id && message.message_type === 'text') {
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.className = 'message-action-button';
+      editButton.textContent = 'Editar';
+      editButton.addEventListener('click', () => openMessageEditor(message));
+      messageActions.append(editButton);
+    }
     if (message.sender_id === currentUser.id || (currentContext?.type === 'channel' && communityPermissions.manage_messages)) {
       const deleteButton = document.createElement('button');
       deleteButton.type = 'button';
@@ -483,8 +569,28 @@
         if (error) showError(error,'No tienes permiso para eliminar este mensaje.');
         else { article.remove(); toast('Mensaje eliminado.','success'); }
       });
-      $('.message-meta',article).append(deleteButton);
+      messageActions.append(deleteButton);
     }
+    $('.message-meta', article).append(messageActions);
+
+    if (message.reply_to) {
+      const quote = document.createElement('button');
+      quote.type = 'button';
+      quote.className = 'message-reply-quote';
+      quote.textContent = 'Cargando mensaje citado…';
+      quote.addEventListener('click', () => {
+        const target = $(`[data-message-id="${message.reply_to}"]`, container);
+        if (target) { target.scrollIntoView({behavior:'smooth',block:'center'}); target.classList.add('message-flash'); setTimeout(() => target.classList.remove('message-flash'), 900); }
+      });
+      $('.message-main', article).insertBefore(quote, $('.message-body', article));
+      const {data:original} = await client.from('messages').select('body,sender_id,attachment').eq('id',message.reply_to).maybeSingle();
+      if (original) {
+        const replyProfiles = await fetchProfiles([original.sender_id]);
+        const replyName = replyProfiles[original.sender_id]?.nickname || replyProfiles[original.sender_id]?.username || 'Usuario';
+        quote.textContent = `${replyName}: ${String(original.body || original.attachment?.name || 'Mensaje').slice(0,150)}`;
+      } else quote.textContent = 'Mensaje original no disponible';
+    }
+
     const body = $('.message-body', article);
     const source = String(message.body || '');
     try {
@@ -528,9 +634,87 @@
         else attachment.innerHTML = `<a href="${data.signedUrl}" download="${name}">Descargar ${name}</a>`;
       }
     }
+    const reactionBar = $('.message-reactions', article);
+    reactionBar.dataset.reactionMessage = message.id;
     container.append(template);
+    await refreshMessageReactions(article, message.id, initialReactions);
     container.scrollTop = container.scrollHeight;
   }
+
+  async function refreshMessageReactions(article, messageId, initialRows = null) {
+    const bar = $('.message-reactions', article);
+    if (!bar) return;
+    let rows = initialRows;
+    if (rows === null) {
+      const {data,error} = await client.from('message_reactions').select('emoji,user_id').eq('message_id', messageId);
+      if (error) { console.warn('No se pudieron cargar las reacciones:', error); return; }
+      rows = data || [];
+    }
+    const grouped = new Map();
+    for (const row of rows || []) {
+      if (!grouped.has(row.emoji)) grouped.set(row.emoji, []);
+      grouped.get(row.emoji).push(row.user_id);
+    }
+    bar.innerHTML = '';
+    for (const [emoji, users] of grouped) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `reaction-chip ${users.includes(currentUser.id) ? 'selected' : ''}`;
+      chip.textContent = `${emoji} ${users.length}`;
+      chip.title = users.length === 1 ? '1 reacción' : `${users.length} reacciones`;
+      chip.addEventListener('click', () => toggleMessageReaction(messageId, emoji));
+      bar.append(chip);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'reaction-add';
+    add.textContent = '＋';
+    add.title = 'Añadir reacción';
+    add.addEventListener('click', async () => {
+      const selected = await ask('Añadir reacción', `Elige uno: ${REACTION_OPTIONS.join(' ')}`, 'Emoji', '👍');
+      if (!selected) return;
+      if (!REACTION_OPTIONS.includes(selected)) { toast('Elige uno de los emojis disponibles.'); return; }
+      await toggleMessageReaction(messageId, selected, true);
+    });
+    bar.append(add);
+  }
+
+  async function toggleMessageReaction(messageId, emoji, forceAdd = false) {
+    const {data:existing, error:readError} = await client.from('message_reactions').select('message_id').eq('message_id',messageId).eq('user_id',currentUser.id).eq('emoji',emoji).maybeSingle();
+    if (readError) { showError(readError, 'No se pudo consultar la reacción. Ejecuta la migración v0.4.'); return; }
+    const response = existing && !forceAdd
+      ? await client.from('message_reactions').delete().eq('message_id',messageId).eq('user_id',currentUser.id).eq('emoji',emoji)
+      : existing ? {error:null} : await client.from('message_reactions').insert({message_id:messageId,user_id:currentUser.id,emoji});
+    if (response.error) { showError(response.error, 'No se pudo guardar la reacción.'); return; }
+    const article = $(`[data-message-id="${messageId}"]`, $('#messages-container'));
+    if (article) await refreshMessageReactions(article, messageId);
+  }
+
+  async function openMessageEditor(message) {
+    editingMessageId = message.id;
+    $('#edit-message-body').value = message.body || '';
+    $('#edit-message-dialog').showModal();
+    $('#edit-message-body').focus();
+  }
+
+  $('#close-message-edit').addEventListener('click', () => { $('#edit-message-dialog').close(); editingMessageId = null; });
+  $('#cancel-message-edit').addEventListener('click', () => { $('#edit-message-dialog').close(); editingMessageId = null; });
+
+  $('#edit-message-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!editingMessageId) return;
+    const body = $('#edit-message-body').value.trim();
+    if (!body) { toast('El mensaje no puede quedar vacío.'); return; }
+    const save = $('#save-message-edit');
+    save.disabled = true;
+    const {error} = await client.rpc('edit_message',{p_message_id:editingMessageId,p_body:body});
+    save.disabled = false;
+    if (error) { showError(error,'No se pudo editar el mensaje.'); return; }
+    $('#edit-message-dialog').close();
+    editingMessageId = null;
+    await loadMessages();
+    toast('Mensaje editado.','success');
+  });
 
   function subscribeMessages() {
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
@@ -540,6 +724,14 @@
       .on('postgres_changes', {event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async payload => {
         const profiles = await fetchProfiles([payload.new.sender_id]);
         await appendMessage(payload.new, profiles[payload.new.sender_id]);
+        if (currentContext?.type === 'conversation') scheduleAccountListRefresh('conversations');
+      })
+      .on('postgres_changes', {event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async () => loadMessages())
+      .on('postgres_changes', {event:'*',schema:'public',table:'message_reactions'}, async payload => {
+        const messageId = payload.new?.message_id || payload.old?.message_id;
+        if (!messageId) return;
+        const article = $(`[data-message-id="${messageId}"]`, $('#messages-container'));
+        if (article) await refreshMessageReactions(article,messageId);
       })
       .subscribe(status => {
         const node = $('#connection-status');
@@ -557,12 +749,13 @@
     const body = input.value.trim();
     if (!body) return;
     input.disabled = true;
-    const payload = {sender_id:currentUser.id, body};
+    const payload = {sender_id:currentUser.id, body, ...(replyTarget ? {reply_to:replyTarget.id} : {})};
     payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
     const {error} = await client.from('messages').insert(payload);
     input.disabled = false;
     if (error) { showError(error, 'No se pudo enviar el mensaje.'); return; }
     input.value = '';
+    clearReplyTarget();
     input.focus();
   }
 
@@ -599,7 +792,8 @@
         sender_id:currentUser.id,
         body:file.name || 'Archivo adjunto',
         message_type:'media',
-        attachment:{path,name:file.name || 'archivo',mimetype:file.type || 'application/octet-stream'}
+        attachment:{path,name:file.name || 'archivo',mimetype:file.type || 'application/octet-stream'},
+        ...(replyTarget ? {reply_to:replyTarget.id} : {})
       };
       payload[isConversation ? 'conversation_id' : 'channel_id'] = currentContext.id;
       const {error: messageError} = await client.from('messages').insert(payload);
@@ -609,6 +803,7 @@
         uploaded = false;
         throw new Error(`El archivo se subió, pero no se pudo publicar el mensaje: ${messageError.message}`);
       }
+      clearReplyTarget();
       toast('Archivo enviado.', 'success');
     } catch (error) {
       showError(error, 'No se pudo subir el archivo.');
@@ -627,12 +822,12 @@
     if (!raw) return;
     const parts = raw.split('|').map(value => value.trim()).filter(Boolean);
     if (parts.length < 3) { toast('Incluye una pregunta y al menos dos opciones.','error'); return; }
-    const payload = {sender_id:currentUser.id,body:`📊 ${parts[0]}`,message_type:'poll'};
+    const payload = {sender_id:currentUser.id,body:`📊 ${parts[0]}`,message_type:'poll',...(replyTarget ? {reply_to:replyTarget.id} : {})};
     payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
     const {data: message, error} = await client.from('messages').insert(payload).select().single();
     if (error) { showError(error); return; }
     const {error: pollError} = await client.from('polls').insert({message_id:message.id,question:parts[0],options:parts.slice(1),ends_at:null});
-    if (pollError) showError(pollError); else { await loadMessages(); toast('Encuesta publicada.','success'); }
+    if (pollError) showError(pollError); else { clearReplyTarget(); await loadMessages(); toast('Encuesta publicada.','success'); }
   }
 
   $('#new-chat').addEventListener('click', createNewChat);
@@ -1055,6 +1250,7 @@
   });
 
   async function openCommunityChannel(channel) {
+    replyTarget = null;
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};

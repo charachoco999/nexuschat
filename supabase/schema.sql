@@ -344,11 +344,74 @@ create table if not exists public.messages (
   message_type text not null default 'text' check (message_type in ('text','poll','system','media')),
   attachment jsonb,
   formatting jsonb not null default '{}'::jsonb,
+  reply_to uuid references public.messages(id) on delete set null,
+  edited_at timestamptz,
   created_at timestamptz not null default now(),
   check (((conversation_id is not null)::integer + (channel_id is not null)::integer) = 1)
 );
 create index if not exists messages_conversation_created_idx on public.messages(conversation_id,created_at);
 create index if not exists messages_channel_created_idx on public.messages(channel_id,created_at);
+create index if not exists messages_reply_to_idx on public.messages(reply_to) where reply_to is not null;
+
+create table if not exists public.message_reactions (
+  message_id uuid not null references public.messages(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  emoji text not null check (length(emoji) between 1 and 16),
+  created_at timestamptz not null default now(),
+  primary key (message_id,user_id,emoji)
+);
+create index if not exists message_reactions_message_idx on public.message_reactions(message_id);
+
+
+create or replace function public.guard_message_reply()
+returns trigger language plpgsql set search_path = public, auth
+as $$
+declare target_conversation uuid; target_channel uuid;
+begin
+  if new.reply_to is null then return new; end if;
+  select conversation_id,channel_id into target_conversation,target_channel from public.messages where id=new.reply_to;
+  if not found then raise exception 'El mensaje al que respondes ya no existe o no es accesible.'; end if;
+  if target_conversation is distinct from new.conversation_id or target_channel is distinct from new.channel_id then
+    raise exception 'Solo puedes responder a mensajes del mismo chat.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists messages_guard_reply on public.messages;
+create trigger messages_guard_reply before insert or update of reply_to on public.messages
+for each row execute function public.guard_message_reply();
+
+create or replace function public.edit_message(p_message_id uuid,p_body text)
+returns void language plpgsql security definer set search_path = public, auth
+as $$
+declare owner_id uuid; kind text; room_conversation uuid; room_channel uuid;
+begin
+  if auth.uid() is null then raise exception 'Debes iniciar sesión.'; end if;
+  if public.is_user_banned() then raise exception 'Tu cuenta está suspendida.'; end if;
+  if p_body is null or length(trim(p_body))=0 or length(p_body)>12000 then raise exception 'El mensaje debe tener entre 1 y 12000 caracteres.'; end if;
+  select sender_id,message_type,conversation_id,channel_id into owner_id,kind,room_conversation,room_channel from public.messages where id=p_message_id;
+  if not found then raise exception 'El mensaje ya no existe.'; end if;
+  if owner_id<>auth.uid() then raise exception 'Solo puedes editar tus propios mensajes.'; end if;
+  if room_conversation is not null and not public.is_conversation_member(room_conversation) then raise exception 'Ya no perteneces a esta conversación.'; end if;
+  if room_channel is not null and not exists(select 1 from public.channels ch where ch.id=room_channel and public.is_community_member(ch.community_id)) then raise exception 'Ya no perteneces a este megagrupo.'; end if;
+  if kind<>'text' then raise exception 'Solo se pueden editar mensajes de texto.'; end if;
+  update public.messages set body=trim(p_body),edited_at=now() where id=p_message_id and sender_id=auth.uid();
+end;
+$$;
+revoke all on function public.edit_message(uuid,text) from public;
+grant execute on function public.edit_message(uuid,text) to authenticated;
+
+create or replace function public.bump_conversation_activity()
+returns trigger language plpgsql security definer set search_path = public, auth
+as $$
+begin
+  if new.conversation_id is not null then update public.conversations set updated_at=now() where id=new.conversation_id; end if;
+  return new;
+end;
+$$;
+drop trigger if exists messages_bump_conversation_activity on public.messages;
+create trigger messages_bump_conversation_activity after insert on public.messages
+for each row execute function public.bump_conversation_activity();
 
 create table if not exists public.polls (
   id uuid primary key default gen_random_uuid(),
@@ -444,6 +507,8 @@ alter table public.badges enable row level security;
 alter table public.member_badges enable row level security;
 alter table public.alliance_requests enable row level security;
 alter table public.messages enable row level security;
+alter table public.message_reactions enable row level security;
+grant select, insert, delete on public.message_reactions to authenticated;
 alter table public.polls enable row level security;
 alter table public.poll_votes enable row level security;
 alter table public.custom_assets enable row level security;
@@ -519,6 +584,13 @@ drop policy if exists messages_delete_own_or_moderator on public.messages;
 create policy messages_delete_own_or_moderator on public.messages for delete to authenticated using (
   sender_id=auth.uid() or (channel_id is not null and exists(select 1 from public.channels ch where ch.id=messages.channel_id and public.has_community_permission(ch.community_id,'manage_messages')))
 );
+
+drop policy if exists message_reactions_read_member on public.message_reactions;
+create policy message_reactions_read_member on public.message_reactions for select to authenticated using (exists(select 1 from public.messages m where m.id=message_id));
+drop policy if exists message_reactions_insert_self on public.message_reactions;
+create policy message_reactions_insert_self on public.message_reactions for insert to authenticated with check (user_id=auth.uid() and not public.is_user_banned() and exists(select 1 from public.messages m where m.id=message_id));
+drop policy if exists message_reactions_delete_self on public.message_reactions;
+create policy message_reactions_delete_self on public.message_reactions for delete to authenticated using (user_id=auth.uid());
 
 -- Polls and votes inherit message visibility.
 drop policy if exists polls_read_message_members on public.polls;
@@ -734,14 +806,16 @@ with check (bucket_id='chat-media' and public.can_upload_chat_media(name));
 drop policy if exists chat_media_delete_own on storage.objects;
 create policy chat_media_delete_own on storage.objects for delete to authenticated
 using (bucket_id='chat-media' and owner_id::text=auth.uid()::text);
--- Realtime for messages.
+-- Realtime for messaging, reactions, friend requests and live inbox ordering.
 do $$
+declare table_name text;
 begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname='supabase_realtime' and schemaname='public' and tablename='messages'
-  ) then
-    alter publication supabase_realtime add table public.messages;
+  if exists(select 1 from pg_publication where pubname='supabase_realtime') then
+    for table_name in select unnest(array['messages','friends','conversation_members','conversations','message_reactions']) loop
+      if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=table_name) then
+        execute format('alter publication supabase_realtime add table public.%I',table_name);
+      end if;
+    end loop;
   end if;
 end $$;
 

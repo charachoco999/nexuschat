@@ -156,6 +156,14 @@
     <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="save-community-settings" value="default">Guardar</button></div>
   </form></dialog>
 
-  <template id="message-template"><article class="message"><div class="avatar avatar-message"></div><div class="message-main"><div class="message-meta"><strong class="message-author"></strong><time></time></div><div class="message-body"></div><div class="message-attachment"></div></div></article></template>
+  <dialog id="edit-message-dialog" class="dialog-card wide-dialog">
+    <form id="edit-message-form">
+      <div class="dialog-heading"><h3>Editar mensaje</h3><button type="button" class="icon-button" id="close-message-edit" aria-label="Cerrar">×</button></div>
+      <label class="field">Contenido<textarea id="edit-message-body" rows="7" maxlength="12000" required></textarea></label>
+      <div class="dialog-actions"><button type="button" class="button button-secondary" id="cancel-message-edit">Cancelar</button><button class="button button-primary" id="save-message-edit" type="submit">Guardar cambios</button></div>
+    </form>
+  </dialog>
+
+  <template id="message-template"><article class="message"><div class="avatar avatar-message"></div><div class="message-main"><div class="message-meta"><strong class="message-author"></strong><time></time></div><div class="message-body"></div><div class="message-attachment"></div><div class="message-reactions"></div></div></article></template>
 </body>
 </html>

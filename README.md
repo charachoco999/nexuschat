@@ -2,7 +2,7 @@
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.2 amplía la versión inicial con gestión de roles y permisos, asignación de roles a miembros, creación y asignación de medallas con visualización junto al nombre en los mensajes, y una corrección de las políticas de subida/lectura de archivos. No es todavía una alternativa completa a Discord. El esquema incluye puntos de extensión para roles, permisos, medallas, alianzas, stickers, emojis y cuentas alternativas; varios de esos editores y flujos todavía necesitan su interfaz.
+> **Estado:** v0.4 añade bandeja y solicitudes de amistad en tiempo real, respuestas, edición de mensajes propios y reacciones sincronizadas. Incluye los módulos anteriores de roles, permisos, medallas, canales y apariencia de megagrupo. No es todavía una alternativa completa a Discord; las funciones que necesitan servicios externos o módulos posteriores se indican más abajo.
 
 ## 1. Qué incluye esta versión
 
@@ -15,7 +15,8 @@ Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfa
 - MDs y conversaciones grupales entre amigos aceptados.
 - Creación de megagrupos con un canal `#general` inicial.
 - Creación de canales de texto, anuncios, voz y multimedia. En esta versión, los canales de voz muestran el punto de integración, pero todavía no conectan audio.
-- Mensajes con actualizaciones en tiempo real.
+- Mensajes con actualizaciones en tiempo real, respuestas con cita, edición de texto propio y reacciones con emojis.
+- Solicitudes de amistad y orden de la bandeja actualizados en tiempo real, sin recargar manualmente.
 - Adjuntos de imagen, vídeo y archivos permitidos por el bucket privado, con límite inicial de 50 MB.
 - Markdown y HTML visual saneado mediante DOMPurify. El contenido no puede ejecutar scripts arbitrarios.
 - Encuestas básicas con opciones y votación.
@@ -87,6 +88,10 @@ No existe un botón para hacerse administrador desde la web. La concesión inici
 ## 2.1. Actualizar desde v0.1
 
 Para una instalación que ya está publicada, sigue `UPGRADE-v0.2.md`. Ejecuta `supabase/fix-chat-media-rls.sql` en Supabase SQL Editor para corregir la subida de archivos y conserva tu `assets/js/config.js` al sustituir los archivos del frontend. La actualización también incorpora los paneles de roles y medallas; ejecuta `supabase/migrations/20261031_harden_community_badges.sql` para aplicar la política reforzada de asignación de medallas.
+
+## 2.2. Actualizar desde v0.3 a v0.4
+
+Sigue `UPGRADE-v0.4.md`. Ejecuta `supabase/migrations/20261101_realtime_chat_enhancements.sql` en SQL Editor y actualiza los archivos del frontend. La migración habilita actualizaciones en tiempo real para solicitudes, bandeja y reacciones, además de crear las reglas seguras para responder, editar y reaccionar.
 
 ---
 
@@ -171,7 +176,7 @@ nexus-chat/
 
 ## 8. Próxima evolución recomendada
 
-La siguiente evolución puede centrarse en edición de canales, ajustes avanzados de megagrupo, personalización detallada de perfil/cliente y alianza con flujo completo. Después conviene completar Quick-Alt, stickers/emojis y GIFs, y finalmente añadir voz con WebRTC/TURN. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.
+La siguiente evolución puede centrarse en confirmaciones de lectura y mensajes no leídos, panel de miembros, personalización detallada de perfil/cliente y alianza con flujo completo. Después conviene completar Quick-Alt, stickers/emojis y GIFs, y finalmente añadir voz con WebRTC/TURN. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.
 
 
 ## Registro público y correo de confirmación
