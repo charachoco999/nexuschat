@@ -72,8 +72,14 @@
     <section class="main-panel">
       <header class="topbar">
         <div class="topbar-title"><span class="topbar-icon" id="context-icon">◫</span><div><h2 id="context-title">Mensajes</h2><p id="context-subtitle">Tus conversaciones, en un mismo lugar.</p></div></div>
-        <div class="topbar-actions"><span class="connection-status" id="connection-status"><i></i> Conectando</span><button class="icon-button" id="top-profile" title="Perfil">●</button></div>
+        <div class="topbar-actions"><span class="connection-status" id="connection-status"><i></i> Conectando</span><button class="notification-bell" id="open-notifications" type="button" title="Notificaciones" aria-expanded="false">♢<span id="notification-count" class="notification-count hidden">0</span></button><button class="icon-button" id="top-profile" title="Perfil">●</button></div>
       </header>
+
+      <aside id="notification-panel" class="notification-panel hidden" aria-label="Notificaciones">
+        <div class="notification-panel-head"><div><strong>Notificaciones</strong><small id="notification-subtitle">Mensajes nuevos y menciones</small></div><button type="button" class="icon-button" id="clear-notifications" title="Limpiar">×</button></div>
+        <div id="notification-list" class="notification-list"><p class="empty-state compact">Todavía no hay notificaciones.</p></div>
+        <div class="notification-panel-foot"><button type="button" class="button button-secondary" id="enable-desktop-notifications">Activar avisos de escritorio</button><small id="notification-permission-note">El sonido funciona mientras Nexus está abierto.</small></div>
+      </aside>
 
       <section class="view active" id="view-chats">
         <div class="chat-layout">
@@ -108,10 +114,25 @@
           </form>
           <div id="profile-widgets-list" class="profile-widget-grid"><p class="muted small-muted">Cargando widgets…</p></div>
         </section>
-        <section class="surface settings-surface"><div class="surface-heading"><h3>Personalización avanzada</h3><span class="tag">En desarrollo</span></div><p class="muted">Los editores de efectos animados, fuentes importadas y placas de perfil se incorporarán en siguientes módulos.</p></section>
+        <section class="surface settings-surface"><div class="surface-heading"><div><h3>Efectos de identidad</h3><p class="muted small-muted">GIFs de nombre, avatar y placa. Los archivos se guardan en tu carpeta de perfil.</p></div><span class="tag">IDENTIDAD</span></div>
+          <div class="identity-upload-grid">
+            <label class="field">Efecto del nombre (GIF / imagen)<input id="profile-name-effect-file" type="file" accept="image/gif,image/png,image/webp,image/jpeg"></label>
+            <label class="field">Efecto del avatar (GIF / imagen)<input id="profile-avatar-effect-file" type="file" accept="image/gif,image/png,image/webp,image/jpeg"></label>
+            <label class="field">Efecto de placa (GIF / imagen)<input id="profile-plate-file" type="file" accept="image/gif,image/png,image/webp,image/jpeg"></label>
+            <label class="field">Fuente personalizada (.woff/.woff2/.ttf)<input id="profile-font-file" type="file" accept=".woff,.woff2,.ttf,font/woff,font/woff2,font/ttf"></label>
+            <label class="field full-field">Opacidad del efecto de placa: <strong id="profile-plate-opacity-value">13%</strong><input id="profile-plate-opacity" type="range" min="0" max="0.6" step="0.01" value="0.13"></label>
+            <div class="full-field form-actions"><button class="button button-secondary" id="save-profile-plate-opacity" type="button">Guardar opacidad</button></div>
+          </div>
+          <div class="identity-current-assets" id="identity-current-assets"></div>
+          <p class="muted small-muted">Los efectos se aplican en mensajes y tarjetas de perfil. Usa archivos de confianza.</p>
+        </section>
+        <section class="surface settings-surface"><div class="surface-heading"><div><h3>Quick-Alt</h3><p class="muted small-muted">Identidades alternativas que utilizan tu misma cuenta y permisos. Sus mensajes muestran una marca ALT.</p></div><span class="tag">CUENTAS</span></div>
+          <form id="alt-create-form" class="alt-create-form"><label class="field">Usuario alternativo<input id="alt-username" maxlength="24" minlength="3" pattern="[a-zA-Z0-9_]+" required placeholder="mi_alt"></label><label class="field">Nickname<input id="alt-nickname" maxlength="40" placeholder="Mi otra identidad"></label><label class="field full-field">Avatar HTTPS (opcional)<input id="alt-avatar" type="url" placeholder="https://…"></label><div class="full-field form-actions"><button class="button button-primary" type="submit">Crear alt</button><button class="button button-secondary" type="button" id="use-main-identity">Usar identidad principal</button></div></form>
+          <div id="alt-profile-list" class="alt-profile-list"><p class="muted small-muted">Cargando identidades…</p></div>
+        </section>
       </div></section>
 
-      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
+      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
 
       <section class="view" id="view-community"><div class="content-page"><div class="community-hero" id="community-hero"><div class="community-hero-copy"><p class="eyebrow">MEGAGRUPO</p><h1 id="community-name">Comunidad</h1><p id="community-description" class="muted"></p></div><button class="button button-secondary" id="community-settings">Administrar</button></div><div class="community-info-grid"><div class="surface"><p class="eyebrow">MIEMBROS</p><h2 id="community-members-count">—</h2></div><div class="surface"><p class="eyebrow">CANALES</p><h2 id="community-channels-count">—</h2></div><div class="surface"><p class="eyebrow">COMUNIDAD</p><h2 id="community-id-short">—</h2></div></div><div class="surface settings-surface"><div class="surface-heading"><h3>Acerca de este megagrupo</h3></div><p class="muted">Selecciona un canal en la barra lateral para conversar. Los canales de voz, anuncios y multimedia tienen su propio tipo y sus capacidades se irán habilitando por módulos.</p></div>
         <section id="community-roles-area" class="surface settings-surface hidden">
@@ -166,17 +187,19 @@
   </dialog>
 
   <dialog id="community-settings-dialog" class="dialog-card wide-dialog"><form method="dialog" id="community-settings-form"><div class="dialog-heading"><h3>Configuración del megagrupo</h3><button class="icon-button" value="cancel">×</button></div>
-    <label class="field">Nombre<input id="community-edit-name" maxlength="60" required></label>
-    <label class="field">Descripción<textarea id="community-edit-description" rows="3" maxlength="500"></textarea></label>
-    <label class="field">Color del nombre<input id="community-edit-color" type="color" value="#a99bff"></label>
-    <div class="form-grid">
-      <label class="field">URL del icono (HTTPS)<input id="community-edit-icon" type="url" placeholder="https://…"></label>
-      <label class="field">URL del banner (HTTPS)<input id="community-edit-banner" type="url" placeholder="https://…"></label>
-      <label class="field full-field">URL del fondo (HTTPS)<input id="community-edit-background" type="url" placeholder="https://…"></label>
+    <div id="community-owner-settings">
+      <label class="field">Nombre<input id="community-edit-name" maxlength="60" required></label>
+      <label class="field">Descripción<textarea id="community-edit-description" rows="3" maxlength="500"></textarea></label>
+      <label class="field">Color del nombre<input id="community-edit-color" type="color" value="#a99bff"></label>
+      <div class="form-grid">
+        <label class="field">URL del icono (HTTPS)<input id="community-edit-icon" type="url" placeholder="https://…"></label>
+        <label class="field">URL del banner (HTTPS)<input id="community-edit-banner" type="url" placeholder="https://…"></label>
+        <label class="field full-field">URL del fondo (HTTPS)<input id="community-edit-background" type="url" placeholder="https://…"></label>
+      </div>
+      <label class="field">CSS personalizado del megagrupo<textarea id="community-edit-css" rows="6" maxlength="6000" spellcheck="false" placeholder=".community-hero { border-radius: 24px; }"></textarea></label>
+      <p class="muted small-muted">El CSS se limita a selectores del área del megagrupo y a propiedades visuales. No admite @import, URL externas ni código activo.</p>
     </div>
-    <label class="field">CSS personalizado del megagrupo<textarea id="community-edit-css" rows="6" maxlength="6000" spellcheck="false" placeholder=".community-hero { border-radius: 24px; }"></textarea></label>
-    <p class="muted small-muted">El CSS se limita a selectores del área del megagrupo y a propiedades visuales. No admite @import, URL externas ni código activo.</p>
-    <div class="invite-tools"><div><strong>Invitar miembros</strong><p class="muted small-muted">Crea un enlace temporal para unirse a este megagrupo.</p></div><button class="button button-secondary" id="create-community-invite" type="button">Crear enlace de invitación</button></div>
+    <div class="invite-tools"><div><strong>Invitar miembros</strong><p class="muted small-muted">Crea un enlace válido durante 7 días y sin límite de usos.</p></div><button class="button button-secondary" id="create-community-invite" type="button">Crear enlace de invitación</button></div><div id="community-invite-result" class="community-invite-result hidden"><label class="field">Enlace de invitación<input id="community-invite-url" type="url" readonly></label><button class="button button-primary" type="button" id="copy-community-invite">Copiar enlace</button></div>
     <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="save-community-settings" value="default">Guardar</button></div>
   </form></dialog>
 

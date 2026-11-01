@@ -7,6 +7,12 @@
   const cfg = window.NEXUS_CONFIG || {};
   const hasConfig = Boolean(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_URL.includes('TU-PROYECTO') && !cfg.SUPABASE_ANON_KEY.includes('TU-PUBLISHABLE'));
   const client = hasConfig ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  const PENDING_INVITE_KEY = 'nexus-pending-community-invite';
+  const readPendingInvite = () => { try { return localStorage.getItem(PENDING_INVITE_KEY); } catch { return null; } };
+  const savePendingInvite = code => { try { localStorage.setItem(PENDING_INVITE_KEY, code); } catch {} };
+  const clearPendingInvite = () => { try { localStorage.removeItem(PENDING_INVITE_KEY); } catch {} };
+  const inviteCodeFromUrl = new URL(location.href).searchParams.get('invite');
+  if (inviteCodeFromUrl && /^[A-F0-9]{12}$/i.test(inviteCodeFromUrl)) savePendingInvite(inviteCodeFromUrl.toUpperCase());
 
   let currentUser = null;
   let profile = null;
@@ -33,6 +39,12 @@
   let communityMemberRoles = [];
   let communityPermissions = {manage_roles:false,manage_badges:false,manage_messages:false,manage_channels:false,post_announcements:false};
   const messageIdentityCache = new Map();
+  let activeAltProfile = null;
+  let messageNotificationChannel = null;
+  let notificationAudioContext = null;
+  let notificationItems = [];
+  const notificationSeenIds = new Set();
+  const mentionCandidateCache = new Map();
 
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const initials = (value = '?') => String(value).trim().slice(0, 1).toUpperCase() || '?';
@@ -76,7 +88,25 @@
     const safe = typeof url === 'string' && /^https:\/\//i.test(url) ? url : '';
     return safe ? `style="background-image:url('${escapeHtml(safe)}');color:transparent"` : '';
   };
-  const avatarMarkup = (p, extra = '') => `<span class="avatar ${extra}" ${avatarStyle(p?.avatar_url)}>${p?.avatar_url ? '' : escapeHtml(initials(p?.nickname || p?.username || '?'))}</span>`;
+  const avatarMarkup = (p, extra = '') => {
+    const photo=safeHttpsUrl(p?.avatar_url);
+    const effect=safeHttpsUrl(p?.profile_effect_url);
+    const styles=[];
+    if(photo) styles.push(`background-image:url('${photo.replace(/["\\]/g,'')}')`,'color:transparent');
+    if(effect) styles.push(`--profile-effect-image:url('${effect.replace(/["\\]/g,'')}')`);
+    return `<span class="avatar ${extra}${effect?' avatar-effect':''}" ${styles.length?`style="${styles.join(';')}"`:''}>${photo?'':escapeHtml(initials(p?.nickname || p?.username || '?'))}</span>`;
+  };
+  const profilePlateOpacity = settings => {
+    const value=Number(settings?.profilePlateOpacity);
+    return Number.isFinite(value) ? Math.max(0,Math.min(.6,value)) : .13;
+  };
+  function applyProfilePlate(node, person) {
+    if(!node) return;
+    const url=safeHttpsUrl(person?.profile_plate_url);
+    if(url) node.style.setProperty('--profile-plate-image',`url("${url.replace(/["\\]/g,'')}")`);
+    else node.style.removeProperty('--profile-plate-image');
+    node.style.setProperty('--profile-plate-opacity',String(profilePlateOpacity(person?.settings)));
+  }
   const dateLabel = value => {
     try { return new Date(value).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}); }
     catch { return ''; }
@@ -152,7 +182,10 @@
       if (authMode === 'signup') {
         const username = $('#auth-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
         if (username.length < 3) throw new Error('El usuario debe tener al menos 3 caracteres (letras, números o _).');
-        const signupOptions = {data:{username}};
+        const pendingInvite = new URL(location.href).searchParams.get('invite') || readPendingInvite();
+        const emailRedirect = new URL(`${location.origin}${location.pathname}`);
+        if (pendingInvite && /^[A-F0-9]{12}$/i.test(pendingInvite)) emailRedirect.searchParams.set('invite',pendingInvite.toUpperCase());
+        const signupOptions = {data:{username},emailRedirectTo:emailRedirect.toString()};
         if (cfg.TURNSTILE_SITE_KEY) signupOptions.captchaToken = authCaptchaToken;
         const { error } = await client.auth.signUp({email, password, options:signupOptions});
         if (error) throw error;
@@ -194,10 +227,14 @@
       const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
       if (error) throw error;
       profile = data;
+      await loadActiveAltProfile();
       renderIdentity();
       subscribeAccountRealtime();
+      subscribeMessageNotifications();
+      await loadAltProfiles();
       await loadInitialData();
       await consumePendingCommunityInvite();
+      renderNotificationPanel();
     } catch (error) {
       showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
     }
@@ -209,10 +246,12 @@
     if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
     if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
-    friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null;
+    if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
+    friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null; messageNotificationChannel = null;
     if (listRefreshTimer) clearTimeout(listRefreshTimer);
     pendingListRefreshes.clear();
-    currentUser = null; profile = null; currentContext = null; replyTarget = null;
+    currentUser = null; profile = null; currentContext = null; replyTarget = null; activeAltProfile = null;
+    notificationItems = []; notificationSeenIds.clear(); renderNotificationPanel();
     showAuth();
   }
 
@@ -242,7 +281,7 @@
     $('#context-subtitle').textContent = subtitle;
     $('#context-icon').textContent = icon;
     $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
-    if (view === 'profile') { fillProfileForm(); renderProfileWidgets(); fillCommunityNickname(); }
+    if (view === 'profile') { fillProfileForm(); renderProfileWidgets(); fillCommunityNickname(); renderIdentityAssetLinks(); loadAltProfiles(); $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings)); $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`; }
     if (view === 'settings') fillSettingsForm();
   }
   $$('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
@@ -253,16 +292,82 @@
   $('#logout-button').addEventListener('click', signOut);
   $('#global-search').addEventListener('click', () => addFriendFlow());
 
+  async function loadActiveAltProfile() {
+    activeAltProfile=null;
+    if (!currentUser) return;
+    const stored=localStorage.getItem(`nexus-active-alt-${currentUser.id}`);
+    if (!stored) return;
+    const {data,error}=await client.from('alt_profiles').select('*').eq('id',stored).eq('owner_id',currentUser.id).maybeSingle();
+    if (!error && data) activeAltProfile=data;
+    else localStorage.removeItem(`nexus-active-alt-${currentUser.id}`);
+  }
+
+  async function loadAltProfiles() {
+    if (!currentUser || !$('#alt-profile-list')) return;
+    const {data,error}=await client.from('alt_profiles').select('*').eq('owner_id',currentUser.id).order('created_at',{ascending:true});
+    if (error) { console.warn('No se pudieron cargar las alts:',error); return; }
+    const host=$('#alt-profile-list');
+    host.innerHTML=(data||[]).length ? (data||[]).map(item=>`<div class="alt-profile-card"><span class="alt-profile-avatar" ${safeHttpsUrl(item.avatar_url)?`style="background-image:url('${escapeHtml(safeHttpsUrl(item.avatar_url))}')"`:''}>${safeHttpsUrl(item.avatar_url)?'':escapeHtml(initials(item.nickname||item.username))}</span><span class="alt-profile-copy"><strong>${escapeHtml(item.nickname||item.username)}</strong><small>@${escapeHtml(item.username)}</small></span><button type="button" class="button ${activeAltProfile?.id===item.id?'button-primary':'button-secondary'}" data-use-alt="${item.id}">${activeAltProfile?.id===item.id?'Activa':'Usar'}</button><button type="button" class="icon-button" data-delete-alt="${item.id}" title="Eliminar alt">×</button></div>`).join('') : '<p class="muted small-muted">Todavía no has creado identidades alternativas.</p>';
+    $$('[data-use-alt]').forEach(button=>button.addEventListener('click',()=>activateAltProfile(data.find(item=>item.id===button.dataset.useAlt)||null)));
+    $$('[data-delete-alt]').forEach(button=>button.addEventListener('click',async()=>{
+      const item=data.find(row=>row.id===button.dataset.deleteAlt); if (!item || !confirm(`¿Eliminar la identidad @${item.username}? Los mensajes anteriores dejarán de mostrar la marca ALT y usarán el perfil principal.`)) return;
+      const {error:deleteError}=await client.from('alt_profiles').delete().eq('id',item.id).eq('owner_id',currentUser.id);
+      if (deleteError) showError(deleteError,'No se pudo eliminar la identidad.');
+      else { if(activeAltProfile?.id===item.id) await activateAltProfile(null); else await loadAltProfiles(); toast('Identidad alternativa eliminada.','success'); }
+    }));
+  }
+
+  async function activateAltProfile(item) {
+    activeAltProfile=item;
+    if (item) localStorage.setItem(`nexus-active-alt-${currentUser.id}`,item.id);
+    else localStorage.removeItem(`nexus-active-alt-${currentUser.id}`);
+    renderIdentity(); await loadAltProfiles();
+    toast(item?`Ahora escribes como @${item.username}.`:'Has vuelto a tu identidad principal.','success');
+  }
+
+  async function resolveAltSender(altId,baseProfile) {
+    const {data,error}=await client.from('alt_profiles').select('id,username,nickname,avatar_url,owner_id').eq('id',altId).maybeSingle();
+    if (error || !data || data.owner_id!==baseProfile?.id) return baseProfile || {};
+    return {...baseProfile,username:data.username,nickname:data.nickname||data.username,avatar_url:data.avatar_url||baseProfile?.avatar_url,isAlt:true};
+  }
+
+  function applyProfileFontToNode(node,userId,fontUrl) {
+    if (!node) return;
+    const safe=safeHttpsUrl(fontUrl);
+    if (!safe || !userId) { node.style.removeProperty('font-family'); return; }
+    const family=`NexusProfile_${String(userId).replace(/[^a-z0-9]/gi,'')}`;
+    const styleId=`nexus-profile-font-${String(userId).replace(/[^a-z0-9]/gi,'')}`;
+    let style=document.getElementById(styleId);
+    if (!style) { style=document.createElement('style'); style.id=styleId; document.head.append(style); }
+    // Do not hard-code format("woff2"): the upload control also accepts WOFF and TTF.
+    style.textContent=`@font-face{font-family:"${family}";src:url("${safe.replace(/["\\]/g,'')}");font-display:swap;}`;
+    node.style.fontFamily=`"${family}", "Space Grotesk", sans-serif`;
+  }
+
+  function applyOwnProfileFont() {
+    const node=$('#sidebar-username');
+    if (node && profile) applyProfileFontToNode(node,currentUser.id,profile.name_font_url);
+  }
+
   function renderIdentity() {
-    const username = profile?.nickname || profile?.username || currentUser?.email?.split('@')[0] || 'Usuario';
+    const identity = activeAltProfile || profile || {};
+    const username = identity.nickname || identity.username || currentUser?.email?.split('@')[0] || 'Usuario';
+    const avatarUrl = safeHttpsUrl(identity.avatar_url || profile?.avatar_url);
     $('#sidebar-username').textContent = username;
-    $('#sidebar-handle').textContent = `@${profile?.username || 'usuario'}`;
-    $('#sidebar-avatar').style.backgroundImage = profile?.avatar_url ? `url('${profile.avatar_url}')` : '';
-    $('#sidebar-avatar').textContent = profile?.avatar_url ? '' : initials(username);
-    $('#rail-avatar').style.backgroundImage = profile?.avatar_url ? `url('${profile.avatar_url}')` : '';
-    $('#rail-avatar').textContent = profile?.avatar_url ? '' : initials(username);
+    $('#sidebar-handle').textContent = `@${identity.username || profile?.username || 'usuario'}${activeAltProfile ? ' · ALT' : ''}`;
+    $('#sidebar-avatar').style.backgroundImage = avatarUrl ? `url('${avatarUrl}')` : '';
+    $('#sidebar-avatar').textContent = avatarUrl ? '' : initials(username);
+    $('#rail-avatar').style.backgroundImage = avatarUrl ? `url('${avatarUrl}')` : '';
+    $('#rail-avatar').textContent = avatarUrl ? '' : initials(username);
+    for (const avatarNode of [$('#sidebar-avatar'),$('#rail-avatar')]) {
+      const effect=safeHttpsUrl(profile?.profile_effect_url);
+      avatarNode?.classList.toggle('avatar-effect',Boolean(effect));
+      if(effect) avatarNode.style.setProperty('--profile-effect-image',`url("${effect.replace(/["\\]/g,'')}")`);
+      else avatarNode?.style.removeProperty('--profile-effect-image');
+    }
     if (/^#[0-9a-f]{6}$/i.test(profile?.settings?.accent || '')) document.documentElement.style.setProperty('--accent', profile.settings.accent);
     if (/^https:\/\//i.test(profile?.settings?.background || '')) document.body.style.backgroundImage = `url('${profile.settings.background}')`;
+    applyOwnProfileFont();
   }
 
   async function loadInitialData() {
@@ -326,6 +431,167 @@
       .subscribe();
   }
 
+  // ---------- Message notifications ----------
+  function primeNotificationAudio() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!notificationAudioContext) notificationAudioContext = new AudioContextClass();
+    if (notificationAudioContext.state === 'suspended') notificationAudioContext.resume().catch(() => {});
+  }
+  document.addEventListener('pointerdown', primeNotificationAudio, {once:true,passive:true});
+  document.addEventListener('keydown', primeNotificationAudio, {once:true});
+
+  function playNotificationSound() {
+    if (profile?.settings?.notifySound === false || !notificationAudioContext || notificationAudioContext.state !== 'running') return;
+    const ctx = notificationAudioContext;
+    const now = ctx.currentTime;
+    [660,880].forEach((frequency,index) => {
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(frequency,now + index*0.095);
+      gain.gain.setValueAtTime(0.0001,now + index*0.095);
+      gain.gain.exponentialRampToValueAtTime(0.045,now + index*0.095 + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001,now + index*0.095 + 0.12);
+      oscillator.connect(gain); gain.connect(ctx.destination);
+      oscillator.start(now + index*0.095); oscillator.stop(now + index*0.095 + 0.13);
+    });
+  }
+
+  async function resolveNotificationSource(message) {
+    if (message.conversation_id) {
+      let row = conversations.find(item => item.id === message.conversation_id);
+      if (!row) {
+        const {data} = await client.from('conversations').select('*').eq('id',message.conversation_id).maybeSingle();
+        if (!data) return {kind:'conversation',id:message.conversation_id,title:'Mensaje directo',subtitle:'Conversación',icon:'',conversationId:message.conversation_id};
+        const {data:members} = await client.from('conversation_members').select('user_id,personal_name').eq('conversation_id',message.conversation_id);
+        const otherIds = (members || []).map(item=>item.user_id).filter(id=>id!==currentUser.id);
+        const profiles = await fetchProfiles(otherIds);
+        const other = otherIds.length ? profiles[otherIds[0]] : null;
+        const mine = (members || []).find(item=>item.user_id===currentUser.id);
+        row = {...data,displayTitle:mine?.personal_name || data.title || other?.nickname || other?.username || 'Mensaje directo',displayAvatar:data.icon_url || (data.kind==='direct'?other?.avatar_url:null)};
+      }
+      let title = row.displayTitle || row.title || 'Mensaje directo';
+      let icon = row.displayAvatar || row.icon_url || '';
+      let subtitle = row.kind === 'group' ? 'Chat grupal' : 'Mensaje directo';
+      if (row.kind === 'direct') {
+        const {data:members} = await client.from('conversation_members').select('user_id,personal_name').eq('conversation_id',message.conversation_id);
+        const otherId = (members || []).map(item=>item.user_id).find(id=>id!==currentUser.id);
+        if (otherId) {
+          const people = await fetchProfiles([otherId]);
+          const other = people[otherId];
+          title = (members || []).find(item=>item.user_id===currentUser.id)?.personal_name || other?.nickname || other?.username || title;
+          icon = row.icon_url || other?.avatar_url || icon;
+        }
+      }
+      return {kind:'conversation',id:message.conversation_id,title,subtitle,icon,conversationId:message.conversation_id};
+    }
+    if (message.channel_id) {
+      const {data:channel} = await client.from('channels').select('id,name,type,community_id').eq('id',message.channel_id).maybeSingle();
+      if (!channel) return {kind:'channel',id:message.channel_id,title:'Canal',subtitle:'Megagrupo',icon:'',communityId:null,channelId:message.channel_id};
+      const {data:community} = await client.from('communities').select('id,name,icon_url').eq('id',channel.community_id).maybeSingle();
+      return {kind:'channel',id:channel.id,title:`# ${channel.name}`,subtitle:community?.name || 'Megagrupo',icon:community?.icon_url || '',communityId:channel.community_id,channelId:channel.id};
+    }
+    return {kind:'conversation',id:'',title:'Nexus',subtitle:'Mensaje nuevo',icon:''};
+  }
+
+  async function isCurrentUserMentioned(message, source) {
+    const mentions = Array.isArray(message.formatting?.mentions) ? message.formatting.mentions : [];
+    if (mentions.some(item=>item.type==='user' && item.id===currentUser.id)) return true;
+    const roleIds = mentions.filter(item=>item.type==='role').map(item=>item.id).filter(Boolean);
+    if (!roleIds.length || !source.communityId) return false;
+    const {data} = await client.from('member_roles').select('role_id').eq('community_id',source.communityId).eq('user_id',currentUser.id).in('role_id',roleIds);
+    return Boolean(data?.length);
+  }
+
+  function renderNotificationPanel() {
+    const list = $('#notification-list');
+    if (!list) return;
+    const count = $('#notification-count');
+    if (count) {
+      count.textContent = String(notificationItems.length);
+      count.classList.toggle('hidden',notificationItems.length===0);
+    }
+    list.innerHTML = notificationItems.length ? notificationItems.slice(0,35).map((item,index)=>{
+      const safeIcon = safeHttpsUrl(item.icon);
+      const iconMarkup = safeIcon ? `<span class="notification-source-icon" style="background-image:url('${escapeHtml(safeIcon)}')"></span>` : `<span class="notification-source-icon notification-source-fallback">${item.kind==='channel'?'▦':item.subtitle==='Chat grupal'?'♧':'◉'}</span>`;
+      return `<button class="notification-entry ${item.mention?'notification-entry-mention':''}" type="button" data-notification-index="${index}">${iconMarkup}<span class="notification-entry-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subtitle)}${item.mention?' · Te han mencionado':''}</small><span>${escapeHtml(item.body)}</span></span><time>${escapeHtml(item.time)}</time></button>`;
+    }).join('') : '<p class="empty-state compact">Todavía no hay notificaciones.</p>';
+    $('#notification-subtitle').textContent = notificationItems.length ? `${notificationItems.length} aviso${notificationItems.length===1?'':'s'} recientes` : 'Mensajes nuevos y menciones';
+    $('#notification-permission-note').textContent = !('Notification' in window) ? 'Este navegador no admite avisos de escritorio.' : Notification.permission==='granted' ? 'Avisos de escritorio activados.' : 'Sonido mientras Nexus esté abierto; avisos de escritorio opcionales con la pestaña oculta.';
+    $$('[data-notification-index]').forEach(button=>button.addEventListener('click',async()=>{
+      const item=notificationItems[Number(button.dataset.notificationIndex)];
+      if (!item) return;
+      $('#notification-panel').classList.add('hidden');
+      $('#open-notifications').setAttribute('aria-expanded','false');
+      await openNotificationTarget(item);
+    }));
+  }
+
+  async function openNotificationTarget(item) {
+    if (item.kind==='conversation') {
+      await loadConversations();
+      const row=conversations.find(entry=>entry.id===item.conversationId);
+      if (row) await openConversation(row); else toast('Ya no tienes acceso a esa conversación.','error');
+      return;
+    }
+    if (item.kind==='channel' && item.communityId) {
+      const {data:community,error}=await client.from('communities').select('*').eq('id',item.communityId).maybeSingle();
+      if (error || !community) { showError(error || new Error('Ya no tienes acceso a ese megagrupo.')); return; }
+      await selectCommunity(community);
+      const channel=currentCommunityChannels.find(row=>row.id===item.channelId);
+      if (channel) await openCommunityChannel(channel);
+      else toast('No se ha encontrado el canal.','error');
+    }
+  }
+
+  async function handleIncomingNotification(message) {
+    if (!currentUser || !message?.id || message.sender_id===currentUser.id || notificationSeenIds.has(message.id)) return;
+    notificationSeenIds.add(message.id);
+    const source=await resolveNotificationSource(message);
+    const mention=await isCurrentUserMentioned(message,source);
+    const sameContext=currentContext && ((message.conversation_id && currentContext.type==='conversation' && currentContext.id===message.conversation_id) || (message.channel_id && currentContext.type==='channel' && currentContext.id===message.channel_id));
+    const visible=document.visibilityState==='visible';
+    const showWhileOpen=profile?.settings?.notifyWhileOpen !== false;
+    if (sameContext && visible && !showWhileOpen && !mention) return;
+    const preview=String(message.body || message.attachment?.name || 'Ha enviado un archivo').replace(/\s+/g,' ').slice(0,120);
+    const item={...source,body:preview,mention,time:dateLabel(message.created_at),createdAt:message.created_at};
+    notificationItems.unshift(item); notificationItems=notificationItems.slice(0,50);
+    playNotificationSound();
+    renderNotificationPanel();
+    if (document.visibilityState==='hidden' && profile?.settings?.desktopNotifications===true && 'Notification' in window && Notification.permission==='granted') {
+      const notice=new Notification(mention ? `Te han mencionado · ${source.title}` : source.title,{body:preview,icon:safeHttpsUrl(source.icon)||undefined,tag:`nexus-${message.id}`});
+      notice.onclick=()=>{window.focus();openNotificationTarget(item);notice.close();};
+    }
+  }
+
+  function subscribeMessageNotifications() {
+    if (!client || !currentUser) return;
+    if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
+    messageNotificationChannel=client.channel(`nexus-notifications-${currentUser.id}`)
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>handleIncomingNotification(payload.new).catch(error=>console.warn('No se pudo procesar una notificación:',error)))
+      .subscribe();
+  }
+
+  $('#open-notifications').addEventListener('click',()=>{
+    const panel=$('#notification-panel');
+    const opening=panel.classList.contains('hidden');
+    panel.classList.toggle('hidden',!opening);
+    $('#open-notifications').setAttribute('aria-expanded',String(opening));
+    if (opening) renderNotificationPanel();
+  });
+  $('#clear-notifications').addEventListener('click',()=>{notificationItems=[];renderNotificationPanel();});
+  $('#enable-desktop-notifications').addEventListener('click',async()=>{
+    if (!('Notification' in window)) { toast('Este navegador no admite notificaciones de escritorio.'); return; }
+    try {
+      const permission=await Notification.requestPermission();
+      const settings={...(profile?.settings||{}),desktopNotifications:permission==='granted'};
+      const {error}=await client.from('profiles').update({settings}).eq('id',currentUser.id);
+      if (error) throw error;
+      profile.settings=settings; renderNotificationPanel();
+      toast(permission==='granted'?'Avisos de escritorio activados.':'No se concedió permiso para los avisos.');
+    } catch(error) { showError(error,'No se pudo activar el permiso de notificaciones.'); }
+  });
+
   // ---------- Conversations and realtime messages ----------
   async function loadConversations() {
     if (!currentUser) return;
@@ -353,7 +619,7 @@
       const mine = members.find(member => member.user_id === currentUser.id);
       const title = mine?.personal_name || row.title || (row.kind === 'direct' ? (otherProfile?.nickname || otherProfile?.username || 'Mensaje directo') : 'Grupo sin nombre');
       const avatar = row.icon_url || (row.kind === 'direct' ? otherProfile?.avatar_url : null);
-      return {...row, displayTitle:title, displayAvatar:avatar, hidden_at:mine?.hidden_at || null};
+      return {...row, displayTitle:title, displayAvatar:avatar, displayPlate:row.kind==='direct'?otherProfile?.profile_plate_url:null,displayPlateOpacity:profilePlateOpacity(otherProfile?.settings), hidden_at:mine?.hidden_at || null};
     });
     renderConversationList();
   }
@@ -374,7 +640,7 @@
       return;
     }
     $('#conversation-list').innerHTML = visible.map(row => `
-      <div class="conversation-row">
+      <div class="conversation-row" ${safeHttpsUrl(row.displayPlate)?`style="--profile-plate-image:url('${escapeHtml(safeHttpsUrl(row.displayPlate))}');--profile-plate-opacity:${row.displayPlateOpacity}"`:''}>
         <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
           <span class="avatar" ${avatarStyle(row.displayAvatar)}>${row.displayAvatar ? '' : escapeHtml(initials(row.displayTitle))}</span>
           <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>
@@ -472,6 +738,7 @@
         <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
+          <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
           <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
@@ -481,7 +748,11 @@
     if (!voiceNotice) {
       $('#cancel-reply').addEventListener('click', clearReplyTarget);
       $('#message-form').addEventListener('submit', sendMessage);
-      $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#message-form').requestSubmit(); } });
+      $('#message-input').addEventListener('input', updateMentionSuggestions);
+      $('#message-input').addEventListener('keydown', event => {
+        if (event.key === 'Escape') hideMentionSuggestions();
+        if (event.key === 'Enter' && !event.shiftKey && !$('#mention-suggestions')?.querySelector('[data-mention-option].active')) { event.preventDefault(); $('#message-form').requestSubmit(); }
+      });
       $('#attach-file').addEventListener('click', () => $('#chat-file').click());
       $('#chat-file').addEventListener('change', uploadAttachment);
       if (!mediaOnly && !announcementLocked) {
@@ -522,7 +793,7 @@
 
   async function openPublicProfile(userId) {
     const {data:person,error} = await client.from('profiles')
-      .select('id,username,nickname,avatar_url,banner_url,bio,pronouns,aliases,default_name_color,widgets')
+      .select('id,username,nickname,avatar_url,banner_url,bio,pronouns,aliases,default_name_color,widgets,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,settings')
       .eq('id',userId).maybeSingle();
     if (error || !person) { showError(error || new Error('No se pudo encontrar el perfil.')); return; }
     let communityNickname = '';
@@ -540,8 +811,12 @@
     const avatar = document.createElement('span'); avatar.className='avatar public-profile-avatar';
     if (safeHttpsUrl(person.avatar_url)) avatar.style.backgroundImage=`url("${safeHttpsUrl(person.avatar_url).replace(/["\\]/g,'')}")`;
     else avatar.textContent=initials(person.nickname || person.username);
+    if (safeHttpsUrl(person.profile_effect_url)) avatar.style.setProperty('--profile-effect-image',`url("${safeHttpsUrl(person.profile_effect_url).replace(/["\\]/g,'')}")`);
+    applyProfilePlate(header,person);
     const names = document.createElement('div'); names.className='public-profile-names';
     const display = document.createElement('strong'); display.textContent=communityNickname || person.nickname || person.username;
+    if (safeHttpsUrl(person.name_effect_url)) display.style.setProperty('--name-effect-image',`url("${safeHttpsUrl(person.name_effect_url).replace(/["\\]/g,'')}")`);
+    applyProfileFontToNode(display, person.id, person.name_font_url);
     const handle = document.createElement('small'); handle.textContent=`@${person.username}${communityNickname ? ` · ${person.nickname || person.username}` : ''}`;
     names.append(display,handle); header.append(avatar,names); host.append(banner,header);
     if (person.pronouns) { const pronouns=document.createElement('span'); pronouns.className='profile-pronouns-tag'; pronouns.textContent=person.pronouns; host.append(pronouns); }
@@ -579,7 +854,7 @@
   async function fetchProfiles(ids) {
     const unique = [...new Set(ids)].filter(Boolean);
     if (!unique.length) return {};
-    const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color').in('id', unique);
+    const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,settings').in('id', unique);
     if (error) { console.warn(error); return {}; }
     return Object.fromEntries((data || []).map(row => [row.id,row]));
   }
@@ -659,17 +934,23 @@
     article.dataset.messageId = message.id;
     article.__nexusMessage = message;
     const avatar = $('.avatar-message', article);
-    if (sender?.avatar_url) avatar.style.backgroundImage = `url('${sender.avatar_url}')`;
-    else avatar.textContent = initials(sender?.nickname || sender?.username || 'U');
+    const shownSender = message.alt_profile_id ? await resolveAltSender(message.alt_profile_id, sender) : (sender || {});
+    const avatarUrl = safeHttpsUrl(shownSender.avatar_url);
+    if (avatarUrl) avatar.style.backgroundImage = `url('${avatarUrl}')`;
+    else avatar.textContent = initials(shownSender.nickname || shownSender.username || 'U');
+    if (safeHttpsUrl(sender?.profile_effect_url)) avatar.style.setProperty('--profile-effect-image', `url("${safeHttpsUrl(sender.profile_effect_url).replace(/["\\]/g,'')}")`);
     const author = $('.message-author', article);
     const identity = await getMessageIdentity(message.sender_id);
-    author.textContent = identity.communityNickname || sender?.nickname || sender?.username || 'Usuario';
+    author.textContent = message.alt_profile_id ? (shownSender.nickname || shownSender.username || 'Alt') : (identity.communityNickname || sender?.nickname || sender?.username || 'Usuario');
+    if (safeHttpsUrl(sender?.name_effect_url)) author.style.setProperty('--name-effect-image', `url("${safeHttpsUrl(sender.name_effect_url).replace(/["\\]/g,'')}")`);
+    applyProfileFontToNode(author, sender?.id, sender?.name_font_url);
+    applyProfilePlate(article,sender);
     author.classList.add('message-author-clickable');
     author.title = 'Ver perfil';
     author.addEventListener('click', () => openPublicProfile(message.sender_id));
     if (sender?.default_name_color) author.style.color = sender.default_name_color;
     if (identity.roles[0]?.color) author.style.color = identity.roles[0].color;
-    if (identity.roles.length || identity.badges.length) {
+    if (identity.roles.length || identity.badges.length || message.alt_profile_id) {
       const decorations = document.createElement('span');
       decorations.className = 'message-identity-decorations';
       for (const role of identity.roles) {
@@ -696,6 +977,9 @@
           icon.title = badge.name;
           decorations.append(icon);
         }
+      }
+      if (message.alt_profile_id) {
+        const altBadge = document.createElement('span'); altBadge.className='alt-identity-tag'; altBadge.textContent='ALT'; altBadge.title='Identidad alternativa'; decorations.append(altBadge);
       }
       $('.message-meta', article).insertBefore(decorations, $('time', article));
     }
@@ -761,6 +1045,7 @@
     try {
       const rendered = window.marked ? marked.parse(source, {breaks:true, gfm:true}) : escapeHtml(source).replace(/\n/g,'<br>');
       body.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rendered, {USE_PROFILES:{html:true}}) : escapeHtml(source);
+      applyMentionMarkup(body, message.formatting?.mentions || []);
     } catch { body.textContent = source; }
     if (message.message_type === 'poll') {
       const {data: poll} = await client.from('polls').select('*').eq('message_id',message.id).maybeSingle();
@@ -874,7 +1159,8 @@
     if (!body) { toast('El mensaje no puede quedar vacío.'); return; }
     const save = $('#save-message-edit');
     save.disabled = true;
-    const {error} = await client.rpc('edit_message',{p_message_id:editingMessageId,p_body:body});
+    const mentions=await collectMessageMentions(body);
+    const {error} = await client.rpc('edit_message_with_mentions',{p_message_id:editingMessageId,p_body:body,p_mentions:mentions});
     save.disabled = false;
     if (error) { showError(error,'No se pudo editar el mensaje.'); return; }
     $('#edit-message-dialog').close();
@@ -1003,6 +1289,89 @@
       });
   }
 
+  async function getMentionCandidates() {
+    if (!currentContext) return [];
+    const cacheKey=`${currentContext.type}:${currentContext.id}`;
+    if (mentionCandidateCache.has(cacheKey)) return mentionCandidateCache.get(cacheKey);
+    let userIds=[]; let candidates=[];
+    if (currentContext.type==='channel' && currentCommunity) {
+      const {data:members}=await client.from('community_members').select('user_id').eq('community_id',currentCommunity.id);
+      userIds=(members||[]).map(row=>row.user_id);
+      const {data:roles}=await client.from('community_roles').select('id,name,color').eq('community_id',currentCommunity.id).order('position',{ascending:true});
+      candidates.push(...(roles||[]).map(role=>({type:'role',id:role.id,label:role.name,token:`@role:${role.id}`,color:role.color})));
+    } else {
+      const {data:members}=await client.from('conversation_members').select('user_id').eq('conversation_id',currentContext.id);
+      userIds=(members||[]).map(row=>row.user_id);
+    }
+    const profiles=await fetchProfiles(userIds);
+    candidates.push(...Object.values(profiles).filter(person=>person.id!==currentUser.id).map(person=>({type:'user',id:person.id,label:person.nickname||person.username,username:person.username,token:`@${person.username}`})));
+    mentionCandidateCache.set(cacheKey,candidates);
+    return candidates;
+  }
+
+  function hideMentionSuggestions() {
+    const box=$('#mention-suggestions');
+    if (box) { box.classList.add('hidden'); box.innerHTML=''; }
+  }
+
+  async function updateMentionSuggestions() {
+    const input=$('#message-input'); const box=$('#mention-suggestions');
+    if (!input || !box) return;
+    const caret=input.selectionStart;
+    const before=input.value.slice(0,caret);
+    const at=before.lastIndexOf('@');
+    if (at<0 || (at>0 && /[\w@]/.test(before[at-1])) || /\s/.test(before.slice(at+1))) { hideMentionSuggestions(); return; }
+    const query=before.slice(at+1).toLowerCase();
+    const candidates=await getMentionCandidates();
+    const filtered=candidates.filter(item=>item.label.toLowerCase().includes(query) || item.username?.toLowerCase().includes(query)).slice(0,8);
+    if (!filtered.length) { hideMentionSuggestions(); return; }
+    box.innerHTML=filtered.map((item,index)=>`<button type="button" role="option" data-mention-option="${index}"><span class="mention-option-kind">${item.type==='role'?'ROL':'USUARIO'}</span><strong>${item.type==='role'?'@':'@'}${escapeHtml(item.type==='role'?item.label:item.username)}</strong><small>${item.type==='role'?'Mención al rol':'Mención a una persona'}</small></button>`).join('');
+    box.classList.remove('hidden');
+    $$('[data-mention-option]',box).forEach(button=>button.addEventListener('click',()=>{
+      const item=filtered[Number(button.dataset.mentionOption)];
+      if (!item) return;
+      const end=input.selectionStart; const start=input.value.lastIndexOf('@',end-1);
+      if (start<0) return;
+      input.setRangeText(`${item.token} `,start,end,'end');
+      hideMentionSuggestions(); input.focus();
+    }));
+  }
+
+  async function collectMessageMentions(body) {
+    const candidates=await getMentionCandidates();
+    const mentions=[];
+    for (const item of candidates) {
+      const escaped=item.token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      if (new RegExp(`(^|[^\\w])${escaped}(?=$|[^\\w])`,'i').test(body)) {
+        mentions.push({type:item.type,id:item.id,token:item.token,label:item.label});
+        if (mentions.length>=30) break;
+      }
+    }
+    return mentions;
+  }
+
+  function applyMentionMarkup(container, mentions) {
+    const valid=(Array.isArray(mentions)?mentions:[]).filter(item=>item && ['user','role'].includes(item.type) && typeof item.token==='string' && typeof item.label==='string');
+    if (!valid.length) return;
+    const tokenMap=new Map(valid.map(item=>[item.token,item]));
+    const tokens=[...tokenMap.keys()].sort((a,b)=>b.length-a.length);
+    const regex=new RegExp(`(${tokens.map(token=>token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})`,'gi');
+    const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement?.closest('code,pre')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});
+    const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      if (!regex.test(node.nodeValue)) { regex.lastIndex=0; continue; }
+      regex.lastIndex=0;
+      const fragment=document.createDocumentFragment();
+      const parts=node.nodeValue.split(regex);
+      for (const part of parts) {
+        const item=tokenMap.get(part) || [...tokenMap.entries()].find(([token])=>token.toLowerCase()===part.toLowerCase())?.[1];
+        if (!item) fragment.append(document.createTextNode(part));
+        else { const span=document.createElement('span'); span.className=`message-mention message-mention-${item.type}`; span.textContent=`@${item.label}`; span.title=item.type==='role'?'Mención a un rol':'Mención a un miembro'; fragment.append(span); }
+      }
+      node.parentNode?.replaceChild(fragment,node);
+    }
+  }
+
   async function sendMessage(event) {
     event.preventDefault();
     if (!currentContext) return;
@@ -1012,7 +1381,8 @@
     const body = input.value.trim();
     if (!body) return;
     input.disabled = true;
-    const payload = {sender_id:currentUser.id, body, ...(replyTarget ? {reply_to:replyTarget.id} : {})};
+    const mentions = await collectMessageMentions(body);
+    const payload = {sender_id:currentUser.id, body, formatting:{mentions}, ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}), ...(replyTarget ? {reply_to:replyTarget.id} : {})};
     payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
     const {error} = await client.from('messages').insert(payload);
     input.disabled = false;
@@ -1055,6 +1425,7 @@
         sender_id:currentUser.id,
         body:file.name || 'Archivo adjunto',
         message_type:'media',
+        ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}),
         attachment:{path,name:file.name || 'archivo',mimetype:file.type || 'application/octet-stream'},
         ...(replyTarget ? {reply_to:replyTarget.id} : {})
       };
@@ -1145,7 +1516,9 @@
   }
   function personRow(person, actions = '') {
     if (!person) return '';
-    return `<div class="person-row">${avatarMarkup(person)}<div class="person-row-copy"><strong>${escapeHtml(person.nickname || person.username)}</strong><small>@${escapeHtml(person.username)}</small></div><div class="person-actions">${actions}</div></div>`;
+    const plate=safeHttpsUrl(person.profile_plate_url);
+    const plateStyle=plate?`style="--profile-plate-image:url('${escapeHtml(plate)}');--profile-plate-opacity:${profilePlateOpacity(person.settings)}"`:'';
+    return `<div class="person-row" ${plateStyle}>${avatarMarkup(person)}<div class="person-row-copy"><strong>${escapeHtml(person.nickname || person.username)}</strong><small>@${escapeHtml(person.username)}</small></div><div class="person-actions">${actions}</div></div>`;
   }
   $('#add-friend').addEventListener('click', addFriendFlow);
   async function addFriendFlow() {
@@ -1290,11 +1663,11 @@
     $('#community-description').textContent = community.description || 'Sin descripción.';
     $('#community-id-short').textContent = community.id.slice(0,8);
     applyCommunityAppearance(community);
-    $('#community-settings').classList.toggle('hidden',community.owner_id !== currentUser.id);
     switchView('community');
-    const permissionNames = ['manage_roles','manage_badges','manage_messages','manage_channels','post_announcements'];
+    const permissionNames = ['manage_roles','manage_badges','manage_messages','manage_channels','post_announcements','create_invites'];
     const permissionResults = await Promise.all(permissionNames.map(p_permission => client.rpc('has_community_permission',{p_community_id:community.id,p_permission})));
     permissionNames.forEach((name,index) => { communityPermissions[name] = Boolean(permissionResults[index].data); });
+    $('#community-settings').classList.toggle('hidden',community.owner_id !== currentUser.id && !communityPermissions.create_invites);
     await loadChannels();
     await loadAllies();
     const {count} = await client.from('community_members').select('*',{count:'exact',head:true}).eq('community_id',community.id);
@@ -1347,7 +1720,9 @@
       const person = profiles[member.user_id] || {username:'usuario',nickname:''};
       const active = new Set(communityMemberRoles.filter(item => item.user_id === member.user_id).map(item => item.role_id));
       const toggles = communityRoles.map(role => `<label class="member-role-toggle"><input type="checkbox" data-member-role="${role.id}" data-member-id="${member.user_id}" ${active.has(role.id) ? 'checked' : ''}><span style="color:${escapeHtml(role.color || '#a99bff')}">${escapeHtml(role.name)}</span></label>`).join('');
-      return `<div class="member-role-card"><div class="member-role-person"><strong>${escapeHtml(member.nickname || person.nickname || person.username)}</strong><small>@${escapeHtml(person.username || 'usuario')}${member.user_id === currentCommunity.owner_id ? ' · propietario' : ''}</small></div><div class="member-role-toggles">${toggles || '<span class="muted">Crea un rol para poder asignarlo.</span>'}</div></div>`;
+      const plate=safeHttpsUrl(person.profile_plate_url);
+      const plateStyle=plate?`style="--profile-plate-image:url('${escapeHtml(plate)}');--profile-plate-opacity:${profilePlateOpacity(person.settings)}"`:'';
+      return `<div class="member-role-card" ${plateStyle}><div class="member-role-person">${avatarMarkup(person)}<span><strong>${escapeHtml(member.nickname || person.nickname || person.username)}</strong><small>@${escapeHtml(person.username || 'usuario')}${member.user_id === currentCommunity.owner_id ? ' · propietario' : ''}</small></span></div><div class="member-role-toggles">${toggles || '<span class="muted">Crea un rol para poder asignarlo.</span>'}</div></div>`;
     }).join('') : '<div class="empty-state compact">No hay miembros.</div>';
 
     $$('[data-role-form]').forEach(form => form.addEventListener('submit', async event => {
@@ -1561,7 +1936,11 @@
   }
   $('#add-channel').addEventListener('click', () => openChannelEditor());
   $('#community-settings').addEventListener('click', () => {
-    if (!currentCommunity || currentCommunity.owner_id !== currentUser.id) return;
+    if (!currentCommunity) return;
+    const isOwner=currentCommunity.owner_id===currentUser.id;
+    if (!isOwner && !communityPermissions.create_invites) return;
+    $('#community-owner-settings').classList.toggle('hidden',!isOwner);
+    $('#save-community-settings').classList.toggle('hidden',!isOwner);
     $('#community-edit-name').value = currentCommunity.name;
     $('#community-edit-description').value = currentCommunity.description || '';
     $('#community-edit-color').value = currentCommunity.name_color || '#a99bff';
@@ -1600,29 +1979,49 @@
       toast('Megagrupo actualizado.','success');
     }
   });
-  $('#create-community-invite').addEventListener('click', async () => {
-    if (!currentCommunity) return;
-    const hoursRaw = await ask('Duración de invitación','Introduce horas (1-720).','Horas','168','168');
-    if (hoursRaw === null) return;
-    const hours = Number(hoursRaw);
-    if (!Number.isInteger(hours) || hours < 1 || hours > 720) { toast('Introduce una duración entre 1 y 720 horas.','error'); return; }
-    const {data:code,error} = await client.rpc('create_community_invite',{p_community_id:currentCommunity.id,p_expires_hours:hours,p_max_uses:0});
-    if (error) { showError(error,'No se pudo crear la invitación. Ejecuta la migración v0.5 y revisa el permiso create_invites.'); return; }
-    const inviteUrl = new URL(location.href); inviteUrl.searchParams.set('invite',code); inviteUrl.hash='';
-    try { await navigator.clipboard.writeText(inviteUrl.toString()); toast('Invitación creada y enlace copiado.','success'); }
-    catch { prompt('Copia este enlace de invitación:',inviteUrl.toString()); }
+  $('#create-community-invite').addEventListener('click', createCommunityInvite);
+  async function createCommunityInvite() {
+    if (!currentCommunity) { toast('Selecciona primero un megagrupo.','error'); return; }
+    if (currentCommunity.owner_id!==currentUser.id && !communityPermissions.create_invites) { toast('No tienes permiso para crear invitaciones en este megagrupo.','error'); return; }
+    const button = $('#create-community-invite');
+    button.disabled = true; button.textContent = 'Creando…';
+    try {
+      const {data,error} = await client.rpc('create_community_invite',{p_community_id:currentCommunity.id,p_expires_hours:168,p_max_uses:0});
+      if (error) throw error;
+      const code = typeof data === 'string' ? data : (data?.code || data?.invite_code || '');
+      if (!/^[A-F0-9]{12}$/i.test(code)) throw new Error(`Supabase no devolvió un código válido de invitación: ${JSON.stringify(data)}`);
+      const inviteUrl = new URL(location.href);
+      inviteUrl.search = '';
+      inviteUrl.searchParams.set('invite',code.toUpperCase());
+      inviteUrl.hash = '';
+      $('#community-invite-url').value = inviteUrl.toString();
+      $('#community-invite-result').classList.remove('hidden');
+      $('#community-invite-url').focus(); $('#community-invite-url').select();
+      try { await navigator.clipboard.writeText(inviteUrl.toString()); toast('Invitación creada y copiada. También puedes copiar el enlace del cuadro.','success'); }
+      catch { toast('Invitación creada. Copia el enlace del cuadro.','success'); }
+    } catch (error) {
+      showError(error,'No se pudo crear la invitación. Comprueba la migración v0.6 y el permiso «Crear invitaciones».');
+    } finally { button.disabled = false; button.textContent = 'Crear enlace de invitación'; }
+  }
+  $('#copy-community-invite').addEventListener('click', async () => {
+    const input = $('#community-invite-url');
+    if (!input.value) return;
+    try { await navigator.clipboard.writeText(input.value); toast('Enlace copiado.','success'); }
+    catch { input.focus(); input.select(); toast('Selecciona y copia el enlace.'); }
   });
 
   async function consumePendingCommunityInvite() {
     const url = new URL(location.href);
-    const code = url.searchParams.get('invite');
+    const code = url.searchParams.get('invite') || readPendingInvite();
     if (!code) return;
-    url.searchParams.delete('invite');
-    history.replaceState(null,'',url.pathname + url.search + url.hash);
-    const {data:communityId,error} = await client.rpc('join_community_by_invite',{p_code:code});
-    if (error) { showError(error,'No se pudo aceptar la invitación. Puede haber caducado o alcanzado su límite.'); return; }
+    if (!/^[A-F0-9]{12}$/i.test(code)) { clearPendingInvite(); return; }
+    const {data:communityId,error} = await client.rpc('join_community_by_invite',{p_code:code.toUpperCase()});
+    if (error) { showError(error,'No se pudo aceptar la invitación. El enlace seguirá guardado para que puedas volver a intentarlo.'); return; }
     const {data:community, error:communityError} = await client.from('communities').select('*').eq('id',communityId).single();
     if (communityError) { showError(communityError); return; }
+    url.searchParams.delete('invite');
+    history.replaceState(null,'',url.pathname + url.search + url.hash);
+    clearPendingInvite();
     await selectCommunity(community);
     toast(`Te has unido a ${community.name}.`,'success');
   }
@@ -1783,29 +2182,112 @@
     messageIdentityCache.clear(); toast('Nickname del megagrupo actualizado.','success');
   });
 
+  function ownProfileStoragePath(value) {
+    const safe=safeHttpsUrl(value);
+    if(!safe || !cfg.SUPABASE_URL) return null;
+    try {
+      const assetUrl=new URL(safe), projectUrl=new URL(cfg.SUPABASE_URL);
+      if(assetUrl.host!==projectUrl.host) return null;
+      const marker='/storage/v1/object/public/profile-media/';
+      const index=assetUrl.pathname.indexOf(marker);
+      if(index<0) return null;
+      const objectPath=decodeURIComponent(assetUrl.pathname.slice(index+marker.length));
+      return objectPath.startsWith(`${currentUser.id}/`) ? objectPath : null;
+    } catch { return null; }
+  }
+  async function removeOwnProfileAsset(value) {
+    const path=ownProfileStoragePath(value);
+    if(!path) return;
+    const {error}=await client.storage.from('profile-media').remove([path]);
+    if(error) console.warn('No se pudo limpiar un archivo de perfil antiguo:',error.message);
+  }
+
+  async function uploadProfileAsset(file, kind) {
+    if (!file) return;
+    const isFont=kind==='name_font_url';
+    const allowedImage=/^image\/(png|jpeg|webp|gif)$/i.test(file.type);
+    const rawExtension=(file.name.split('.').pop()||'').toLowerCase();
+    const extension=rawExtension.replace(/[^a-z0-9]/g,'').slice(0,8);
+    const allowedFont=isFont && ['woff','woff2','ttf'].includes(extension);
+    if (file.size>8*1024*1024 || (!allowedImage && !allowedFont)) { toast(isFont?'La fuente debe ser .woff, .woff2 o .ttf y pesar menos de 8 MB.':'Usa una imagen PNG, JPG, WebP o GIF de máximo 8 MB.','error'); return; }
+    const mime=isFont ? ({woff:'font/woff',woff2:'font/woff2',ttf:'font/ttf'}[extension]) : file.type;
+    const path=`${currentUser.id}/identity-${kind}-${Date.now()}.${extension||'bin'}`;
+    const storage=client.storage.from('profile-media');
+    const {error:uploadError}=await storage.upload(path,file,{contentType:mime,upsert:false});
+    if (uploadError) { showError(uploadError,'No se pudo subir el archivo. Ejecuta la migración v0.6 para habilitar fuentes personalizadas.'); return; }
+    const {data}=storage.getPublicUrl(path);
+    const previousUrl=profile?.[kind];
+    const {error}=await client.from('profiles').update({[kind]:data.publicUrl}).eq('id',currentUser.id);
+    if (error) {
+      await storage.remove([path]);
+      showError(error); return;
+    }
+    profile[kind]=data.publicUrl;
+    if(previousUrl && previousUrl!==data.publicUrl) await removeOwnProfileAsset(previousUrl);
+    messageIdentityCache.clear(); renderIdentity(); renderIdentityAssetLinks();
+    if(currentContext) await loadMessages();
+    await loadConversations();
+    toast(isFont?'Fuente personalizada actualizada.':'Efecto de perfil actualizado.','success');
+  }
   async function uploadProfileImage(file, kind) {
     if (!file) return;
-    if (file.size > 8*1024*1024 || !file.type.startsWith('image/')) { toast('Usa una imagen de máximo 8 MB.','error'); return; }
-    const ext = file.name.split('.').pop().replace(/[^a-z0-9]/gi,'').slice(0,8) || 'png';
-    const path = `${currentUser.id}/${kind}-${Date.now()}.${ext}`;
-    const {error:uploadError} = await client.storage.from('profile-media').upload(path,file,{contentType:file.type,upsert:false});
-    if (uploadError) { showError(uploadError); return; }
-    const {data} = client.storage.from('profile-media').getPublicUrl(path);
-    const field = kind === 'avatar' ? 'avatar_url' : 'banner_url';
-    const {error} = await client.from('profiles').update({[field]:data.publicUrl}).eq('id',currentUser.id);
-    if (error) showError(error); else { profile[field] = data.publicUrl; renderIdentity(); toast('Imagen actualizada.','success'); }
+    const field=kind==='avatar'?'avatar_url':'banner_url';
+    await uploadProfileAsset(file,field);
   }
   $('#profile-avatar-file').addEventListener('change',event => uploadProfileImage(event.target.files?.[0],'avatar'));
   $('#profile-banner-file').addEventListener('change',event => uploadProfileImage(event.target.files?.[0],'banner'));
+  $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings));
+  $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`;
+  $('#profile-plate-opacity').addEventListener('input',event=>$('#profile-plate-opacity-value').textContent=`${Math.round(Number(event.target.value)*100)}%`);
+  $('#save-profile-plate-opacity').addEventListener('click',async()=>{
+    const settings={...(profile?.settings||{}),profilePlateOpacity:profilePlateOpacity({profilePlateOpacity:$('#profile-plate-opacity').value})};
+    const {error}=await client.from('profiles').update({settings}).eq('id',currentUser.id);
+    if(error){showError(error);return;}
+    profile.settings=settings; messageIdentityCache.clear();
+    if(currentContext) await loadMessages();
+    await loadConversations();
+    toast('Opacidad del efecto de placa guardada.','success');
+  });
+  $('#profile-name-effect-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'name_effect_url'));
+  $('#profile-avatar-effect-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'profile_effect_url'));
+  $('#profile-plate-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'profile_plate_url'));
+  $('#profile-font-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'name_font_url'));
+
+  function renderIdentityAssetLinks() {
+    const host=$('#identity-current-assets'); if(!host || !profile) return;
+    const labels={name_effect_url:'Efecto del nombre',profile_effect_url:'Efecto del avatar',profile_plate_url:'Efecto de placa',name_font_url:'Fuente personalizada'};
+    host.innerHTML=Object.entries(labels).map(([field,label])=>profile[field]?`<div class="identity-asset-row"><span>${escapeHtml(label)}</span><a href="${escapeHtml(safeHttpsUrl(profile[field]))}" target="_blank" rel="noopener">Ver archivo</a><button type="button" class="button button-secondary" data-remove-identity-asset="${field}">Quitar</button></div>`:'').join('') || '<p class="muted small-muted">Todavía no hay efectos personalizados.</p>';
+    $$('[data-remove-identity-asset]').forEach(button=>button.addEventListener('click',async()=>{
+      const field=button.dataset.removeIdentityAsset;
+      const previousUrl=profile[field];
+      const {error}=await client.from('profiles').update({[field]:null}).eq('id',currentUser.id);
+      if(error) showError(error); else {profile[field]=null;await removeOwnProfileAsset(previousUrl);renderIdentity();renderIdentityAssetLinks();messageIdentityCache.clear();if(currentContext) await loadMessages();await loadConversations();toast('Personalización retirada.','success');}
+    }));
+  }
+
+  $('#alt-create-form').addEventListener('submit',async event=>{
+    event.preventDefault();
+    const username=$('#alt-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
+    const nickname=$('#alt-nickname').value.trim();
+    const avatar=$('#alt-avatar').value.trim();
+    if(username.length<3||username.length>24) {toast('El usuario alternativo debe tener entre 3 y 24 caracteres.','error');return;}
+    if(avatar && !safeHttpsUrl(avatar)){toast('El avatar debe ser una dirección HTTPS válida.','error');return;}
+    const {data,error}=await client.from('alt_profiles').insert({owner_id:currentUser.id,username,nickname:nickname||username,avatar_url:avatar||null}).select('*').single();
+    if(error){showError(error,'No se pudo crear la alt. Comprueba que no exista otra con ese usuario.');return;}
+    $('#alt-create-form').reset(); await activateAltProfile(data);
+  });
+  $('#use-main-identity').addEventListener('click',()=>activateAltProfile(null));
   function fillSettingsForm() {
     const settings = profile?.settings || {};
     $('#setting-accent').value = settings.accent || '#8d7cff';
     $('#setting-density').value = settings.density || 'comfortable';
     $('#setting-background').value = settings.background || '';
+    $('#setting-notify-sound').checked = settings.notifySound !== false;
+    $('#setting-notify-while-open').checked = settings.notifyWhileOpen !== false;
   }
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const settings = {accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim()};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
     if (error) showError(error); else { profile.settings = settings; renderIdentity(); toast('Apariencia guardada.','success'); }
   });
@@ -1820,21 +2302,42 @@
     const {data,error} = await client.from('presets').select('id,name,description,preset_type,config,owner_id,created_at').eq('is_public',true).order('created_at',{ascending:false}).limit(60);
     if (error) { console.warn(error); return; }
     const ownerMap = await fetchProfiles((data || []).map(row => row.owner_id));
-    $('#preset-grid').innerHTML = data?.length ? data.map(row => `<article class="preset-card"><div class="preset-swatch" style="background:linear-gradient(125deg,${escapeHtml(row.config?.accent || '#8d7cff')},#252d42)"></div><h3>${escapeHtml(row.name)}</h3><p>${escapeHtml(row.description || 'Sin descripción.')}</p><small class="muted">${escapeHtml(row.preset_type)} · @${escapeHtml(ownerMap[row.owner_id]?.username || 'usuario')}</small><br><button class="button button-secondary" data-apply-preset="${row.id}">Aplicar preset</button></article>`).join('') : '<div class="empty-state">Todavía no hay presets publicados. Puedes ser la primera persona en compartir uno.</div>';
+    $('#preset-grid').innerHTML = data?.length ? data.map(row => `<article class="preset-card"><div class="preset-swatch" style="background:linear-gradient(125deg,${escapeHtml(row.config?.accent || row.config?.default_name_color || '#8d7cff')},#252d42)"></div><h3>${escapeHtml(row.name)}</h3><p>${escapeHtml(row.description || 'Sin descripción.')}</p><small class="muted">${row.preset_type==='profile'?'Perfil':'Cliente'} · @${escapeHtml(ownerMap[row.owner_id]?.username || 'usuario')}</small><br><button class="button button-secondary" data-apply-preset="${row.id}">Aplicar preset</button></article>`).join('') : '<div class="empty-state">Todavía no hay presets publicados. Puedes ser la primera persona en compartir uno.</div>';
     $$('[data-apply-preset]').forEach(button => button.addEventListener('click', async () => {
       const row = data.find(item => item.id === button.dataset.applyPreset);
-      const settings = {...(profile.settings || {}),...row.config};
-      const {error:saveError} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
-      if (saveError) showError(saveError); else {profile.settings=settings;renderIdentity();toast('Preset aplicado.','success');}
+      if (!row) return;
+      let savePayload;
+      if (row.preset_type==='profile') {
+        const allowed=['default_name_color','name_font_url','name_effect_url','profile_effect_url','profile_plate_url'];
+        const patch=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(row.config||{},key)).map(key=>[key,row.config[key]]));
+        if (patch.name_font_url && !safeHttpsUrl(patch.name_font_url)) delete patch.name_font_url;
+        for (const key of ['name_effect_url','profile_effect_url','profile_plate_url']) if(patch[key] && !safeHttpsUrl(patch[key])) delete patch[key];
+        savePayload=patch;
+        const {error:saveError}=await client.from('profiles').update(savePayload).eq('id',currentUser.id);
+        if (saveError) showError(saveError); else {Object.assign(profile,savePayload);renderIdentity();renderIdentityAssetLinks();toast('Preset de perfil aplicado.','success');}
+      } else {
+        const allowed=['accent','density','background'];
+        const config=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(row.config||{},key)).map(key=>[key,row.config[key]]));
+        if (config.background && !safeHttpsUrl(config.background)) delete config.background;
+        const settings={...(profile.settings||{}),...config};
+        const {error:saveError}=await client.from('profiles').update({settings}).eq('id',currentUser.id);
+        if (saveError) showError(saveError); else {profile.settings=settings;renderIdentity();fillSettingsForm();toast('Preset de cliente aplicado.','success');}
+      }
     }));
   }
   async function publishPreset() {
-    const name = await ask('Publicar preset','Se compartirá tu color de acento y tus preferencias básicas, no contraseñas ni datos privados.','Nombre','Mi tema');
-    if (!name) return;
-    const description = await ask('Descripción','Explica brevemente qué aspecto tiene.','Descripción','Un tema oscuro violeta.');
-    const config = {accent:profile.settings?.accent || '#8d7cff',density:profile.settings?.density || 'comfortable'};
-    const {error} = await client.from('presets').insert({owner_id:currentUser.id,name,description:description || '',preset_type:'client',config,is_public:true});
-    if (error) showError(error); else {toast('Preset publicado.','success');loadPresets();}
+    const typeRaw=await ask('Tipo de preset','Escribe «cliente» para colores/fondo o «perfil» para tu identidad visual.','Tipo','cliente','cliente');
+    if (!typeRaw) return;
+    const presetType=/^perfil$/i.test(typeRaw)?'profile':'client';
+    if (!['profile','client'].includes(presetType)) {toast('Tipo no válido: escribe cliente o perfil.','error');return;}
+    const name=await ask('Publicar preset','No se compartirán contraseñas, email ni otros datos privados.','Nombre','Mi preset');
+    if (!name || name.length<2 || name.length>60) return;
+    const description=await ask('Descripción','Explica brevemente qué incluye.','Descripción','Un estilo Nexus personalizado.');
+    const config=presetType==='profile'
+      ? {default_name_color:profile.default_name_color||'#a99bff',name_font_url:safeHttpsUrl(profile.name_font_url)||null,name_effect_url:safeHttpsUrl(profile.name_effect_url)||null,profile_effect_url:safeHttpsUrl(profile.profile_effect_url)||null,profile_plate_url:safeHttpsUrl(profile.profile_plate_url)||null}
+      : {accent:profile.settings?.accent||'#8d7cff',density:profile.settings?.density||'comfortable',background:safeHttpsUrl(profile.settings?.background)||''};
+    const {error}=await client.from('presets').insert({owner_id:currentUser.id,name,description:description||'',preset_type: presetType,config,is_public:true});
+    if(error) showError(error); else {toast('Preset publicado en Workshop.','success');loadPresets();}
   }
 
   // ---------- Administration ----------

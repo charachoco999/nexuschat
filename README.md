@@ -2,7 +2,7 @@
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.5 añade archivo/salida de conversaciones, encuestas atómicas, fondos de megagrupo en canales, widgets y fichas de perfil, invitaciones, AutoAlly por ID, mensajes fijados y confirmaciones de lectura. Incluye los módulos anteriores de roles, permisos, medallas, canales y mensajería en tiempo real. No es todavía una alternativa completa a Discord; las funciones que necesitan servicios externos o módulos posteriores se indican más abajo.
+> **Estado:** v0.6 añade identidades Quick-Alt, fuentes y efectos visuales de perfil, opacidad de placas, presets compartibles de perfil/cliente, menciones de miembros y roles, bandeja de notificaciones con sonido e iconos de origen, y un flujo de invitaciones reparado. Mantiene las funciones sociales y de megagrupo de versiones anteriores. No es todavía una alternativa completa a Discord; las limitaciones y servicios externos se indican más abajo.
 
 ## 1. Qué incluye esta versión
 
@@ -21,6 +21,21 @@ Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfa
 
 Consulta `UPGRADE-v0.5.md` para la migración y las pruebas recomendadas.
 
+
+### Añadido en v0.6
+
+- Quick-Alt: crear, activar, eliminar y usar identidades alternativas vinculadas a la misma cuenta autenticada. Los mensajes muestran una marca ALT; la alt no tiene contraseña ni permisos propios.
+- Importar fuente propia en WOFF, WOFF2 o TTF, con límite de 8 MB.
+- Efecto GIF/imagen sobre el nombre, superposición visual del avatar y efecto de placa con opacidad ajustable. La placa aparece en mensajes, lista de MDs, lista de amigos, solicitudes y tarjetas de miembros.
+- Workshop: publicar y aplicar presets de perfil o cliente. Los presets solo incluyen campos visuales permitidos, no credenciales ni datos privados.
+- Autocompletado de menciones `@usuario` en MDs/grupos y `@usuario`/`@rol` en canales de megagrupo. La base de datos valida que las personas y roles mencionados pertenezcan al contexto.
+- Notificaciones dentro de Nexus con sonido, icono de origen de MD/grupo/canal y resaltado de menciones. Los avisos de escritorio son opcionales cuando la pestaña está en segundo plano y el navegador concede permiso.
+- Creación de invitaciones desde la ventana de configuración, con enlace visible y botón para copiar. La función permite al propietario o a los roles con `create_invites` generar links de 7 días y usos ilimitados.
+- Conservación de códigos de invitación durante el registro y la confirmación del correo.
+- Soporte de MIME limitado para las fuentes personalizadas en `profile-media`, sin aceptar `application/octet-stream` de forma genérica.
+
+Consulta `UPGRADE-v0.6.md` para aplicar la migración y ejecutar las pruebas.
+
 ### Funciona al configurar Supabase
 
 - Registro con correo, contraseña y nombre de usuario; inicio y cierre de sesión.
@@ -35,28 +50,28 @@ Consulta `UPGRADE-v0.5.md` para la migración y las pruebas recomendadas.
 - Adjuntos de imagen, vídeo y archivos permitidos por el bucket privado, con límite inicial de 50 MB.
 - Markdown y HTML visual saneado mediante DOMPurify. El contenido no puede ejecutar scripts arbitrarios.
 - Encuestas básicas con opciones y votación.
-- Workshop básico para publicar y aplicar presets de color y densidad.
+- Workshop básico para publicar y aplicar presets de perfil y cliente (efectos, fuentes, color, densidad y fondo).
 - Funciones de moderación en base de datos para banear y desbanear usuarios.
 - Gestión visual de roles de megagrupo: nombre, color, permisos y asignación múltiple a miembros.
 - Gestión de medallas de megagrupo: crear medallas con emoji o URL HTTPS, asignarlas y retirarlas.
 - Los roles y medallas asignados se muestran junto al nombre en los mensajes de los canales del megagrupo.
+- Notificaciones Realtime de mensajes y menciones; sonido mientras la aplicación está abierta y avisos de escritorio opcionales en segundo plano.
 - Función Edge opcional para que un administrador envíe un correo de recuperación a otra cuenta.
 
 ### Preparado parcialmente / pendiente de completar
 
 - Stickers y emojis personalizados, personales, de conversación o de comunidad (`custom_assets`): la tabla de recursos está preparada, pero falta el editor y el selector en el compositor.
-- Perfiles alternativos (`alt_profiles`): falta el selector Quick-Alt completo y la medalla visible de identidad alternativa.
-- Fuentes, efectos y placas de perfil: existen campos de almacenamiento, pero falta el editor y su aplicación visual.
+- Las notificaciones push cuando el navegador está completamente cerrado requieren un service worker, suscripción Push y un servicio de envío desde servidor. La v0.6 solo avisa mientras Nexus está abierto o con la pestaña en segundo plano.
 - CSS personalizado de megagrupo: está disponible con un conjunto de selectores y propiedades limitado por seguridad.
 
 ### Necesita un servicio o una fase adicional
 
 - **Voz:** WebRTC y un sistema de señalización; para conexiones robustas también puede hacer falta TURN.
 - **Buscador de GIFs:** API de un proveedor y una Edge Function que proteja la clave.
-- **Fuentes y efectos importados:** editor de archivos, validación y almacenamiento.
+- **Fuentes y efectos importados:** ya incluye carga y aplicación visual de fuentes WOFF/WOFF2/TTF y efectos de nombre/avatar/placa. Quedan por ampliar más efectos y controles de animación.
 - **Vídeo avanzado:** controles propios para velocidad, reversa, recorte y otros efectos.
-- **Workshop completo:** revisión, permisos, versiones, importación y exportación segura de presets.
-- **Quick-Alt completo:** cambiar la identidad que se muestra en cada mensaje y aplicar su medalla requiere conectar `alt_profiles` al sistema de mensajes.
+- **Workshop completo:** la v0.6 permite compartir y aplicar presets de perfil/cliente; faltan revisión comunitaria, versiones, importación/exportación y presets de megagrupo.
+- **Quick-Alt:** la identidad alternativa ya se adjunta a los mensajes mediante `alt_profile_id`; sigue usando la sesión, permisos y sanciones de la cuenta principal.
 - **Moderación avanzada:** paneles adicionales para administrar alianzas, canales y flujos completos de sanciones; los paneles de roles y medallas sí están incluidos en v0.2.
 
 Los mensajes tienen un máximo inicial de 12.000 caracteres y los archivos un límite inicial de 50 MB. Los límites reales de almacenamiento y tráfico dependen del plan y la configuración del proveedor; ningún servicio puede ofrecer almacenamiento literalmente infinito.
@@ -190,7 +205,7 @@ nexus-chat/
 
 ## 8. Próxima evolución recomendada
 
-La siguiente fase puede completar Quick-Alt, stickers y emojis personalizados, buscador de GIFs, efectos y fuentes importadas, placas de perfil y controles multimedia avanzados. Después conviene añadir voz real con WebRTC/TURN y terminar los controles de moderación y el Workshop. Las confirmaciones de lectura, las alianzas, las invitaciones y los mensajes fijados ya tienen una primera implementación en v0.5.
+La siguiente fase puede ampliar Workshop con moderación comunitaria y presets de megagrupo, añadir stickers y emojis personalizados, buscador de GIFs y voz real con WebRTC/TURN. También conviene añadir notificaciones push para cuando el navegador está completamente cerrado y continuar reforzando los controles de moderación. Quick-Alt, fuentes importadas, efectos de nombre/avatar/placa, menciones e invitaciones ya tienen una primera implementación en v0.6.
 
 
 ## Registro público y correo de confirmación
@@ -207,3 +222,12 @@ Consulta `UPGRADE-v0.3.md`. Si aún no se aplicaron, ejecuta primero las migraci
 ## Actualizar desde v0.4
 
 Ejecuta `supabase/migrations/20261101_nexus_v05_features.sql` en Supabase SQL Editor y después publica el contenido del paquete `nexus-chat-v0.5-upgrade.zip` en la raíz del repositorio. Conserva tu `assets/js/config.js`. Consulta `UPGRADE-v0.5.md` antes de desplegar.
+
+
+## Actualizar desde v0.5 a v0.6
+
+Sigue `UPGRADE-v0.6.md`. Ejecuta `supabase/migrations/20261102_nexus_v06_identity_mentions_notifications_invites.sql` una vez después de las migraciones v0.2–v0.5; después publica el contenido del ZIP Upgrade en GitHub Pages y conserva `assets/js/config.js`.
+
+## Notificaciones y límites del navegador
+
+Consulta `NOTIFICATIONS-v0.6.md`. El sonido se reproduce mientras Nexus está abierto después de la primera interacción con la página. Los avisos de escritorio requieren permiso y pueden aparecer con la pestaña oculta. No hay notificaciones push cuando el navegador está completamente cerrado.
