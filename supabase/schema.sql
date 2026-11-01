@@ -279,7 +279,7 @@ begin
   insert into public.communities(owner_id,name,description) values(auth.uid(),trim(p_name),coalesce(p_description,'')) returning id into new_id;
   insert into public.community_members(community_id,user_id) values(new_id,auth.uid());
   insert into public.community_roles(community_id,name,color,permissions,position)
-  values(new_id,'Miembro','#a99bff','{"send_messages":true,"create_invites":true}'::jsonb,0)
+  values(new_id,'Miembro','#a99bff','{"send_messages":true,"create_invites":true,"post_announcements":false}'::jsonb,0)
   returning id into member_role_id;
   insert into public.member_roles(community_id,user_id,role_id) values(new_id,auth.uid(),member_role_id);
   insert into public.channels(community_id,name,type,position) values(new_id,'general','text',0);

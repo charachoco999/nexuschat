@@ -21,7 +21,7 @@
   let communityRoles = [];
   let communityMembers = [];
   let communityMemberRoles = [];
-  let communityPermissions = {manage_roles:false,manage_badges:false,manage_messages:false,manage_channels:false};
+  let communityPermissions = {manage_roles:false,manage_badges:false,manage_messages:false,manage_channels:false,post_announcements:false};
   const messageIdentityCache = new Map();
 
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -35,6 +35,24 @@
   };
   const showError = (error, fallback = 'Ha ocurrido un error.') => {
     console.error(error);
+    toast(error?.message || fallback, 'error');
+  };
+  const showAuthError = (error, fallback = 'No se pudo completar el acceso.') => {
+    const message = String(error?.message || error?.code || '');
+    const normalized = message.toLowerCase();
+    console.error(error);
+    if (normalized.includes('email rate limit exceeded') || normalized.includes('over_email_send_rate_limit')) {
+      const friendly = 'Nexus ha alcanzado el límite temporal de correos de verificación de Supabase. No es un problema de tu contraseña. El equipo de Nexus debe configurar el envío de correo SMTP; inténtalo de nuevo cuando esté habilitado.';
+      $('#auth-note').textContent = friendly;
+      toast('Se ha alcanzado el límite de correos de registro. El administrador debe configurar SMTP.', 'error');
+      return;
+    }
+    if (normalized.includes('email address not authorized') || normalized.includes('email_address_not_authorized')) {
+      const friendly = 'El correo no está autorizado por el servicio de prueba de Supabase. El administrador debe configurar un proveedor SMTP para permitir registros públicos.';
+      $('#auth-note').textContent = friendly;
+      toast(friendly, 'error');
+      return;
+    }
     toast(error?.message || fallback, 'error');
   };
   const requireClient = () => {
@@ -58,6 +76,43 @@
 
   // ---------- Authentication ----------
   let authMode = 'login';
+  let authCaptchaToken = '';
+  let authCaptchaWidget = null;
+  let authCaptchaScriptLoading = false;
+  let authCaptchaRequested = false;
+
+  function renderAuthCaptcha() {
+    const siteKey = String(cfg.TURNSTILE_SITE_KEY || '').trim();
+    if (!siteKey) { $('#auth-captcha-wrap').classList.add('hidden'); return; }
+    $('#auth-captcha-wrap').classList.remove('hidden');
+    if (window.turnstile?.render) {
+      if (authCaptchaWidget === null) {
+        authCaptchaWidget = window.turnstile.render('#auth-captcha', {
+          sitekey: siteKey,
+          callback: token => { authCaptchaToken = token || ''; },
+          'expired-callback': () => { authCaptchaToken = ''; },
+          'error-callback': () => { authCaptchaToken = ''; toast('No se pudo completar la verificación de seguridad. Recarga el reto.', 'error'); }
+        });
+      }
+      return;
+    }
+    if (authCaptchaScriptLoading) return;
+    authCaptchaScriptLoading = true;
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true; script.defer = true;
+    script.onload = () => { authCaptchaScriptLoading = false; renderAuthCaptcha(); };
+    script.onerror = () => { authCaptchaScriptLoading = false; toast('No se pudo cargar la verificación de seguridad.', 'error'); };
+    document.head.append(script);
+  }
+
+  function resetAuthCaptcha() {
+    authCaptchaToken = '';
+    if (window.turnstile?.reset && authCaptchaWidget !== null) {
+      try { window.turnstile.reset(authCaptchaWidget); } catch (error) { console.warn('No se pudo reiniciar Turnstile:',error); }
+    }
+  }
+
   function setAuthMode(mode) {
     authMode = mode;
     const signup = mode === 'signup';
@@ -68,7 +123,11 @@
     $('#auth-submit').textContent = signup ? 'Crear cuenta' : 'Entrar';
     $('#auth-toggle').textContent = signup ? 'Ya tengo una cuenta' : 'Crear cuenta';
     $('#auth-password').autocomplete = signup ? 'new-password' : 'current-password';
+    if (cfg.TURNSTILE_SITE_KEY) renderAuthCaptcha();
+    else if (!authCaptchaRequested) $('#auth-captcha-wrap').classList.add('hidden');
   }
+
+  if (cfg.TURNSTILE_SITE_KEY) renderAuthCaptcha();
 
   $('#auth-toggle').addEventListener('click', () => setAuthMode(authMode === 'login' ? 'signup' : 'login'));
   $('#auth-form').addEventListener('submit', async event => {
@@ -79,18 +138,23 @@
     const button = $('#auth-submit');
     button.disabled = true;
     try {
+      if (cfg.TURNSTILE_SITE_KEY && !authCaptchaToken) { renderAuthCaptcha(); throw new Error('Completa primero la verificación de seguridad.'); }
       if (authMode === 'signup') {
         const username = $('#auth-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
         if (username.length < 3) throw new Error('El usuario debe tener al menos 3 caracteres (letras, números o _).');
-        const { error } = await client.auth.signUp({email, password, options:{data:{username}}});
+        const signupOptions = {data:{username}};
+        if (cfg.TURNSTILE_SITE_KEY) signupOptions.captchaToken = authCaptchaToken;
+        const { error } = await client.auth.signUp({email, password, options:signupOptions});
         if (error) throw error;
         toast('Cuenta creada. Revisa tu correo si Supabase exige confirmación.', 'success');
       } else {
-        const { error } = await client.auth.signInWithPassword({email, password});
+        const signinCredentials = {email, password};
+        if (cfg.TURNSTILE_SITE_KEY) signinCredentials.options = {captchaToken:authCaptchaToken};
+        const { error } = await client.auth.signInWithPassword(signinCredentials);
         if (error) throw error;
       }
-    } catch (error) { showError(error, 'No se pudo completar el acceso.'); }
-    finally { button.disabled = false; }
+    } catch (error) { showAuthError(error, 'No se pudo completar el acceso.'); }
+    finally { if (cfg.TURNSTILE_SITE_KEY) resetAuthCaptcha(); button.disabled = false; }
   });
 
   $('#forgot-password').addEventListener('click', async () => {
@@ -98,11 +162,15 @@
     const email = $('#auth-email').value.trim();
     if (!email) { toast('Escribe primero tu correo electrónico.'); $('#auth-email').focus(); return; }
     try {
+      if (cfg.TURNSTILE_SITE_KEY && !authCaptchaToken) { authCaptchaRequested = true; renderAuthCaptcha(); toast('Completa la verificación y vuelve a pulsar «He olvidado mi contraseña».'); return; }
       const redirectTo = `${location.origin}${location.pathname}`;
-      const { error } = await client.auth.resetPasswordForEmail(email, {redirectTo});
+      const resetOptions = {redirectTo};
+      if (cfg.TURNSTILE_SITE_KEY) resetOptions.captchaToken = authCaptchaToken;
+      const { error } = await client.auth.resetPasswordForEmail(email, resetOptions);
       if (error) throw error;
       toast('Si la cuenta existe, recibirás un enlace de recuperación.', 'success');
-    } catch (error) { showError(error); }
+    } catch (error) { showAuthError(error); }
+    finally { if (cfg.TURNSTILE_SITE_KEY) resetAuthCaptcha(); }
   });
 
   $('#auth-note').textContent = hasConfig
@@ -260,21 +328,43 @@
   async function showMessagePanel() {
     const panel = $('#conversation-panel');
     const c = currentContext;
+    const isCommunityChannel = c.type === 'channel';
+    const mediaOnly = isCommunityChannel && c.channelType === 'media';
+    const announcementLocked = isCommunityChannel && c.channelType === 'announcements' && !communityPermissions.post_announcements;
+    const voiceNotice = isCommunityChannel && c.channelType === 'voice';
+    const readOnly = announcementLocked || voiceNotice;
+    const channelLabel = isCommunityChannel ? ` · ${escapeHtml(c.channelType === 'media' ? 'Solo multimedia' : c.channelType === 'announcements' ? 'Anuncios' : c.channelType === 'voice' ? 'Voz' : 'Texto')}` : '';
+    const composerHint = mediaOnly
+      ? 'Este canal solo admite archivos multimedia.'
+      : announcementLocked
+        ? 'Necesitas el permiso «Publicar anuncios» para escribir aquí.'
+        : 'Enter para enviar · Shift + Enter para nueva línea · Markdown disponible';
     panel.innerHTML = `
       <div class="active-conversation">
-        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
         <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
-        <div class="composer-wrap"><div class="composer-tools"><button id="attach-file">＋ Archivo</button><button id="create-poll">▤ Encuesta</button><button id="insert-bold"><b>B</b></button><button id="insert-italic"><i>I</i></button><button id="insert-code">&lt;/&gt;</button><input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div><form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="Escribe un mensaje… (Markdown disponible)"></textarea><button class="composer-send" type="submit" aria-label="Enviar">➤</button></form><div class="composer-hint">Enter para enviar · Shift + Enter para nueva línea · Markdown y HTML saneado</div></div>
+        ${voiceNotice ? '<div class="voice-placeholder"><strong>Canal de voz</strong><p>Este canal ya está creado y tiene su propio tipo. La conexión de audio en tiempo real se añadirá en una fase WebRTC independiente.</p></div>' : `
+        <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
+          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
+          <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
+        </div>`}
       </div>`;
-    $('#message-form').addEventListener('submit', sendMessage);
-    $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#message-form').requestSubmit(); } });
-    $('#attach-file').addEventListener('click', () => $('#chat-file').click());
-    $('#chat-file').addEventListener('change', uploadAttachment);
-    $('#create-poll').addEventListener('click', createPoll);
-    $('#insert-bold').addEventListener('click', () => wrapSelection('**'));
-    $('#insert-italic').addEventListener('click', () => wrapSelection('*'));
-    $('#insert-code').addEventListener('click', () => wrapSelection('`'));
-    $('#conversation-info').addEventListener('click', () => toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.'));
+    if (!voiceNotice) {
+      $('#message-form').addEventListener('submit', sendMessage);
+      $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#message-form').requestSubmit(); } });
+      $('#attach-file').addEventListener('click', () => $('#chat-file').click());
+      $('#chat-file').addEventListener('change', uploadAttachment);
+      if (!mediaOnly && !announcementLocked) {
+        $('#create-poll').addEventListener('click', createPoll);
+        $('#insert-bold').addEventListener('click', () => wrapSelection('**'));
+        $('#insert-italic').addEventListener('click', () => wrapSelection('*'));
+        $('#insert-code').addEventListener('click', () => wrapSelection('`'));
+      }
+    }
+    $('#conversation-info').addEventListener('click', () => {
+      if (isCommunityChannel && c.channelDescription) toast(c.channelDescription);
+      else toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.');
+    });
   }
 
   function wrapSelection(mark) {
@@ -461,6 +551,8 @@
   async function sendMessage(event) {
     event.preventDefault();
     if (!currentContext) return;
+    if (currentContext.type === 'channel' && currentContext.channelType === 'media') { toast('Este canal solo admite archivos multimedia.','error'); return; }
+    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     const input = $('#message-input');
     const body = input.value.trim();
     if (!body) return;
@@ -478,6 +570,7 @@
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file || !currentContext || !currentUser) return;
+    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
     const allowed = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm)|application\/(pdf|zip)|text\/plain)$/i;
     if (file.type && !allowed.test(file.type)) { toast('Este tipo de archivo no está permitido.', 'error'); return; }
@@ -528,6 +621,8 @@
 
   async function createPoll() {
     if (!currentContext) return;
+    if (currentContext.type === 'channel' && currentContext.channelType === 'media') { toast('Los canales multimedia solo admiten archivos.','error'); return; }
+    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     const raw = await ask('Crear encuesta','Escribe la pregunta y dos o más opciones separadas por |.','Pregunta y opciones','¿Qué hacemos? | Opción A | Opción B');
     if (!raw) return;
     const parts = raw.split('|').map(value => value.trim()).filter(Boolean);
@@ -627,6 +722,71 @@
     $$('[data-community]').forEach(button => button.addEventListener('click', () => selectCommunity(rows.find(row => row.id === button.dataset.community))));
   }
   $('#create-community-shortcut').addEventListener('click', createCommunity);
+
+  function safeHttpsUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try { const parsed = new URL(raw); return parsed.protocol === 'https:' ? parsed.href : ''; }
+    catch { return ''; }
+  }
+
+  function sanitizeCommunityCss(source) {
+    const css = String(source || '').trim();
+    if (!css) return '';
+    if (css.length > 6000 || /@import|@font-face|url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:|-moz-binding|<|>|\\/i.test(css)) {
+      throw new Error('El CSS contiene una regla no permitida. Solo se aceptan estilos visuales locales.');
+    }
+    const allowedSelectors = new Set(['.community-hero','.community-info-grid','.community-info-grid h2','#community-name','#community-description']);
+    const allowedProperties = new Set(['color','background-color','border-color','border-radius','box-shadow','font-family','font-size','font-weight','letter-spacing','text-align','padding','margin','opacity','text-decoration']);
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    if (!rules.length || rules.map(rule => rule[0]).join('').replace(/\s/g,'') !== css.replace(/\s/g,'')) {
+      throw new Error('El CSS debe contener reglas sencillas con selector y llaves.');
+    }
+    const output = [];
+    for (const match of rules) {
+      const selectors = match[1].split(',').map(value => value.trim());
+      if (!selectors.length || selectors.some(selector => !allowedSelectors.has(selector))) {
+        throw new Error('Solo puedes personalizar .community-hero, .community-info-grid, .community-info-grid h2, #community-name y #community-description.');
+      }
+      const declarations = [];
+      for (const declaration of match[2].split(';')) {
+        if (!declaration.trim()) continue;
+        const splitAt = declaration.indexOf(':');
+        if (splitAt < 1) throw new Error('Hay una declaración CSS no válida.');
+        const property = declaration.slice(0,splitAt).trim().toLowerCase();
+        const value = declaration.slice(splitAt+1).trim();
+        if (!allowedProperties.has(property) || !value || !/^[a-zA-Z0-9#(),.%+\s-]+$/.test(value)) {
+          throw new Error(`La propiedad CSS «${property}» o su valor no está permitido.`);
+        }
+        declarations.push(`${property}:${value}`);
+      }
+      if (declarations.length) output.push(`${selectors.map(selector => `#view-community ${selector}`).join(',')} { ${declarations.join(';')} }`);
+    }
+    return output.join('\n');
+  }
+
+  function applyCommunityAppearance(community) {
+    const name = $('#community-name');
+    const hero = $('#community-hero');
+    const view = $('#view-community');
+    const banner = safeHttpsUrl(community?.banner_url);
+    const background = safeHttpsUrl(community?.background_url);
+    const icon = safeHttpsUrl(community?.icon_url);
+    name.style.color = /^#[0-9a-f]{6}$/i.test(community?.name_color || '') ? community.name_color : '';
+    hero.style.backgroundImage = banner ? `linear-gradient(90deg,#10131caa,#10131c66),url("${banner.replace(/["\\]/g,'')}")` : '';
+    view.style.backgroundImage = background ? `linear-gradient(#10131cbb,#10131cdd),url("${background.replace(/["\\]/g,'')}")` : '';
+    view.style.backgroundSize = background ? 'cover' : '';
+    view.style.backgroundAttachment = background ? 'fixed' : '';
+    const iconNode = $('#community-icon-preview');
+    if (iconNode) {
+      iconNode.textContent = icon ? '' : initials(community?.name || '?');
+      iconNode.style.backgroundImage = icon ? `url("${icon.replace(/["\\]/g,'')}")` : '';
+    }
+    let styleNode = document.getElementById('community-custom-style');
+    if (!styleNode) { styleNode = document.createElement('style'); styleNode.id = 'community-custom-style'; document.head.append(styleNode); }
+    try { styleNode.textContent = sanitizeCommunityCss(community?.custom_css || ''); }
+    catch (error) { styleNode.textContent = ''; console.warn('CSS del megagrupo ignorado:',error); }
+  }
   async function createCommunity() {
     const name = await ask('Crear megagrupo','Crea un espacio público para tu comunidad.','Nombre','Mi comunidad');
     if (!name) return;
@@ -644,9 +804,10 @@
     $('#community-name').textContent = community.name;
     $('#community-description').textContent = community.description || 'Sin descripción.';
     $('#community-id-short').textContent = community.id.slice(0,8);
-    $('#community-hero').style.backgroundImage = community.banner_url ? `linear-gradient(90deg,#10131caa,#10131c66),url('${community.banner_url}')` : '';
+    applyCommunityAppearance(community);
+    $('#community-settings').classList.toggle('hidden',community.owner_id !== currentUser.id);
     switchView('community');
-    const permissionNames = ['manage_roles','manage_badges','manage_messages','manage_channels'];
+    const permissionNames = ['manage_roles','manage_badges','manage_messages','manage_channels','post_announcements'];
     const permissionResults = await Promise.all(permissionNames.map(p_permission => client.rpc('has_community_permission',{p_community_id:community.id,p_permission})));
     permissionNames.forEach((name,index) => { communityPermissions[name] = Boolean(permissionResults[index].data); });
     await loadChannels();
@@ -662,6 +823,7 @@
   const ROLE_PERMISSIONS = [
     ['send_messages','Enviar mensajes'],
     ['manage_messages','Gestionar mensajes'],
+    ['post_announcements','Publicar anuncios'],
     ['manage_channels','Gestionar canales'],
     ['manage_roles','Gestionar roles'],
     ['manage_badges','Gestionar medallas'],
@@ -820,26 +982,38 @@
     }
   });
 
+  function channelTypeLabel(type) {
+    return ({text:'Texto',announcements:'Anuncios',voice:'Voz',media:'Solo multimedia'})[type] || 'Texto';
+  }
+  function channelTypeIcon(type) {
+    return ({text:'#',announcements:'⚑',voice:'◖',media:'▧'})[type] || '#';
+  }
+  function openChannelEditor(channel = null) {
+    if (!currentCommunity || !communityPermissions.manage_channels) return;
+    $('#channel-editor-title').textContent = channel ? 'Editar canal' : 'Crear canal';
+    $('#channel-edit-id').value = channel?.id || '';
+    $('#channel-edit-name').value = channel?.name || '';
+    $('#channel-edit-type').value = channel?.type || 'text';
+    $('#channel-edit-description').value = channel?.description || '';
+    $('#channel-edit-position').value = String(channel?.position ?? currentCommunityChannels.length);
+    $('#channel-editor-dialog').showModal();
+  }
+
   async function loadChannels() {
     if (!currentCommunity) return;
-    const {data,error} = await client.from('channels').select('*').eq('community_id',currentCommunity.id).order('position',{ascending:true});
+    const {data,error} = await client.from('channels').select('*').eq('community_id',currentCommunity.id).order('position',{ascending:true}).order('created_at',{ascending:true});
     if (error) { showError(error); return; }
     currentCommunityChannels = data || [];
     $('#community-channels-count').textContent = currentCommunityChannels.length;
     $('#add-channel').classList.toggle('hidden',!communityPermissions.manage_channels);
-    $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}"><span class="channel-hash">${channel.type === 'voice' ? '◖' : channel.type === 'media' ? '▧' : channel.type === 'announcements' ? '⚑' : '#'}</span>${escapeHtml(channel.name)}</button>${communityPermissions.manage_channels ? `<span class="channel-admin-actions"><button type="button" data-rename-channel="${channel.id}" title="Renombrar canal">···</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button></span>` : ''}</div>`).join('');
+    $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}" title="${escapeHtml(channel.description || channelTypeLabel(channel.type))}"><span class="channel-hash">${channelTypeIcon(channel.type)}</span><span class="channel-item-name">${escapeHtml(channel.name)}</span><span class="channel-type-mini">${channel.type === 'text' ? '' : escapeHtml(channelTypeLabel(channel.type))}</span></button>${communityPermissions.manage_channels ? `<span class="channel-admin-actions"><button type="button" data-edit-channel="${channel.id}" title="Editar canal">✎</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button></span>` : ''}</div>`).join('') || '<p class="muted channel-empty">Todavía no hay canales.</p>';
     $$('[data-channel]').forEach(button => button.addEventListener('click', () => {
       const channel = currentCommunityChannels.find(row => row.id === button.dataset.channel);
       if (channel) openCommunityChannel(channel);
     }));
-    $$('[data-rename-channel]').forEach(button => button.addEventListener('click', async () => {
-      const channel = currentCommunityChannels.find(row => row.id === button.dataset.renameChannel);
-      if (!channel) return;
-      const name = await ask('Renombrar canal','El nombre se actualizará para todos los miembros.','Nuevo nombre','general',channel.name);
-      if (!name || name === channel.name) return;
-      const {error:updateError} = await client.from('channels').update({name:name.trim().toLowerCase().replace(/\s+/g,'-')}).eq('id',channel.id).eq('community_id',currentCommunity.id);
-      if (updateError) showError(updateError,'No se pudo renombrar el canal.');
-      else { toast('Canal renombrado.','success'); await loadChannels(); if (currentContext?.id === channel.id) { channel.name = name.trim(); await openCommunityChannel(channel); } }
+    $$('[data-edit-channel]').forEach(button => button.addEventListener('click', () => {
+      const channel = currentCommunityChannels.find(row => row.id === button.dataset.editChannel);
+      if (channel) openChannelEditor(channel);
     }));
     $$('[data-delete-channel]').forEach(button => button.addEventListener('click', async () => {
       const channel = currentCommunityChannels.find(row => row.id === button.dataset.deleteChannel);
@@ -853,40 +1027,90 @@
       }
     }));
   }
+
+  $('#channel-editor-form').addEventListener('submit', async event => {
+    if (event.submitter?.value === 'cancel') return;
+    event.preventDefault();
+    if (!currentCommunity || !communityPermissions.manage_channels) return;
+    const channelId = $('#channel-edit-id').value;
+    const name = $('#channel-edit-name').value.trim().toLowerCase().replace(/\s+/g,'-');
+    const type = $('#channel-edit-type').value;
+    const description = $('#channel-edit-description').value.trim();
+    const position = Number.parseInt($('#channel-edit-position').value,10);
+    if (name.length < 1 || name.length > 70) { toast('El nombre debe tener entre 1 y 70 caracteres.','error'); return; }
+    if (!['text','announcements','voice','media'].includes(type)) { toast('Tipo de canal no válido.','error'); return; }
+    if (!Number.isInteger(position) || position < 0 || position > 500) { toast('La posición debe estar entre 0 y 500.','error'); return; }
+    const payload = {community_id:currentCommunity.id,name,type,description,position};
+    const response = channelId
+      ? await client.from('channels').update({name,type,description,position}).eq('id',channelId).eq('community_id',currentCommunity.id)
+      : await client.from('channels').insert(payload);
+    if (response.error) { showError(response.error,'No se pudo guardar el canal. Comprueba tus permisos y que el nombre sea válido.'); return; }
+    $('#channel-editor-dialog').close();
+    toast(channelId ? 'Canal actualizado.' : 'Canal creado.','success');
+    await loadChannels();
+    if (channelId && currentContext?.id === channelId) {
+      const updated = currentCommunityChannels.find(row => row.id === channelId);
+      if (updated) await openCommunityChannel(updated);
+    }
+  });
+
   async function openCommunityChannel(channel) {
-    if (channel.type === 'voice') { toast('Canal de voz creado. La conexión de audio requiere integrar un proveedor WebRTC en la siguiente fase.'); return; }
-    currentContext = {type:'channel',id:channel.id,title:`# ${channel.name}`,subtitle:`${currentCommunity.name} · ${channel.type}`};
+    if (channel.type === 'voice') {
+      if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
+      currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
+      switchView('chats');
+      await showMessagePanel();
+      $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
+      toast('El canal de voz está creado. La conexión WebRTC todavía no está integrada.');
+      return;
+    }
+    currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || ''};
     switchView('chats');
     await showMessagePanel();
-    if (channel.type === 'media') $('#message-input').placeholder = 'Comparte una imagen o un vídeo…';
+    if (channel.type === 'media') $('#message-input').placeholder = 'Este canal solo admite archivos…';
     await loadMessages();
     subscribeMessages();
     $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
   }
-  $('#add-channel').addEventListener('click', async () => {
-    if (!currentCommunity) return;
-    const name = await ask('Crear canal','Nombre breve, sin #.','Nombre','general');
-    if (!name) return;
-    const type = await ask('Tipo de canal','Escribe text, announcements, voice o media.','Tipo','text');
-    if (!['text','announcements','voice','media'].includes((type || '').toLowerCase())) { toast('Tipo no válido.','error'); return; }
-    const {error} = await client.from('channels').insert({community_id:currentCommunity.id,name:name.toLowerCase().replace(/\s+/g,'-'),type:type.toLowerCase()});
-    if (error) showError(error,'No tienes permisos para crear canales.'); else { loadChannels(); toast('Canal creado.','success'); }
-  });
+  $('#add-channel').addEventListener('click', () => openChannelEditor());
   $('#community-settings').addEventListener('click', () => {
-    if (!currentCommunity) return;
+    if (!currentCommunity || currentCommunity.owner_id !== currentUser.id) return;
     $('#community-edit-name').value = currentCommunity.name;
     $('#community-edit-description').value = currentCommunity.description || '';
     $('#community-edit-color').value = currentCommunity.name_color || '#a99bff';
+    $('#community-edit-icon').value = currentCommunity.icon_url || '';
+    $('#community-edit-banner').value = currentCommunity.banner_url || '';
+    $('#community-edit-background').value = currentCommunity.background_url || '';
+    $('#community-edit-css').value = currentCommunity.custom_css || '';
     $('#community-settings-dialog').showModal();
   });
   $('#community-settings-form').addEventListener('submit', async event => {
     if (event.submitter?.value === 'cancel') return;
     event.preventDefault();
-    const {error} = await client.from('communities').update({name:$('#community-edit-name').value.trim(),description:$('#community-edit-description').value.trim(),name_color:$('#community-edit-color').value}).eq('id',currentCommunity.id);
-    if (error) showError(error,'Solo el propietario puede editar estos ajustes.');
+    if (!currentCommunity || currentCommunity.owner_id !== currentUser.id) { toast('Solo el propietario puede cambiar estos ajustes.','error'); return; }
+    const name = $('#community-edit-name').value.trim();
+    const description = $('#community-edit-description').value.trim();
+    const nameColor = $('#community-edit-color').value;
+    const iconUrlRaw = $('#community-edit-icon').value.trim();
+    const bannerUrlRaw = $('#community-edit-banner').value.trim();
+    const backgroundUrlRaw = $('#community-edit-background').value.trim();
+    const iconUrl = safeHttpsUrl(iconUrlRaw);
+    const bannerUrl = safeHttpsUrl(bannerUrlRaw);
+    const backgroundUrl = safeHttpsUrl(backgroundUrlRaw);
+    if (name.length < 2 || name.length > 60) { toast('El nombre debe tener entre 2 y 60 caracteres.','error'); return; }
+    if ((iconUrlRaw && !iconUrl) || (bannerUrlRaw && !bannerUrl) || (backgroundUrlRaw && !backgroundUrl)) { toast('Las imágenes deben utilizar direcciones HTTPS válidas.','error'); return; }
+    let customCss = '';
+    try { customCss = sanitizeCommunityCss($('#community-edit-css').value); }
+    catch (error) { toast(error.message,'error'); return; }
+    const updates = {name,description,name_color:nameColor,icon_url:iconUrl || null,banner_url:bannerUrl || null,background_url:backgroundUrl || null,custom_css:customCss};
+    const {error} = await client.from('communities').update(updates).eq('id',currentCommunity.id);
+    if (error) showError(error,'No se pudieron guardar los ajustes del megagrupo.');
     else {
-      Object.assign(currentCommunity,{name:$('#community-edit-name').value.trim(),description:$('#community-edit-description').value.trim(),name_color:$('#community-edit-color').value});
-      $('#community-settings-dialog').close(); selectCommunity(currentCommunity); toast('Megagrupo actualizado.','success');
+      Object.assign(currentCommunity,updates);
+      $('#community-settings-dialog').close();
+      await loadCommunities();
+      await selectCommunity(currentCommunity);
+      toast('Megagrupo actualizado.','success');
     }
   });
   $('#add-alliance').addEventListener('click', async () => {

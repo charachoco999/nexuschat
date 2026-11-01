@@ -172,3 +172,14 @@ nexus-chat/
 ## 8. Próxima evolución recomendada
 
 La siguiente evolución puede centrarse en edición de canales, ajustes avanzados de megagrupo, personalización detallada de perfil/cliente y alianza con flujo completo. Después conviene completar Quick-Alt, stickers/emojis y GIFs, y finalmente añadir voz con WebRTC/TURN. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.
+
+
+## Registro público y correo de confirmación
+
+Los proyectos alojados de Supabase que usan el servicio SMTP integrado tienen un límite de prueba de 2 correos por hora para todo el proyecto. Para aceptar registros de personas externas, configura un proveedor SMTP personalizado en Supabase y mantén la confirmación de correo activada. Consulta `SUPABASE-AUTH-EMAILS.md`.
+
+Nexus v0.3 muestra un mensaje claro cuando se alcanza ese límite. La limitación se resuelve en la configuración de Auth, no cambiando contraseñas ni haciendo público el bucket de archivos.
+
+## Actualización v0.3
+
+Consulta `UPGRADE-v0.3.md`. Si aún no se aplicaron, ejecuta primero las migraciones de v0.2 para Storage y medallas; después ejecuta `supabase/migrations/20261101_channel_permissions.sql` para habilitar las reglas RLS por tipo de canal. La actualización también incorpora soporte opcional para Cloudflare Turnstile en el registro y la recuperación.

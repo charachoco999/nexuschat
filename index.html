@@ -27,6 +27,7 @@
         <label id="username-field" class="field hidden">Nombre de usuario<input id="auth-username" autocomplete="username" minlength="3" maxlength="24" placeholder="tu_usuario"></label>
         <label class="field">Correo electrónico<input id="auth-email" type="email" autocomplete="email" required placeholder="tu@correo.com"></label>
         <label class="field">Contraseña<input id="auth-password" type="password" autocomplete="current-password" minlength="8" required placeholder="Mínimo 8 caracteres"></label>
+        <div id="auth-captcha-wrap" class="auth-captcha-wrap hidden"><div id="auth-captcha"></div><p>Verificación de seguridad</p></div>
         <button class="button button-primary button-full" id="auth-submit" type="submit">Entrar</button>
       </form>
       <div class="auth-links"><button class="link-button" id="auth-toggle">Crear cuenta</button><button class="link-button" id="forgot-password">He olvidado mi contraseña</button></div>
@@ -98,6 +99,7 @@
             <div class="permission-grid full-field">
               <label><input type="checkbox" data-new-role-perm="send_messages" checked> Enviar mensajes</label>
               <label><input type="checkbox" data-new-role-perm="manage_messages"> Gestionar mensajes</label>
+              <label><input type="checkbox" data-new-role-perm="post_announcements"> Publicar anuncios</label>
               <label><input type="checkbox" data-new-role-perm="manage_channels"> Gestionar canales</label>
               <label><input type="checkbox" data-new-role-perm="manage_roles"> Gestionar roles</label>
               <label><input type="checkbox" data-new-role-perm="manage_badges"> Gestionar medallas</label>
@@ -127,7 +129,32 @@
 
   <dialog id="prompt-dialog" class="dialog-card"><form method="dialog" id="prompt-form"><div class="dialog-heading"><h3 id="prompt-title">Crear</h3><button class="icon-button" value="cancel" aria-label="Cerrar">×</button></div><p id="prompt-description" class="muted"></p><label class="field" id="prompt-field-label"><span id="prompt-label">Nombre</span><input id="prompt-input" autocomplete="off"></label><div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="prompt-confirm" value="default">Continuar</button></div></form></dialog>
 
-  <dialog id="community-settings-dialog" class="dialog-card"><form method="dialog" id="community-settings-form"><div class="dialog-heading"><h3>Configuración del megagrupo</h3><button class="icon-button" value="cancel">×</button></div><label class="field">Nombre<input id="community-edit-name" maxlength="60"></label><label class="field">Descripción<textarea id="community-edit-description" rows="3" maxlength="240"></textarea></label><label class="field">Color del nombre<input id="community-edit-color" type="color" value="#a99bff"></label><div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="save-community-settings" value="default">Guardar</button></div></form></dialog>
+  <dialog id="channel-editor-dialog" class="dialog-card wide-dialog">
+    <form method="dialog" id="channel-editor-form">
+      <div class="dialog-heading"><h3 id="channel-editor-title">Crear canal</h3><button class="icon-button" value="cancel" aria-label="Cerrar">×</button></div>
+      <input type="hidden" id="channel-edit-id">
+      <label class="field">Nombre del canal<input id="channel-edit-name" maxlength="70" required placeholder="general"></label>
+      <label class="field">Tipo de canal<select id="channel-edit-type"><option value="text">Texto</option><option value="announcements">Anuncios</option><option value="media">Solo multimedia</option><option value="voice">Voz (audio pendiente de integrar)</option></select></label>
+      <label class="field">Descripción<textarea id="channel-edit-description" rows="3" maxlength="240" placeholder="Para qué se utiliza este canal…"></textarea></label>
+      <label class="field">Posición en la lista<input id="channel-edit-position" type="number" min="0" max="500" step="1" value="0"></label>
+      <p class="muted small-muted">Los canales de anuncios requieren el permiso «Publicar anuncios». Los canales multimedia solo aceptan archivos. La voz se podrá activar cuando se integre WebRTC.</p>
+      <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" value="default" type="submit">Guardar canal</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="community-settings-dialog" class="dialog-card wide-dialog"><form method="dialog" id="community-settings-form"><div class="dialog-heading"><h3>Configuración del megagrupo</h3><button class="icon-button" value="cancel">×</button></div>
+    <label class="field">Nombre<input id="community-edit-name" maxlength="60" required></label>
+    <label class="field">Descripción<textarea id="community-edit-description" rows="3" maxlength="500"></textarea></label>
+    <label class="field">Color del nombre<input id="community-edit-color" type="color" value="#a99bff"></label>
+    <div class="form-grid">
+      <label class="field">URL del icono (HTTPS)<input id="community-edit-icon" type="url" placeholder="https://…"></label>
+      <label class="field">URL del banner (HTTPS)<input id="community-edit-banner" type="url" placeholder="https://…"></label>
+      <label class="field full-field">URL del fondo (HTTPS)<input id="community-edit-background" type="url" placeholder="https://…"></label>
+    </div>
+    <label class="field">CSS personalizado del megagrupo<textarea id="community-edit-css" rows="6" maxlength="6000" spellcheck="false" placeholder=".community-hero { border-radius: 24px; }"></textarea></label>
+    <p class="muted small-muted">El CSS se limita a selectores del área del megagrupo y a propiedades visuales. No admite @import, URL externas ni código activo.</p>
+    <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="save-community-settings" value="default">Guardar</button></div>
+  </form></dialog>
 
   <template id="message-template"><article class="message"><div class="avatar avatar-message"></div><div class="message-main"><div class="message-meta"><strong class="message-author"></strong><time></time></div><div class="message-body"></div><div class="message-attachment"></div></div></article></template>
 </body>

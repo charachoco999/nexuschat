@@ -71,3 +71,25 @@
 .channel-admin-actions button:hover{background:#ffffff12;color:white}
 .message-delete-button{border:0;background:transparent;color:var(--muted2);font-size:9px;padding:2px 5px;border-radius:5px;cursor:pointer;margin-left:auto}
 .message-delete-button:hover{color:#ff9baa;background:#9c4b6022}
+
+
+/* Nexus v0.3: channel editor and community appearance controls */
+.wide-dialog{width:min(560px,calc(100% - 28px));max-height:min(88vh,820px);overflow:auto}
+.wide-dialog form{gap:13px}
+.wide-dialog textarea{resize:vertical}
+#community-edit-css{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.5;min-height:120px}
+.channel-item-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.channel-type-mini{margin-left:auto;flex:none;color:#7e8ba8;font-size:9px}
+.channel-empty{padding:8px 11px;font-size:10px}
+.channel-admin-actions{flex:none;opacity:.65}
+.channel-admin-actions button{width:25px;height:25px;display:grid;place-items:center}
+.voice-placeholder{margin:auto;width:min(420px,calc(100% - 36px));padding:24px;border:1px solid var(--line);border-radius:14px;background:#191f2d;text-align:center}
+.voice-placeholder strong{font:600 16px 'Space Grotesk'}
+.voice-placeholder p{font-size:12px;color:var(--muted);line-height:1.6}
+.composer-readonly{opacity:.75}
+.composer-media-only .composer{display:none}
+.composer-media-only .composer-tools{justify-content:flex-start}
+#view-community{background-repeat:no-repeat;background-position:center;background-size:cover}
+@media(max-width:560px){.channel-type-mini{display:none}.wide-dialog{padding:16px}.channel-admin-actions{opacity:1}}
+
+.auth-captcha-wrap{display:grid;justify-items:center;gap:4px;min-height:76px;padding:8px 0}.auth-captcha-wrap p{margin:0;color:var(--muted2);font-size:10px}
