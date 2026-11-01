@@ -251,3 +251,8 @@ Consulta `NOTIFICATIONS-v0.7.md`. El sonido se reproduce mientras Nexus está ab
 ## v0.7 — medios, Workshop, push y voz
 
 La actualización v0.7 añade stickers/emojis privados, GIFs de GIPHY (clave beta pública en `GIPHY_API_KEY`, atribución `Powered by GIPHY`), valoraciones del Workshop, Web Push mediante VAPID y voz P2P WebRTC de hasta seis participantes. Consulta [UPGRADE-v0.7.md](UPGRADE-v0.7.md), [VOICE-v0.7.md](VOICE-v0.7.md) y [NOTIFICATIONS-v0.7.md](NOTIFICATIONS-v0.7.md).
+
+
+## Hotfix v0.7.2
+
+Las cargas de imágenes y fuentes validan la firma binaria y envían un MIME explícito, sin confiar en `File.type`. Ejecuta `supabase/migrations/20261101_nexus_v072_profile_asset_mime.sql` al actualizar.

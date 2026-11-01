@@ -2497,18 +2497,10 @@
     if(error) console.warn('No se pudo limpiar un archivo de perfil antiguo:',error.message);
   }
 
-  async function uploadProfileAsset(file, kind) {
-    if (!file) return;
-    const isFont = kind === 'name_font_url';
-    const inputSelectorByKind = {
-      name_font_url: '#profile-font-file',
-      name_effect_url: '#profile-name-effect-file',
-      profile_effect_url: '#profile-avatar-effect-file',
-      profile_plate_url: '#profile-plate-file'
-    };
-    const input = document.querySelector(inputSelectorByKind[kind] || '');
-    const rawExtension = (file.name.split('.').pop() || '').toLowerCase();
-    const extension = rawExtension.replace(/[^a-z0-9]/g, '').slice(0, 8);
+  async function detectProfileAssetMime(file, extension, isFont) {
+    // Do not trust File.type: some Linux/browser combinations return
+    // application/octet-stream for perfectly valid images and fonts.
+    // Validate the file signature and set the MIME ourselves instead.
     const imageMimeByExtension = {
       png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
       webp: 'image/webp', gif: 'image/gif'
@@ -2516,25 +2508,66 @@
     const fontMimeByExtension = {
       woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf'
     };
-    const allowedFont = isFont && Object.hasOwn(fontMimeByExtension, extension);
-    const inferredImageMime = imageMimeByExtension[extension];
-    const allowedImage = !isFont && Boolean(inferredImageMime) &&
-      (!file.type || /^image\/(png|jpeg|webp|gif)$/i.test(file.type));
+    const mime = (isFont ? fontMimeByExtension : imageMimeByExtension)[extension];
+    if (!mime) throw new Error(isFont
+      ? 'La fuente debe ser .woff, .woff2 o .ttf.'
+      : 'Usa una imagen PNG, JPG, WebP o GIF.');
 
-    if (file.size > 8 * 1024 * 1024 || (!allowedImage && !allowedFont)) {
-      toast(isFont
-        ? 'La fuente debe ser .woff, .woff2 o .ttf y pesar menos de 8 MB.'
-        : 'Usa una imagen PNG, JPG, WebP o GIF de máximo 8 MB.', 'error');
+    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const ascii = (start, length) => String.fromCharCode(...header.slice(start, start + length));
+    let valid = false;
+    if (extension === 'png') {
+      valid = header.length >= 8 && [0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a].every((b,i) => header[i] === b);
+    } else if (extension === 'jpg' || extension === 'jpeg') {
+      valid = header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+    } else if (extension === 'gif') {
+      valid = header.length >= 6 && ['GIF87a','GIF89a'].includes(ascii(0,6));
+    } else if (extension === 'webp') {
+      valid = header.length >= 12 && ascii(0,4) === 'RIFF' && ascii(8,4) === 'WEBP';
+    } else if (extension === 'woff') {
+      valid = header.length >= 4 && ascii(0,4) === 'wOFF';
+    } else if (extension === 'woff2') {
+      valid = header.length >= 4 && ascii(0,4) === 'wOF2';
+    } else if (extension === 'ttf') {
+      valid = header.length >= 4 && ((header[0] === 0x00 && header[1] === 0x01 && header[2] === 0x00 && header[3] === 0x00) || ascii(0,4) === 'true');
+    }
+    if (!valid) throw new Error('El contenido del archivo no coincide con su extensión. Prueba a exportarlo de nuevo como PNG, JPG, WebP, GIF o fuente compatible.');
+    return mime;
+  }
+
+  async function uploadProfileAsset(file, kind) {
+    if (!file) return;
+    const isFont = kind === 'name_font_url';
+    const inputSelectorByKind = {
+      name_font_url: '#profile-font-file',
+      name_effect_url: '#profile-name-effect-file',
+      profile_effect_url: '#profile-avatar-effect-file',
+      profile_plate_url: '#profile-plate-file',
+      avatar_url: '#profile-avatar-file',
+      banner_url: '#profile-banner-file'
+    };
+    const input = document.querySelector(inputSelectorByKind[kind] || '');
+    const rawExtension = (file.name.split('.').pop() || '').toLowerCase();
+    const extension = rawExtension.replace(/[^a-z0-9]/g, '').slice(0, 8);
+
+    if (file.size > 8 * 1024 * 1024) {
+      toast('El archivo debe pesar menos de 8 MB.', 'error');
       if (input) input.value = '';
       return;
     }
 
-    // Some browsers report application/octet-stream (or an empty type) for TTF.
-    // Derive the content type from the already-validated extension and also
-    // create a Blob carrying that MIME, so Storage never receives the generic
-    // application/octet-stream header for a font.
-    const contentType = allowedFont ? fontMimeByExtension[extension] : inferredImageMime;
-    const uploadBody = allowedFont ? new Blob([file], { type: contentType }) : file;
+    let contentType;
+    try {
+      contentType = await detectProfileAssetMime(file, extension, isFont);
+    } catch (error) {
+      toast(error.message || 'El formato del archivo no es válido.', 'error');
+      if (input) input.value = '';
+      return;
+    }
+
+    // Upload a Blob with an explicit MIME for images AND fonts. This avoids
+    // leaking the browser's generic application/octet-stream File.type to Storage.
+    const uploadBody = new Blob([file], { type: contentType });
     const path = `${currentUser.id}/identity-${kind}-${Date.now()}.${extension}`;
     const storage = client.storage.from('profile-media');
 
@@ -2547,7 +2580,7 @@
       if (uploadError) {
         const message = String(uploadError.message || '');
         if (/mime type .* not supported/i.test(message)) {
-          throw new Error(`Supabase todavía no permite ${contentType} en el bucket profile-media. Ejecuta la migración 20261104_nexus_v071_font_mime.sql y vuelve a intentarlo.`);
+          throw new Error(`Supabase todavía no permite ${contentType} en el bucket profile-media. Ejecuta la migración 20261101_nexus_v072_profile_asset_mime.sql y vuelve a intentarlo.`);
         }
         throw uploadError;
       }
