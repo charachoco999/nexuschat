@@ -6,5 +6,6 @@
 window.NEXUS_CONFIG = {
   SUPABASE_URL: "https://nxmirthwcpsdygveobyq.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_sZD8tY9v4_edaE7MlfMIcg_Iz6-GYsm",
-  APP_NAME: "Nexus"
+  APP_NAME: "Nexus",
+  GIPHY_API_KEY: '88epI1CjbXbeaypqc0FKxFaTVPU8VSQz'
 };

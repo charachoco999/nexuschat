@@ -5,7 +5,15 @@ window.NEXUS_CONFIG = {
   SUPABASE_URL: 'https://TU-PROYECTO.supabase.co',
   SUPABASE_ANON_KEY: 'TU-CLAVE-PUBLICA',
   APP_NAME: 'Nexus',
+  // Clave beta pública de GIPHY. GIPHY documenta el uso de Search desde el cliente.
+  // Limita la clave a la API y úsala solo para esta integración.
+  GIPHY_API_KEY: '',
   // Opcional: clave pública de Cloudflare Turnstile. Configura también CAPTCHA
   // en Supabase Auth para que la validación del token se haga en el servidor.
-  TURNSTILE_SITE_KEY: ''
+  TURNSTILE_SITE_KEY: '',
+  // Clave PÚBLICA VAPID. La privada nunca se coloca aquí.
+  VAPID_PUBLIC_KEY: '',
+  // Servidores ICE usados en salas WebRTC. STUN es suficiente en algunas redes;
+  // para atravesar NAT estricta puede hacer falta un TURN con credenciales efímeras.
+  VOICE_ICE_SERVERS: [{ urls: 'stun:stun.l.google.com:19302' }]
 };

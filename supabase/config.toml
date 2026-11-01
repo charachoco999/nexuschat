@@ -1,2 +1,5 @@
 [functions.admin-send-reset]
 verify_jwt = true
+
+[functions.send-web-push]
+verify_jwt = false

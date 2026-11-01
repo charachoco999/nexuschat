@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#10131c">
   <meta name="description" content="Nexus, plataforma de chats y comunidades personalizables.">
   <title>Nexus — Chat & Communities</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#141925">
+  <link rel="icon" href="./nexus-icon.svg" type="image/svg+xml">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M27 72V28h10l26 27V28h10v44H63L37 45v27z' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="assets/css/app.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
@@ -78,7 +81,7 @@
       <aside id="notification-panel" class="notification-panel hidden" aria-label="Notificaciones">
         <div class="notification-panel-head"><div><strong>Notificaciones</strong><small id="notification-subtitle">Mensajes nuevos y menciones</small></div><button type="button" class="icon-button" id="clear-notifications" title="Limpiar">×</button></div>
         <div id="notification-list" class="notification-list"><p class="empty-state compact">Todavía no hay notificaciones.</p></div>
-        <div class="notification-panel-foot"><button type="button" class="button button-secondary" id="enable-desktop-notifications">Activar avisos de escritorio</button><small id="notification-permission-note">El sonido funciona mientras Nexus está abierto.</small></div>
+        <div class="notification-panel-foot"><button type="button" class="button button-secondary" id="enable-desktop-notifications">Activar avisos de escritorio</button><button type="button" class="button button-secondary" id="enable-push-notifications">Activar avisos con Nexus cerrado</button><small id="notification-permission-note">El sonido funciona mientras Nexus está abierto.</small></div>
       </aside>
 
       <section class="view active" id="view-chats">
@@ -212,6 +215,27 @@
   </dialog>
 
   <dialog id="public-profile-dialog" class="dialog-card public-profile-dialog"><div class="dialog-heading"><h3 id="public-profile-title">Perfil</h3><button type="button" class="icon-button" id="close-public-profile" aria-label="Cerrar">×</button></div><div id="public-profile-body" class="public-profile-body"></div></dialog>
+
+  <dialog id="asset-picker-dialog" class="dialog-card wide-dialog">
+    <div class="dialog-heading"><div><h3>Stickers y emojis</h3><p class="muted small-muted">Recursos privados de tu cuenta, conversación o megagrupo.</p></div><button type="button" class="icon-button" id="close-asset-picker" aria-label="Cerrar">×</button></div>
+    <form id="asset-upload-form" class="asset-upload-form">
+      <label class="field">Nombre<input id="custom-asset-name" maxlength="32" required pattern="[a-z0-9_-]{2,32}" placeholder="ej. happy_cat"></label>
+      <label class="field">Tipo<select id="custom-asset-type"><option value="sticker">Sticker</option><option value="emoji">Emoji personalizado</option></select></label>
+      <label class="field">Ámbito<select id="custom-asset-scope"><option value="personal">Personal</option><option value="conversation" disabled>Esta conversación</option><option value="community" disabled>Este megagrupo</option></select></label>
+      <label class="field">Imagen PNG, JPG, WebP o GIF<input id="custom-asset-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required></label>
+      <button class="button button-primary" type="submit" id="upload-custom-asset">Subir recurso</button>
+    </form>
+    <div class="asset-picker-tabs"><button type="button" class="button button-secondary" data-asset-tab="sticker">Stickers</button><button type="button" class="button button-secondary" data-asset-tab="emoji">Emojis</button></div>
+    <div id="asset-picker-grid" class="asset-picker-grid"><p class="empty-state compact">Cargando recursos…</p></div>
+    <p class="muted small-muted">Los GIF animados se conservan como GIF. Límite por archivo: 5 MB. Los recursos compartidos solo son visibles dentro de su ámbito.</p>
+  </dialog>
+
+  <dialog id="gif-search-dialog" class="dialog-card wide-dialog">
+    <div class="dialog-heading"><div><h3>Buscar GIFs</h3><p class="muted small-muted">Búsqueda mediante GIPHY · contenido con clasificación PG.</p></div><button type="button" class="icon-button" id="close-gif-search" aria-label="Cerrar">×</button></div>
+    <form id="gif-search-form" class="gif-search-form"><input id="gif-search-query" maxlength="80" placeholder="Busca un GIF…" required><button class="button button-primary" type="submit">Buscar</button></form>
+    <div id="gif-search-results" class="gif-search-grid"><p class="empty-state compact">Busca algo para ver resultados.</p></div>
+    <p class="giphy-attribution"><strong>Powered by GIPHY</strong></p><p class="muted small-muted">Los GIFs se sirven desde GIPHY y no consumen el almacenamiento de Nexus.</p>
+  </dialog>
 
   <template id="message-template"><article class="message"><div class="avatar avatar-message"></div><div class="message-main"><div class="message-meta"><strong class="message-author"></strong><time></time></div><div class="message-body"></div><div class="message-attachment"></div><div class="message-reactions"></div></div></article></template>
 </body>

@@ -45,6 +45,12 @@
   let notificationItems = [];
   const notificationSeenIds = new Set();
   const mentionCandidateCache = new Map();
+  const customEmojiCache = new Map();
+  let customEmojiCacheKey = '';
+  let assetPickerType = 'sticker';
+  let voiceSession = null;
+  let serviceWorkerRegistration = null;
+  let pushEnabledLocal = false;
 
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const initials = (value = '?') => String(value).trim().slice(0, 1).toUpperCase() || '?';
@@ -234,6 +240,9 @@
       await loadAltProfiles();
       await loadInitialData();
       await consumePendingCommunityInvite();
+      await initializeServiceWorker();
+      await refreshPushButtonState();
+      await handlePushDeepLink();
       renderNotificationPanel();
     } catch (error) {
       showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
@@ -242,6 +251,8 @@
 
   async function signOut() {
     if (!client) return;
+    await leaveVoiceRoom({refresh:false});
+    try { const reg=serviceWorkerRegistration||await initializeServiceWorker(); const sub=await reg?.pushManager.getSubscription(); if(sub){await client.from('push_subscriptions').delete().eq('endpoint',sub.endpoint).eq('user_id',currentUser.id);await sub.unsubscribe();pushEnabledLocal=false;} } catch(error) { console.warn('No se pudo retirar la suscripción push local:',error); }
     await client.auth.signOut();
     if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
     if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
@@ -265,6 +276,7 @@
 
   // ---------- Navigation and identity ----------
   function switchView(view) {
+    if(view!=='chats'&&voiceSession)leaveVoiceRoom({refresh:false});
     currentView = view;
     $$('.view').forEach(node => node.classList.toggle('active', node.id === `view-${view}`));
     $$('[data-view]').forEach(node => node.classList.toggle('active', node.dataset.view === view));
@@ -421,11 +433,11 @@
     if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
     if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
 
-    friendsRealtimeChannel = client.channel(`nexus-friends-${currentUser.id}`)
+    friendsRealtimeChannel = client.channel(`nexus-friends-${currentUser.id}`, {config:{private:true}})
       .on('postgres_changes', {event:'*', schema:'public', table:'friends'}, () => scheduleAccountListRefresh('friends'))
       .subscribe();
 
-    inboxRealtimeChannel = client.channel(`nexus-inbox-${currentUser.id}`)
+    inboxRealtimeChannel = client.channel(`nexus-inbox-${currentUser.id}`, {config:{private:true}})
       .on('postgres_changes', {event:'*', schema:'public', table:'conversation_members', filter:`user_id=eq.${currentUser.id}`}, () => scheduleAccountListRefresh('conversations'))
       .on('postgres_changes', {event:'*', schema:'public', table:'conversations'}, () => scheduleAccountListRefresh('conversations'))
       .subscribe();
@@ -517,7 +529,8 @@
       return `<button class="notification-entry ${item.mention?'notification-entry-mention':''}" type="button" data-notification-index="${index}">${iconMarkup}<span class="notification-entry-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subtitle)}${item.mention?' · Te han mencionado':''}</small><span>${escapeHtml(item.body)}</span></span><time>${escapeHtml(item.time)}</time></button>`;
     }).join('') : '<p class="empty-state compact">Todavía no hay notificaciones.</p>';
     $('#notification-subtitle').textContent = notificationItems.length ? `${notificationItems.length} aviso${notificationItems.length===1?'':'s'} recientes` : 'Mensajes nuevos y menciones';
-    $('#notification-permission-note').textContent = !('Notification' in window) ? 'Este navegador no admite avisos de escritorio.' : Notification.permission==='granted' ? 'Avisos de escritorio activados.' : 'Sonido mientras Nexus esté abierto; avisos de escritorio opcionales con la pestaña oculta.';
+    $('#notification-permission-note').textContent = !('Notification' in window) ? 'Este navegador no admite avisos de escritorio.' : pushEnabledLocal ? 'Avisos push activados en este navegador.' : Notification.permission==='granted' ? 'Avisos de escritorio activados; push con navegador cerrado todavía desactivado.' : 'Sonido mientras Nexus está abierto. Activa los permisos para más avisos.';
+    const pushButton=$('#enable-push-notifications');if(pushButton){pushButton.textContent=pushEnabledLocal?'Desactivar avisos push':'Activar avisos con Nexus cerrado';pushButton.disabled=!cfg.VAPID_PUBLIC_KEY;pushButton.title=cfg.VAPID_PUBLIC_KEY?'':'Configura VAPID_PUBLIC_KEY en config.js y los secretos/webhook de Supabase';}
     $$('[data-notification-index]').forEach(button=>button.addEventListener('click',async()=>{
       const item=notificationItems[Number(button.dataset.notificationIndex)];
       if (!item) return;
@@ -567,9 +580,48 @@
   function subscribeMessageNotifications() {
     if (!client || !currentUser) return;
     if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
-    messageNotificationChannel=client.channel(`nexus-notifications-${currentUser.id}`)
+    messageNotificationChannel=client.channel(`nexus-notifications-${currentUser.id}`,{config:{private:true}})
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>handleIncomingNotification(payload.new).catch(error=>console.warn('No se pudo procesar una notificación:',error)))
       .subscribe();
+  }
+
+  // ---------- Web Push (works after the browser has been subscribed) ----------
+  function base64UrlToUint8Array(value){const padding='='.repeat((4-value.length%4)%4);const raw=atob((value+padding).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...raw].map(char=>char.charCodeAt(0)));}
+  async function initializeServiceWorker(){
+    if(!('serviceWorker' in navigator))return null;
+    try{serviceWorkerRegistration=await navigator.serviceWorker.register('./nexus-sw.js',{scope:'./'});return serviceWorkerRegistration;}catch(error){console.warn('Service worker no disponible:',error);return null;}
+  }
+  async function enablePushNotifications(){
+    if(!cfg.VAPID_PUBLIC_KEY){toast('Falta VAPID_PUBLIC_KEY en assets/js/config.js. Consulta la guía de notificaciones v0.7.','error');return;}
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){toast('Este navegador no admite Web Push.','error');return;}
+    const permission=await Notification.requestPermission();if(permission!=='granted'){toast('El navegador no ha concedido permiso para notificaciones.');return;}
+    const reg=serviceWorkerRegistration||await initializeServiceWorker();if(!reg){toast('No se pudo registrar el service worker.','error');return;}
+    try{
+      const subscription=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64UrlToUint8Array(cfg.VAPID_PUBLIC_KEY)});
+      const payload=subscription.toJSON();
+      const {error}=await client.from('push_subscriptions').upsert({user_id:currentUser.id,endpoint:subscription.endpoint,subscription:payload,updated_at:new Date().toISOString()},{onConflict:'endpoint'});
+      if(error)throw error;
+      pushEnabledLocal=true;refreshPushButtonState();
+      $('#notification-permission-note').textContent='Avisos push activados para este navegador.';toast('Notificaciones con Nexus cerrado activadas.','success');
+    }catch(error){showError(error,'No se pudo activar Web Push. Comprueba la clave VAPID y la migración v0.7.');}
+  }
+  async function disablePushNotifications(){
+    try{const reg=serviceWorkerRegistration||await initializeServiceWorker();const sub=await reg?.pushManager.getSubscription();if(sub){const {error}=await client.from('push_subscriptions').delete().eq('endpoint',sub.endpoint).eq('user_id',currentUser.id);if(error)throw error;await sub.unsubscribe();}pushEnabledLocal=false;refreshPushButtonState();toast('Notificaciones push desactivadas en este navegador.');}catch(error){showError(error);}
+  }
+  async function refreshPushButtonState(){
+    const button=$('#enable-push-notifications');if(!button)return;
+    let active=false;
+    try{const reg=serviceWorkerRegistration||await initializeServiceWorker();const sub=await reg?.pushManager.getSubscription();if(sub&&currentUser){const {data,error}=await client.from('push_subscriptions').select('endpoint').eq('user_id',currentUser.id).eq('endpoint',sub.endpoint).maybeSingle();active=!error&&Boolean(data);}}catch(error){console.warn('Estado push:',error);}
+    pushEnabledLocal=active;button.textContent=active?'Desactivar avisos push':'Activar avisos con Nexus cerrado';button.disabled=!cfg.VAPID_PUBLIC_KEY;button.title=cfg.VAPID_PUBLIC_KEY?'':'Configura VAPID_PUBLIC_KEY en config.js y los secretos/webhook de Supabase';
+  }
+  $('#enable-push-notifications')?.addEventListener('click',()=>pushEnabledLocal?disablePushNotifications():enablePushNotifications());
+  async function handlePushDeepLink(){
+    const url=new URL(location.href);const conversationId=url.searchParams.get('openConversation');const channelId=url.searchParams.get('openChannel');
+    try{
+      if(conversationId){await loadConversations();const row=conversations.find(item=>item.id===conversationId);if(row)await openConversation(row);}
+      else if(channelId){const {data:channel}=await client.from('channels').select('*').eq('id',channelId).maybeSingle();if(channel){const {data:community}=await client.from('communities').select('*').eq('id',channel.community_id).maybeSingle();if(community){await selectCommunity(community);await openCommunityChannel(channel);}}}
+      if(conversationId||channelId){url.searchParams.delete('openConversation');url.searchParams.delete('openChannel');history.replaceState({},'',url.pathname+url.search+url.hash);}
+    }catch(error){console.warn('No se pudo abrir el destino de push:',error);}
   }
 
   $('#open-notifications').addEventListener('click',()=>{
@@ -699,6 +751,7 @@
     renderConversationList();
   }
   async function openConversation(row) {
+    if(voiceSession)await leaveVoiceRoom({refresh:false});
     replyTarget = null;
     if (row.hidden_at) {
       const {error} = await client.from('conversation_members').update({hidden_at:null})
@@ -734,12 +787,12 @@
       <div class="active-conversation">
         <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
         <div id="pinned-messages" class="pinned-messages hidden"></div>
-        ${voiceNotice ? '<div class="voice-placeholder"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Esta sala ya tiene su fondo y configuración de megagrupo. La conexión de audio llegará en una fase WebRTC independiente.</p><span class="tag">Audio todavía no conectado</span></div>' : `
+        ${voiceNotice ? '<div class="voice-placeholder voice-room"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Conéctate para hablar con los miembros presentes. El audio se transmite directamente entre navegadores cuando la red lo permite.</p><div id="voice-status" class="voice-status">Desconectado</div><div id="voice-participants" class="voice-participants"><span class="tag">Aún no hay participantes conectados</span></div><div class="voice-room-actions"><button type="button" class="button button-primary" id="join-voice-room">Conectar micrófono</button><button type="button" class="button button-secondary" id="voice-mute" disabled>Silenciar</button><button type="button" class="button button-secondary" id="leave-voice-room" disabled>Salir</button></div><div id="voice-audio-host" class="voice-audio-host"></div><small class="muted">La calidad de conexión depende de la red. Algunas redes necesitan un servidor TURN adicional.</small></div>' : `
         <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
-          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
+          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Sticker / Emoji</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
@@ -755,12 +808,20 @@
       });
       $('#attach-file').addEventListener('click', () => $('#chat-file').click());
       $('#chat-file').addEventListener('change', uploadAttachment);
+      $('#open-asset-picker')?.addEventListener('click', () => openAssetPicker('sticker'));
+      $('#open-gif-search')?.addEventListener('click', openGifSearch);
       if (!mediaOnly && !announcementLocked) {
         $('#create-poll').addEventListener('click', createPoll);
         $('#insert-bold').addEventListener('click', () => wrapSelection('**'));
         $('#insert-italic').addEventListener('click', () => wrapSelection('*'));
         $('#insert-code').addEventListener('click', () => wrapSelection('`'));
       }
+    }
+    if (voiceNotice) {
+      $('#join-voice-room')?.addEventListener('click', joinVoiceRoom);
+      $('#voice-mute')?.addEventListener('click', toggleVoiceMute);
+      $('#leave-voice-room')?.addEventListener('click', () => leaveVoiceRoom());
+      if (voiceSession?.channelId===c.id) renderVoiceParticipants();
     }
     $('#conversation-info').addEventListener('click', () => {
       if (isCommunityChannel && c.channelDescription) toast(c.channelDescription);
@@ -866,6 +927,7 @@
     if (error) { showError(error, 'No se pudieron cargar los mensajes.'); return; }
     const container = $('#messages-container');
     if (!container) return;
+    await loadCustomEmojiCache(true);
     renderedMessageIds.clear();
     container.innerHTML = '';
     if (!data?.length) container.innerHTML = '<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>';
@@ -1046,6 +1108,10 @@
       const rendered = window.marked ? marked.parse(source, {breaks:true, gfm:true}) : escapeHtml(source).replace(/\n/g,'<br>');
       body.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rendered, {USE_PROFILES:{html:true}}) : escapeHtml(source);
       applyMentionMarkup(body, message.formatting?.mentions || []);
+      if (Array.isArray(message.formatting?.custom_emojis) && message.formatting.custom_emojis.length) {
+        await ensureCustomEmojiAssetsForMessage(message);
+        renderCustomEmojiTokens(body);
+      }
     } catch { body.textContent = source; }
     if (message.message_type === 'poll') {
       const {data: poll} = await client.from('polls').select('*').eq('message_id',message.id).maybeSingle();
@@ -1072,6 +1138,16 @@
         });
         $('.message-attachment', article).append(card);
       }
+    }
+    if (message.attachment?.kind === 'sticker' && message.attachment?.custom_asset_id) {
+      const {data:asset,error:assetError}=await client.from('custom_assets').select('id,name,asset_url').eq('id',message.attachment.custom_asset_id).maybeSingle();
+      if (!assetError && asset?.asset_url) {
+        const {data:signed}=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);
+        if (signed?.signedUrl) { const image=document.createElement('img'); image.className='message-custom-sticker'; image.src=signed.signedUrl; image.alt=asset.name||'Sticker'; image.loading='lazy'; $('.message-attachment',article).append(image); }
+      }
+    } else if (message.attachment?.kind === 'gif' && isGiphyMediaUrl(message.attachment.url)) {
+      const image=document.createElement('img'); image.className='message-gif'; image.src=message.attachment.url; image.alt=String(message.attachment.alt||'GIF').slice(0,120); image.loading='lazy'; $('.message-attachment',article).append(image);
+      const credit=document.createElement('small'); credit.className='gif-credit'; credit.textContent='Powered by GIPHY'; $('.message-attachment',article).append(credit);
     }
     if (message.attachment?.path) {
       const {data} = await client.storage.from('chat-media').createSignedUrl(message.attachment.path, 3600);
@@ -1160,7 +1236,9 @@
     const save = $('#save-message-edit');
     save.disabled = true;
     const mentions=await collectMessageMentions(body);
-    const {error} = await client.rpc('edit_message_with_mentions',{p_message_id:editingMessageId,p_body:body,p_mentions:mentions});
+    await loadCustomEmojiCache();
+    const customEmojis=collectCustomEmojiIds(body);
+    const {error} = await client.rpc('edit_message_with_mentions',{p_message_id:editingMessageId,p_body:body,p_mentions:mentions,p_custom_emojis:customEmojis});
     save.disabled = false;
     if (error) { showError(error,'No se pudo editar el mensaje.'); return; }
     $('#edit-message-dialog').close();
@@ -1263,7 +1341,7 @@
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
     if (!currentContext) return;
     const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
-    activeMessageChannel = client.channel(`nexus-${currentContext.type}-${currentContext.id}`)
+    activeMessageChannel = client.channel(`nexus-${currentContext.type}-${currentContext.id}`, {config:{private:true}})
       .on('postgres_changes', {event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async payload => {
         const profiles = await fetchProfiles([payload.new.sender_id]);
         await appendMessage(payload.new, profiles[payload.new.sender_id]);
@@ -1382,7 +1460,9 @@
     if (!body) return;
     input.disabled = true;
     const mentions = await collectMessageMentions(body);
-    const payload = {sender_id:currentUser.id, body, formatting:{mentions}, ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}), ...(replyTarget ? {reply_to:replyTarget.id} : {})};
+    await loadCustomEmojiCache();
+    const customEmojis=collectCustomEmojiIds(body);
+    const payload = {sender_id:currentUser.id, body, formatting:{mentions,custom_emojis:customEmojis}, ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}), ...(replyTarget ? {reply_to:replyTarget.id} : {})};
     payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
     const {error} = await client.from('messages').insert(payload);
     input.disabled = false;
@@ -1390,6 +1470,149 @@
     input.value = '';
     clearReplyTarget();
     input.focus();
+  }
+
+  // ---------- Stickers, custom emoji and GIPHY GIFs ----------
+  async function listCustomAssets(type){
+    const scopes=[{scope:'personal',id:null}];
+    if(currentContext?.type==='conversation')scopes.push({scope:'conversation',id:currentContext.id});
+    if(currentContext?.type==='channel'&&currentCommunity)scopes.push({scope:'community',id:currentCommunity.id});
+    const rows=[];
+    for(const entry of scopes){let query=client.from('custom_assets').select('id,owner_id,asset_type,scope,scope_id,name,asset_url,animated,archived_at').eq('asset_type',type).eq('scope',entry.scope).is('archived_at',null);query=entry.id?query.eq('scope_id',entry.id):query.is('scope_id',null);const {data,error}=await query.order('created_at',{ascending:false});if(error){console.warn('Assets:',error);continue;}rows.push(...(data||[]));}
+    return Promise.all(rows.map(async row=>{const {data}=await client.storage.from('nexus-assets').createSignedUrl(row.asset_url,3600);return {...row,signedUrl:data?.signedUrl||''};}));
+  }
+  async function loadCustomEmojiCache(force=false){
+    if(!currentContext)return;
+    const key=`${currentContext.type}:${currentContext.id}:${currentCommunity?.id||''}`;
+    if(!force&&customEmojiCacheKey===key)return;
+    customEmojiCache.clear();customEmojiCacheKey=key;
+    const rows=await listCustomAssets('emoji');
+    for(const row of rows)if(row.signedUrl)customEmojiCache.set(row.name,{...row});
+  }
+  function collectCustomEmojiIds(body){
+    const ids=[];const regex=/:([a-z0-9_-]{2,32}):/gi;let match;
+    while((match=regex.exec(String(body||'')))&&ids.length<30){const item=customEmojiCache.get(match[1].toLowerCase());if(item&&!ids.includes(item.id))ids.push(item.id);}
+    return ids;
+  }
+  async function ensureCustomEmojiAssetsForMessage(message){
+    const ids=Array.isArray(message?.formatting?.custom_emojis)?message.formatting.custom_emojis.filter(id=>typeof id==='string').slice(0,30):[];
+    if(!ids.length)return;
+    const {data,error}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',ids).eq('asset_type','emoji');
+    if(error){console.warn('No se pudieron resolver los emojis de un mensaje:',error);return;}
+    for(const asset of data||[]){const {data:signed}=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);if(signed?.signedUrl)customEmojiCache.set(asset.name,{...asset,signedUrl:signed.signedUrl});}
+  }
+  function renderCustomEmojiTokens(container){
+    if(!container||!customEmojiCache.size)return;
+    const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement?.closest('code,pre,a')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});
+    const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+    for(const node of nodes){const text=node.nodeValue||'';const regex=/:([a-z0-9_-]{2,32}):/gi;let match,last=0,changed=false;const fragment=document.createDocumentFragment();
+      while((match=regex.exec(text))){const asset=customEmojiCache.get(match[1].toLowerCase());if(!asset?.signedUrl)continue;changed=true;fragment.append(document.createTextNode(text.slice(last,match.index)));const img=document.createElement('img');img.className='custom-message-emoji';img.src=asset.signedUrl;img.alt=`:${asset.name}:`;img.title=img.alt;img.loading='lazy';fragment.append(img);last=match.index+match[0].length;}
+      if(changed){fragment.append(document.createTextNode(text.slice(last)));node.parentNode?.replaceChild(fragment,node);}
+    }
+  }
+  function openAssetPicker(type='sticker'){
+    if(!currentContext){toast('Abre primero una conversación o canal.');return;}
+    assetPickerType=type;$('#custom-asset-type').value=type;
+    const scope=$('#custom-asset-scope');scope.querySelector('[value="conversation"]').disabled=currentContext.type!=='conversation';scope.querySelector('[value="community"]').disabled=currentContext.type!=='channel'||!currentCommunity;
+    scope.value='personal';$('#asset-picker-dialog').showModal();loadAssetPicker();
+  }
+  async function loadAssetPicker(){
+    const host=$('#asset-picker-grid');if(!host)return;host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';
+    const rows=await listCustomAssets(assetPickerType);
+    host.innerHTML=rows.length?rows.map(row=>`<article class="custom-asset-card"><img src="${escapeHtml(row.signedUrl)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${row.scope==='personal'?'Personal':row.scope==='conversation'?'Conversación':'Megagrupo'}${row.animated?' · GIF':''}</small><div><button type="button" class="button button-primary" data-use-custom-asset="${row.id}">${assetPickerType==='emoji'?'Insertar':'Enviar'}</button>${row.owner_id===currentUser.id?`<button type="button" class="button button-secondary" data-archive-custom-asset="${row.id}">Archivar</button>`:''}</div></article>`).join(''):'<p class="empty-state compact">No hay recursos en este ámbito. Sube el primero.</p>';
+    $$('[data-use-custom-asset]').forEach(button=>button.addEventListener('click',()=>{const item=rows.find(row=>row.id===button.dataset.useCustomAsset);if(!item)return;if(assetPickerType==='emoji'){const input=$('#message-input');const token=`:${item.name}: `;const start=input.selectionStart,end=input.selectionEnd;input.setRangeText(token,start,end,'end');input.focus();loadCustomEmojiCache(true);}else sendStickerMessage(item);}));
+    $$('[data-archive-custom-asset]').forEach(button=>button.addEventListener('click',()=>archiveCustomAsset(button.dataset.archiveCustomAsset)));
+  }
+  $('#close-asset-picker').addEventListener('click',()=>$('#asset-picker-dialog').close());
+  $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{assetPickerType=button.dataset.assetTab;$('#custom-asset-type').value=assetPickerType;loadAssetPicker();}));
+  $('#asset-upload-form').addEventListener('submit',uploadCustomAsset);
+  async function uploadCustomAsset(event){
+    event.preventDefault();if(!currentContext||!currentUser)return;
+    const file=$('#custom-asset-file').files?.[0];const name=$('#custom-asset-name').value.trim().toLowerCase();const type=$('#custom-asset-type').value;const scope=$('#custom-asset-scope').value;
+    if(!file||!/^([a-z0-9_-]){2,32}$/.test(name)){toast('Usa un nombre de 2 a 32 caracteres: minúsculas, números, _ o -.','error');return;}
+    if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)||file.size>5*1024*1024){toast('Usa PNG, JPG, WebP o GIF de hasta 5 MB.','error');return;}
+    const scopeId=scope==='conversation'?currentContext.type==='conversation'?currentContext.id:null:scope==='community'?currentContext.type==='channel'?currentCommunity?.id:null:null;
+    if(scope!=='personal'&&!scopeId){toast('Ese ámbito no corresponde al chat actual.','error');return;}
+    const ext=({ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'})[file.type];
+    const path=scope==='personal'?`personal/${currentUser.id}/${crypto.randomUUID()}.${ext}`:`${scope}/${scopeId}/${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+    const button=$('#upload-custom-asset');button.disabled=true;
+    try{
+      const {error:upError}=await client.storage.from('nexus-assets').upload(path,file,{contentType:file.type,upsert:false});if(upError)throw upError;
+      const {error:rowError}=await client.from('custom_assets').insert({owner_id:currentUser.id,asset_type:type,scope,scope_id:scopeId,name,asset_url:path,animated:file.type==='image/gif'});
+      if(rowError){await client.storage.from('nexus-assets').remove([path]);throw rowError;}
+      $('#custom-asset-name').value='';$('#custom-asset-file').value='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso subido.','success');
+    }catch(error){showError(error,'No se pudo subir el recurso. Comprueba la migración v0.7 y las políticas de Storage.');}
+    finally{button.disabled=false;}
+  }
+  async function archiveCustomAsset(id){
+    const {error}=await client.from('custom_assets').update({archived_at:new Date().toISOString()}).eq('id',id).eq('owner_id',currentUser.id);
+    if(error)showError(error,'No se pudo archivar el recurso.');else{await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso archivado. Los mensajes anteriores lo conservan.','success');}
+  }
+  async function sendStickerMessage(asset){
+    if(!currentContext)return;
+    if(currentContext.type==='channel'&&currentContext.channelType==='announcements'&&!communityPermissions.post_announcements){toast('Necesitas permiso para publicar aquí.','error');return;}
+    const payload={sender_id:currentUser.id,body:`Sticker: ${asset.name}`,message_type:'media',attachment:{kind:'sticker',custom_asset_id:asset.id,name:asset.name},...(activeAltProfile?{alt_profile_id:activeAltProfile.id}:{})};
+    payload[currentContext.type==='conversation'?'conversation_id':'channel_id']=currentContext.id;
+    const {error}=await client.from('messages').insert(payload);if(error)showError(error,'No se pudo enviar el sticker.');else{$('#asset-picker-dialog').close();toast('Sticker enviado.','success');}
+  }
+  $('#close-gif-search').addEventListener('click',()=>$('#gif-search-dialog').close());
+  $('#gif-search-form').addEventListener('submit',async event=>{event.preventDefault();await searchGiphyGifs($('#gif-search-query').value.trim());});
+  function openGifSearch(){
+    if(!currentContext)return;
+    $('#gif-search-dialog').showModal();
+    $('#gif-search-query').focus();
+    if(!$('#gif-search-results').dataset.loaded){$('#gif-search-results').dataset.loaded='1';searchGiphyGifs('trending');}
+  }
+  function isGiphyMediaUrl(value){
+    const safe=safeHttpsUrl(value);if(!safe)return false;
+    try{const host=new URL(safe).hostname.toLowerCase();return host==='giphy.com'||host.endsWith('.giphy.com');}catch{return false;}
+  }
+  function getGiphyCustomerId(){
+    const key='nexus-giphy-customer-id';
+    try{let id=localStorage.getItem(key);if(!id){id=crypto.randomUUID();localStorage.setItem(key,id);}return id;}catch{return 'nexus-'+crypto.randomUUID();}
+  }
+  function trackGiphyEvent(url){
+    if(!url)return;
+    try{const target=new URL(url);target.searchParams.set('ts',String(Date.now()));target.searchParams.set('customer_id',getGiphyCustomerId());const beacon=new Image();beacon.referrerPolicy='no-referrer';beacon.src=target.toString();}catch{}
+  }
+  async function searchGiphyGifs(query){
+    const host=$('#gif-search-results');
+    const apiKey=String(cfg.GIPHY_API_KEY||'').trim();
+    if(!apiKey){host.innerHTML='<p class="empty-state compact">Falta la clave pública GIPHY_API_KEY en assets/js/config.js. Consulta UPGRADE-v0.7.</p>';return;}
+    host.innerHTML='<p class="empty-state compact">Buscando GIFs…</p>';
+    try{
+      const trending=!query||query.toLowerCase()==='trending';
+      const endpoint=trending?'https://api.giphy.com/v1/gifs/trending':'https://api.giphy.com/v1/gifs/search';
+      const params=new URLSearchParams({api_key:apiKey,limit:'18',rating:'pg',country_code:'ES',lang:'es',bundle:'messaging_non_clips'});
+      if(!trending)params.set('q',query.slice(0,50));
+      const response=await fetch(`${endpoint}?${params.toString()}`,{headers:{Accept:'application/json'}});
+      if(!response.ok)throw new Error(response.status===429?'GIPHY ha alcanzado el límite de búsquedas por hora.':`GIPHY respondió con HTTP ${response.status}.`);
+      const payload=await response.json();
+      const results=(payload.data||[]).flatMap(item=>{
+        const images=item.images||{};
+        const url=images.original?.url||images.downsized?.url||'';
+        const preview=images.fixed_width_small?.url||images.fixed_width?.url||images.downsized_small?.url||url;
+        if(!isGiphyMediaUrl(url)||!isGiphyMediaUrl(preview))return[];
+        return [{id:String(item.id||''),url,preview_url:preview,alt:String(item.alt_text||item.title||'GIF').slice(0,120),analytics:item.analytics||{}}];
+      });
+      if(!results.length){host.innerHTML='<p class="empty-state compact">No se encontraron GIFs.</p>';return;}
+      host.innerHTML=results.map((item,index)=>`<button type="button" class="gif-result" data-gif-index="${index}"><img src="${escapeHtml(item.preview_url)}" alt="${escapeHtml(item.alt)}" loading="lazy"></button>`).join('');
+      const images=$$('img',host);
+      images.forEach((image,index)=>image.addEventListener('load',()=>trackGiphyEvent(results[index]?.analytics?.onload?.url),{once:true}));
+      $$('[data-gif-index]',host).forEach(button=>button.addEventListener('click',()=>{
+        const item=results[Number(button.dataset.gifIndex)];
+        trackGiphyEvent(item?.analytics?.onclick?.url);
+        sendGiphyGif(item);
+      }));
+    }catch(error){host.innerHTML=`<p class="empty-state compact">${escapeHtml(error.message||'No se pudo conectar con GIPHY. Comprueba la API key.')}</p>`;}
+  }
+  async function sendGiphyGif(item){
+    if(!item||!isGiphyMediaUrl(item.url)||!isGiphyMediaUrl(item.preview_url)){toast('GIF no válido.','error');return;}
+    const payload={sender_id:currentUser.id,body:'GIF de GIPHY',message_type:'media',attachment:{kind:'gif',provider:'giphy',url:item.url,preview_url:item.preview_url,alt:String(item.alt||'GIF').slice(0,120)},...(activeAltProfile?{alt_profile_id:activeAltProfile.id}:{})};
+    payload[currentContext.type==='conversation'?'conversation_id':'channel_id']=currentContext.id;
+    const {error}=await client.from('messages').insert(payload);
+    if(error)showError(error,'No se pudo enviar el GIF.');
+    else{trackGiphyEvent(item.analytics?.onsent?.url);$('#gif-search-dialog').close();toast('GIF enviado.','success');}
   }
 
   async function uploadAttachment(event) {
@@ -1657,6 +1880,7 @@
   }
   async function selectCommunity(community) {
     if (!community) return;
+    if(voiceSession)await leaveVoiceRoom({refresh:false});
     currentCommunity = community;
     await loadCommunities();
     $('#community-name').textContent = community.name;
@@ -1915,15 +2139,86 @@
     }
   });
 
+  // ---------- Peer-to-peer voice rooms using private Supabase Realtime signalling ----------
+  function voiceStatus(text){const node=$('#voice-status');if(node)node.textContent=text;}
+  function renderVoiceParticipants(){
+    const host=$('#voice-participants');if(!host||!voiceSession)return;
+    const state=voiceSession.channel?.presenceState?.()||{};const participants=[];
+    for(const key of Object.keys(state)){const first=state[key]?.[0]||{};participants.push({id:key,name:first.nickname||first.username||'Miembro',self:key===currentUser.id});}
+    if(!participants.length&&voiceSession.localJoined)participants.push({id:currentUser.id,name:profile?.nickname||profile?.username||'Tú',self:true});
+    host.innerHTML=participants.map(item=>`<span class="voice-participant ${item.self?'self':''}"><i></i>${escapeHtml(item.name)}${item.self?' · Tú':''}</span>`).join('')||'<span class="tag">Aún no hay participantes conectados</span>';
+    const join=$('#join-voice-room'),mute=$('#voice-mute'),leave=$('#leave-voice-room');if(join)join.disabled=Boolean(voiceSession.localJoined);if(mute)mute.disabled=!voiceSession.localJoined;if(leave)leave.disabled=!voiceSession.localJoined;
+  }
+  function getVoicePeer(peerId){
+    if(voiceSession.peers.has(peerId))return voiceSession.peers.get(peerId);
+    if(voiceSession.peers.size>=5){voiceStatus('Sala llena: el modo P2P admite hasta 6 personas por navegador.');return null;}
+    const pc=new RTCPeerConnection({iceServers:Array.isArray(cfg.VOICE_ICE_SERVERS)?cfg.VOICE_ICE_SERVERS:[{urls:'stun:stun.l.google.com:19302'}]});
+    const peer={pc,candidates:[],audio:null};voiceSession.peers.set(peerId,peer);
+    voiceSession.stream.getAudioTracks().forEach(track=>pc.addTrack(track,voiceSession.stream));
+    pc.onicecandidate=event=>{if(event.candidate)sendVoiceSignal(peerId,{candidate:event.candidate.toJSON()});};
+    pc.ontrack=event=>{const stream=event.streams?.[0];if(!stream)return;let audio=peer.audio;if(!audio){audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.dataset.voicePeer=peerId;$('#voice-audio-host')?.append(audio);peer.audio=audio;}audio.srcObject=stream;audio.play().catch(()=>voiceStatus('Toca la página para permitir la reproducción de audio.'));};
+    pc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(pc.connectionState))console.warn('Conexión de voz:',peerId,pc.connectionState);};
+    return peer;
+  }
+  async function sendVoiceSignal(to,payload){if(!voiceSession?.channel)return;await voiceSession.channel.send({type:'broadcast',event:'signal',payload:{from:currentUser.id,to,...payload}});}
+  async function createVoiceOffer(peerId){
+    const peer=getVoicePeer(peerId);if(!peer||peer.offered)return;peer.offered=true;
+    try{const offer=await peer.pc.createOffer();await peer.pc.setLocalDescription(offer);await sendVoiceSignal(peerId,{description:peer.pc.localDescription.toJSON()});}catch(error){console.warn('No se pudo crear oferta de voz:',error);}
+  }
+  async function handleVoiceSignal(message){
+    const data=message?.payload;if(!voiceSession||!data||data.to!==currentUser.id||data.from===currentUser.id)return;
+    const peer=getVoicePeer(data.from);if(!peer)return;
+    try{
+      if(data.description){await peer.pc.setRemoteDescription(data.description);if(data.description.type==='offer'){const answer=await peer.pc.createAnswer();await peer.pc.setLocalDescription(answer);await sendVoiceSignal(data.from,{description:peer.pc.localDescription.toJSON()});}for(const candidate of peer.candidates.splice(0))await peer.pc.addIceCandidate(candidate);}
+      if(data.candidate){const candidate=new RTCIceCandidate(data.candidate);if(peer.pc.remoteDescription)await peer.pc.addIceCandidate(candidate);else peer.candidates.push(candidate);}
+    }catch(error){console.warn('Señal de voz descartada:',error);}
+  }
+  async function syncVoicePeers(){
+    if(!voiceSession?.localJoined)return;const state=voiceSession.channel.presenceState()||{};
+    for(const peerId of Object.keys(state)){if(peerId===currentUser.id||voiceSession.peers.has(peerId))continue;if(currentUser.id.localeCompare(peerId)<0)await createVoiceOffer(peerId);}
+    renderVoiceParticipants();
+  }
+  async function joinVoiceRoom(){
+    if(voiceSession?.localJoined||!currentContext||currentContext.type!=='channel'||currentContext.channelType!=='voice')return;
+    const button=$('#join-voice-room');if(button)button.disabled=true;voiceStatus('Solicitando acceso al micrófono…');
+    try{
+      if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)throw new Error('Este navegador no admite WebRTC o no está usando HTTPS.');
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+      const channelId=currentContext.id;const topic=`nexus-voice:${channelId}`;
+      const realtime=client.channel(topic,{config:{private:true,presence:{key:currentUser.id},broadcast:{ack:true,self:false}}});
+      voiceSession={channelId,channel:realtime,stream,peers:new Map(),localJoined:false,muted:false};
+      realtime.on('broadcast',{event:'signal'},handleVoiceSignal);
+      realtime.on('presence',{event:'sync'},syncVoicePeers);
+      realtime.on('presence',{event:'join'},syncVoicePeers);
+      realtime.on('presence',{event:'leave'},event=>{const key=event?.key||event?.leftPresences?.[0]?.user_id;if(key&&voiceSession?.peers.has(key)){const peer=voiceSession.peers.get(key);peer.pc.close();peer.audio?.remove();voiceSession.peers.delete(key);}renderVoiceParticipants();});
+      realtime.subscribe(async status=>{
+        if(status==='SUBSCRIBED'){
+          try{await realtime.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',joined_at:new Date().toISOString()});voiceSession.localJoined=true;voiceStatus('Conectado · micrófono activo');renderVoiceParticipants();await syncVoicePeers();}
+          catch(error){voiceStatus('No se pudo entrar en la sala.');showError(error,'No se pudo activar la señalización de voz.');}
+        }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){voiceStatus('No se pudo conectar a la sala. Comprueba las políticas Realtime privadas.');}
+      });
+    }catch(error){if(voiceSession?.stream)voiceSession.stream.getTracks().forEach(track=>track.stop());voiceSession=null;voiceStatus(error.name==='NotAllowedError'?'Permiso de micrófono denegado.':error.message||'No se pudo activar el micrófono.');showError(error,'No se pudo entrar en el canal de voz.');renderVoiceParticipants();}
+  }
+  function toggleVoiceMute(){if(!voiceSession?.stream)return;voiceSession.muted=!voiceSession.muted;voiceSession.stream.getAudioTracks().forEach(track=>track.enabled=!voiceSession.muted);$('#voice-mute').textContent=voiceSession.muted?'Activar micrófono':'Silenciar';voiceStatus(voiceSession.muted?'Conectado · micrófono silenciado':'Conectado · micrófono activo');}
+  async function leaveVoiceRoom(options={}){
+    const session=voiceSession;if(!session)return;voiceSession=null;
+    // Stop local capture immediately; do not leave the microphone active while waiting for Realtime.
+    session.stream?.getTracks().forEach(track=>track.stop());
+    try{await session.channel?.untrack();}catch{};
+    for(const peer of session.peers.values()){peer.pc.close();peer.audio?.remove();}
+    if(session.channel)await client.removeChannel(session.channel);
+    if(options.refresh!==false&&currentContext?.type==='channel'&&currentContext.channelType==='voice')await showMessagePanel();
+  }
+
   async function openCommunityChannel(channel) {
     replyTarget = null;
+    if (voiceSession && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
       switchView('chats');
       await showMessagePanel();
       $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
-      toast('El canal de voz está creado. La conexión WebRTC todavía no está integrada.');
       return;
     }
     currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || ''};
@@ -2299,46 +2594,70 @@
   // ---------- Workshop ----------
   $('#publish-preset').addEventListener('click', publishPreset);
   async function loadPresets() {
-    const {data,error} = await client.from('presets').select('id,name,description,preset_type,config,owner_id,created_at').eq('is_public',true).order('created_at',{ascending:false}).limit(60);
-    if (error) { console.warn(error); return; }
-    const ownerMap = await fetchProfiles((data || []).map(row => row.owner_id));
-    $('#preset-grid').innerHTML = data?.length ? data.map(row => `<article class="preset-card"><div class="preset-swatch" style="background:linear-gradient(125deg,${escapeHtml(row.config?.accent || row.config?.default_name_color || '#8d7cff')},#252d42)"></div><h3>${escapeHtml(row.name)}</h3><p>${escapeHtml(row.description || 'Sin descripción.')}</p><small class="muted">${row.preset_type==='profile'?'Perfil':'Cliente'} · @${escapeHtml(ownerMap[row.owner_id]?.username || 'usuario')}</small><br><button class="button button-secondary" data-apply-preset="${row.id}">Aplicar preset</button></article>`).join('') : '<div class="empty-state">Todavía no hay presets publicados. Puedes ser la primera persona en compartir uno.</div>';
-    $$('[data-apply-preset]').forEach(button => button.addEventListener('click', async () => {
-      const row = data.find(item => item.id === button.dataset.applyPreset);
-      if (!row) return;
-      let savePayload;
-      if (row.preset_type==='profile') {
+    const {data,error}=await client.from('presets').select('id,name,description,preset_type,config,owner_id,created_at').eq('is_public',true).order('created_at',{ascending:false}).limit(60);
+    if(error){console.warn(error);return;}
+    const rows=data||[]; const ownerMap=await fetchProfiles(rows.map(row=>row.owner_id));
+    const ids=rows.map(row=>row.id); let reviews=[];
+    if(ids.length){const response=await client.from('preset_reviews').select('preset_id,reviewer_id,rating,review').in('preset_id',ids);if(!response.error)reviews=response.data||[];}
+    const stats=new Map();
+    for(const row of reviews){const v=stats.get(row.preset_id)||{sum:0,count:0,mine:null};v.sum+=row.rating;v.count++;if(row.reviewer_id===currentUser.id)v.mine=row.rating;stats.set(row.preset_id,v);}
+    $('#preset-grid').innerHTML=rows.length?rows.map(row=>{
+      const cfg=row.config||{};const stat=stats.get(row.id)||{sum:0,count:0,mine:null};
+      const accent=/^#[0-9a-f]{6}$/i.test(cfg.accent||'')?cfg.accent:/^#[0-9a-f]{6}$/i.test(cfg.name_color||'')?cfg.name_color:'#8d7cff';
+      const kind=row.preset_type==='profile'?'Perfil':row.preset_type==='community'?'Megagrupo':'Cliente';
+      const stars=[1,2,3,4,5].map(n=>`<button type="button" class="preset-star ${stat.mine&&n<=stat.mine?'selected':''}" data-rate-preset="${row.id}" data-rating="${n}" ${row.owner_id===currentUser.id?'disabled title="No puedes valorar tu propio preset"':''} aria-label="Valorar ${n} de 5">★</button>`).join('');
+      return `<article class="preset-card"><div class="preset-swatch" style="background:linear-gradient(125deg,${escapeHtml(accent)},#252d42)"></div><h3>${escapeHtml(row.name)}</h3><p>${escapeHtml(row.description||'Sin descripción.')}</p><small class="muted">${kind} · @${escapeHtml(ownerMap[row.owner_id]?.username||'usuario')}</small><div class="preset-rating"><span>${stat.count?(stat.sum/stat.count).toFixed(1):'—'} · ${stat.count} valoración${stat.count===1?'':'es'}</span><div>${stars}</div></div><button class="button button-secondary" data-apply-preset="${row.id}">Aplicar preset</button></article>`;
+    }).join(''):'<div class="empty-state">Todavía no hay presets publicados. Puedes ser la primera persona en compartir uno.</div>';
+    $$('[data-rate-preset]').forEach(button=>button.addEventListener('click',()=>ratePreset(button.dataset.ratePreset,Number(button.dataset.rating))));
+    $$('[data-apply-preset]').forEach(button=>button.addEventListener('click',async()=>{
+      const row=rows.find(item=>item.id===button.dataset.applyPreset);if(!row)return;const cfg=row.config||{};
+      if(row.preset_type==='profile'){
         const allowed=['default_name_color','name_font_url','name_effect_url','profile_effect_url','profile_plate_url'];
-        const patch=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(row.config||{},key)).map(key=>[key,row.config[key]]));
-        if (patch.name_font_url && !safeHttpsUrl(patch.name_font_url)) delete patch.name_font_url;
-        for (const key of ['name_effect_url','profile_effect_url','profile_plate_url']) if(patch[key] && !safeHttpsUrl(patch[key])) delete patch[key];
-        savePayload=patch;
-        const {error:saveError}=await client.from('profiles').update(savePayload).eq('id',currentUser.id);
-        if (saveError) showError(saveError); else {Object.assign(profile,savePayload);renderIdentity();renderIdentityAssetLinks();toast('Preset de perfil aplicado.','success');}
-      } else {
-        const allowed=['accent','density','background'];
-        const config=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(row.config||{},key)).map(key=>[key,row.config[key]]));
-        if (config.background && !safeHttpsUrl(config.background)) delete config.background;
-        const settings={...(profile.settings||{}),...config};
-        const {error:saveError}=await client.from('profiles').update({settings}).eq('id',currentUser.id);
-        if (saveError) showError(saveError); else {profile.settings=settings;renderIdentity();fillSettingsForm();toast('Preset de cliente aplicado.','success');}
+        const patch=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(cfg,key)).map(key=>[key,cfg[key]]));
+        if(patch.name_font_url&&!safeHttpsUrl(patch.name_font_url))delete patch.name_font_url;
+        for(const key of ['name_effect_url','profile_effect_url','profile_plate_url'])if(patch[key]&&!safeHttpsUrl(patch[key]))delete patch[key];
+        const {error:saveError}=await client.from('profiles').update(patch).eq('id',currentUser.id);
+        if(saveError)showError(saveError);else{Object.assign(profile,patch);renderIdentity();renderIdentityAssetLinks();toast('Preset de perfil aplicado.','success');}
+      }else if(row.preset_type==='community'){
+        if(!currentCommunity||currentCommunity.owner_id!==currentUser.id){toast('Selecciona un megagrupo del que seas propietario para aplicar este preset.','error');return;}
+        const patch={};for(const key of ['icon_url','banner_url','background_url'])if(cfg[key]===null||safeHttpsUrl(cfg[key]))patch[key]=cfg[key]||null;
+        if(/^#[0-9a-f]{6}$/i.test(cfg.name_color||''))patch.name_color=cfg.name_color;
+        const {error:saveError}=await client.from('communities').update(patch).eq('id',currentCommunity.id).eq('owner_id',currentUser.id);
+        if(saveError)showError(saveError);else{currentCommunity={...currentCommunity,...patch};applyCommunityAppearance(currentCommunity);toast('Preset de megagrupo aplicado.','success');}
+      }else{
+        const patch={};if(/^#[0-9a-f]{6}$/i.test(cfg.accent||''))patch.accent=cfg.accent;if(['compact','comfortable','spacious'].includes(cfg.density))patch.density=cfg.density;if(cfg.background===null||safeHttpsUrl(cfg.background))patch.background=cfg.background||'';
+        const settings={...(profile.settings||{}),...patch};const {error:saveError}=await client.from('profiles').update({settings}).eq('id',currentUser.id);
+        if(saveError)showError(saveError);else{profile.settings=settings;renderIdentity();fillSettingsForm();toast('Preset de cliente aplicado.','success');}
       }
     }));
   }
-  async function publishPreset() {
-    const typeRaw=await ask('Tipo de preset','Escribe «cliente» para colores/fondo o «perfil» para tu identidad visual.','Tipo','cliente','cliente');
-    if (!typeRaw) return;
-    const presetType=/^perfil$/i.test(typeRaw)?'profile':'client';
-    if (!['profile','client'].includes(presetType)) {toast('Tipo no válido: escribe cliente o perfil.','error');return;}
-    const name=await ask('Publicar preset','No se compartirán contraseñas, email ni otros datos privados.','Nombre','Mi preset');
-    if (!name || name.length<2 || name.length>60) return;
+  async function ratePreset(presetId,rating){
+    if(!Number.isInteger(rating)||rating<1||rating>5)return;
+    const {data:target,error:readError}=await client.from('presets').select('owner_id,is_public').eq('id',presetId).maybeSingle();
+    if(readError||!target){showError(readError||new Error('El preset ya no existe.'));return;}
+    if(!target.is_public||target.owner_id===currentUser.id){toast('No puedes valorar este preset.','error');return;}
+    const review=await ask('Valorar preset','Puedes añadir una opinión breve (opcional).','Opinión','');
+    if(review===null)return;
+    const {error}=await client.from('preset_reviews').upsert({preset_id:presetId,reviewer_id:currentUser.id,rating,review:review.slice(0,500),updated_at:new Date().toISOString()},{onConflict:'preset_id,reviewer_id'});
+    if(error)showError(error,'No se pudo guardar la valoración. Ejecuta la migración v0.7.');else{toast('Valoración guardada.','success');loadPresets();}
+  }
+  $('#publish-preset').addEventListener('click',publishPreset);
+  async function publishPreset(){
+    const typeRaw=await ask('Tipo de preset','Escribe cliente, perfil o megagrupo. Para megagrupo debes ser su propietario.','Tipo','cliente','cliente');if(!typeRaw)return;
+    const presetType=/^perfil$/i.test(typeRaw)?'profile':/^megagrupo|comunidad$/i.test(typeRaw)?'community':/^cliente$/i.test(typeRaw)?'client':'';
+    if(!presetType){toast('Tipo no válido. Escribe cliente, perfil o megagrupo.','error');return;}
+    if(presetType==='community'&&(!currentCommunity||currentCommunity.owner_id!==currentUser.id)){toast('Selecciona primero un megagrupo del que seas propietario.','error');return;}
+    const name=await ask('Publicar preset','No se compartirán datos privados.','Nombre','Mi preset');if(!name||name.length<2||name.length>60)return;
     const description=await ask('Descripción','Explica brevemente qué incluye.','Descripción','Un estilo Nexus personalizado.');
     const config=presetType==='profile'
-      ? {default_name_color:profile.default_name_color||'#a99bff',name_font_url:safeHttpsUrl(profile.name_font_url)||null,name_effect_url:safeHttpsUrl(profile.name_effect_url)||null,profile_effect_url:safeHttpsUrl(profile.profile_effect_url)||null,profile_plate_url:safeHttpsUrl(profile.profile_plate_url)||null}
-      : {accent:profile.settings?.accent||'#8d7cff',density:profile.settings?.density||'comfortable',background:safeHttpsUrl(profile.settings?.background)||''};
-    const {error}=await client.from('presets').insert({owner_id:currentUser.id,name,description:description||'',preset_type: presetType,config,is_public:true});
-    if(error) showError(error); else {toast('Preset publicado en Workshop.','success');loadPresets();}
+      ?{default_name_color:profile.default_name_color||'#a99bff',name_font_url:safeHttpsUrl(profile.name_font_url)||null,name_effect_url:safeHttpsUrl(profile.name_effect_url)||null,profile_effect_url:safeHttpsUrl(profile.profile_effect_url)||null,profile_plate_url:safeHttpsUrl(profile.profile_plate_url)||null}
+      :presetType==='community'
+        ?{icon_url:safeHttpsUrl(currentCommunity.icon_url)||null,banner_url:safeHttpsUrl(currentCommunity.banner_url)||null,background_url:safeHttpsUrl(currentCommunity.background_url)||null,name_color:currentCommunity.name_color||'#a99bff'}
+        :{accent:profile.settings?.accent||'#8d7cff',density:profile.settings?.density||'comfortable',background:safeHttpsUrl(profile.settings?.background)||''};
+    const {error}=await client.from('presets').insert({owner_id:currentUser.id,name,description:description||'',preset_type:presetType,config,is_public:true});
+    if(error)showError(error);else{toast('Preset publicado en Workshop.','success');loadPresets();}
   }
+
 
   // ---------- Administration ----------
   async function checkAdmin() {

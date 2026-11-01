@@ -1,0 +1,11 @@
+{
+  "name": "Nexus Chat",
+  "short_name": "Nexus",
+  "description": "Mensajes y comunidades en Nexus",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10131c",
+  "theme_color": "#141925",
+  "icons": [{"src":"./nexus-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

@@ -2,7 +2,7 @@
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.6 añade identidades Quick-Alt, fuentes y efectos visuales de perfil, opacidad de placas, presets compartibles de perfil/cliente, menciones de miembros y roles, bandeja de notificaciones con sonido e iconos de origen, y un flujo de invitaciones reparado. Mantiene las funciones sociales y de megagrupo de versiones anteriores. No es todavía una alternativa completa a Discord; las limitaciones y servicios externos se indican más abajo.
+> **Estado:** v0.7 añade stickers y emojis personalizados, búsqueda GIPHY, valoraciones de Workshop, Web Push mediante VAPID y salas de voz P2P con WebRTC. También conserva Quick-Alt, perfiles con efectos, menciones, invitaciones, canales y moderación de versiones anteriores. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
 
 ## 1. Qué incluye esta versión
 
@@ -12,7 +12,7 @@ Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfa
 - Salir de conversaciones o grupos desde la bandeja sin borrar el historial para los demás participantes.
 - Permite crear varias conversaciones independientes con la misma persona.
 - Encuestas creadas mediante una función SQL transaccional: el mensaje y la encuesta se confirman juntos para evitar que Realtime muestre una tarjeta duplicada/incompleta.
-- El fondo visual de un megagrupo también se aplica a canales de texto y a la vista de canales de voz. El audio de voz aún no está implementado.
+- El fondo visual de un megagrupo también se aplica a canales de texto y de voz. Desde v0.7, los canales de voz permiten audio P2P WebRTC; su fiabilidad depende de la red y puede requerir TURN.
 - Fichas públicas de perfil, aliases, nickname por megagrupo y hasta 10 widgets.
 - Invitaciones compartibles con vencimiento y límites de uso.
 - AutoAlly: solicitudes por ID de megagrupos privados y acceso a comunidades con alianza aceptada.
@@ -36,6 +36,18 @@ Consulta `UPGRADE-v0.5.md` para la migración y las pruebas recomendadas.
 
 Consulta `UPGRADE-v0.6.md` para aplicar la migración y ejecutar las pruebas.
 
+### Añadido en v0.7
+
+- Bucket privado `nexus-assets` y selector de stickers/emojis personales, de conversación y de megagrupo.
+- Emojis personalizados insertados mediante `:nombre:` y stickers como mensajes multimedia.
+- Buscador GIPHY con clasificación `pg`, atribución visible y eventos de analítica de visualización, clic y envío. Requiere una clave beta en `GIPHY_API_KEY` de `config.js`.
+- Valoraciones de Workshop de 1 a 5 estrellas, una por usuario y preset; el autor no puede valorar su propio preset.
+- Service worker y Web Push opcional mediante VAPID y webhook de Supabase para avisos con Nexus cerrado.
+- Salas de voz reales mediante WebRTC P2P y señalización privada de Supabase Realtime, con malla de hasta seis participantes.
+- Canales Realtime privados para amigos, bandeja, notificaciones, conversaciones, megagrupos y voz, con políticas de pertenencia.
+
+Consulta `UPGRADE-v0.7.md` para añadir la clave GIPHY, activar push y desplegar los servicios del servidor.
+
 ### Funciona al configurar Supabase
 
 - Registro con correo, contraseña y nombre de usuario; inicio y cierre de sesión.
@@ -44,33 +56,33 @@ Consulta `UPGRADE-v0.6.md` para aplicar la migración y ejecutar las pruebas.
 - Búsqueda de usuarios por nombre, solicitudes de amistad y aceptación.
 - MDs y conversaciones grupales entre amigos aceptados.
 - Creación de megagrupos con un canal `#general` inicial.
-- Creación de canales de texto, anuncios, voz y multimedia. En esta versión, los canales de voz muestran el punto de integración, pero todavía no conectan audio.
+- Creación de canales de texto, anuncios, voz y multimedia. Los canales de voz permiten conexión P2P mediante WebRTC cuando las redes de los participantes lo permiten.
 - Mensajes con actualizaciones en tiempo real, respuestas con cita, edición de texto propio y reacciones con emojis.
 - Solicitudes de amistad y orden de la bandeja actualizados en tiempo real, sin recargar manualmente.
 - Adjuntos de imagen, vídeo y archivos permitidos por el bucket privado, con límite inicial de 50 MB.
 - Markdown y HTML visual saneado mediante DOMPurify. El contenido no puede ejecutar scripts arbitrarios.
 - Encuestas básicas con opciones y votación.
-- Workshop básico para publicar y aplicar presets de perfil y cliente (efectos, fuentes, color, densidad y fondo).
+- Workshop para publicar y aplicar presets de perfil, cliente y megagrupo; incluye valoraciones comunitarias.
 - Funciones de moderación en base de datos para banear y desbanear usuarios.
 - Gestión visual de roles de megagrupo: nombre, color, permisos y asignación múltiple a miembros.
 - Gestión de medallas de megagrupo: crear medallas con emoji o URL HTTPS, asignarlas y retirarlas.
 - Los roles y medallas asignados se muestran junto al nombre en los mensajes de los canales del megagrupo.
-- Notificaciones Realtime de mensajes y menciones; sonido mientras la aplicación está abierta y avisos de escritorio opcionales en segundo plano.
+- Notificaciones Realtime de mensajes y menciones; sonidos, avisos de escritorio y Web Push configurable para pestañas ocultas o navegador cerrado.
 - Función Edge opcional para que un administrador envíe un correo de recuperación a otra cuenta.
 
 ### Preparado parcialmente / pendiente de completar
 
-- Stickers y emojis personalizados, personales, de conversación o de comunidad (`custom_assets`): la tabla de recursos está preparada, pero falta el editor y el selector en el compositor.
-- Las notificaciones push cuando el navegador está completamente cerrado requieren un service worker, suscripción Push y un servicio de envío desde servidor. La v0.6 solo avisa mientras Nexus está abierto o con la pestaña en segundo plano.
+- Notificaciones push: el código de cliente y servidor está preparado, pero cada proyecto debe configurar claves VAPID, una función Edge y un Database Webhook.
+- Voz: el audio P2P ya funciona en redes compatibles; para mejorar conexiones detrás de NAT restrictiva puede hacer falta TURN.
 - CSS personalizado de megagrupo: está disponible con un conjunto de selectores y propiedades limitado por seguridad.
 
 ### Necesita un servicio o una fase adicional
 
-- **Voz:** WebRTC y un sistema de señalización; para conexiones robustas también puede hacer falta TURN.
-- **Buscador de GIFs:** API de un proveedor y una Edge Function que proteja la clave.
+- **Voz:** WebRTC P2P ya está implementado; TURN es un servicio adicional para mejorar la conectividad en redes difíciles.
+- **Buscador de GIFs:** usa una clave beta GIPHY pública, con cuota limitada y atribución obligatoria. La documentación de GIPHY requiere que Search/Trending se llamen desde el cliente.
 - **Fuentes y efectos importados:** ya incluye carga y aplicación visual de fuentes WOFF/WOFF2/TTF y efectos de nombre/avatar/placa. Quedan por ampliar más efectos y controles de animación.
 - **Vídeo avanzado:** controles propios para velocidad, reversa, recorte y otros efectos.
-- **Workshop completo:** la v0.6 permite compartir y aplicar presets de perfil/cliente; faltan revisión comunitaria, versiones, importación/exportación y presets de megagrupo.
+- **Workshop:** v0.7 incorpora presets de megagrupo y valoraciones. Quedan pendientes herramientas de moderación comunitaria, versiones e importación/exportación avanzadas.
 - **Quick-Alt:** la identidad alternativa ya se adjunta a los mensajes mediante `alt_profile_id`; sigue usando la sesión, permisos y sanciones de la cuenta principal.
 - **Moderación avanzada:** paneles adicionales para administrar alianzas, canales y flujos completos de sanciones; los paneles de roles y medallas sí están incluidos en v0.2.
 
@@ -95,11 +107,12 @@ Los mensajes tienen un máximo inicial de 12.000 caracteres y los archivos un l�
 window.NEXUS_CONFIG = {
   SUPABASE_URL: "https://TU-PROYECTO.supabase.co",
   SUPABASE_ANON_KEY: "TU-CLAVE-PUBLICA",
-  APP_NAME: "Nexus"
+  APP_NAME: "Nexus",
+  GIPHY_API_KEY: "TU-CLAVE-BETA-GIPHY"
 };
 ```
 
-La clave pública está diseñada para aparecer en el cliente. **No pongas nunca `service_role`, una secret key, una contraseña ni claves privadas dentro de `config.js` o de un repositorio público.** La seguridad de los datos depende de las políticas RLS instaladas por el SQL.
+La clave pública de Supabase y la clave beta de GIPHY se utilizan desde el cliente. GIPHY requiere que Search/Trending se invoquen desde el navegador, por lo que su clave beta estará visible en el código y tiene una cuota de 100 llamadas por hora. **No pongas nunca `service_role`, una secret key, una contraseña ni claves privadas dentro de `config.js` o de un repositorio público.** La seguridad de los datos depende de las políticas RLS instaladas por el SQL.
 
 ### Crear el primer administrador
 
@@ -205,7 +218,7 @@ nexus-chat/
 
 ## 8. Próxima evolución recomendada
 
-La siguiente fase puede ampliar Workshop con moderación comunitaria y presets de megagrupo, añadir stickers y emojis personalizados, buscador de GIFs y voz real con WebRTC/TURN. También conviene añadir notificaciones push para cuando el navegador está completamente cerrado y continuar reforzando los controles de moderación. Quick-Alt, fuentes importadas, efectos de nombre/avatar/placa, menciones e invitaciones ya tienen una primera implementación en v0.6.
+Las siguientes fases pueden ampliar la moderación comunitaria del Workshop, añadir más herramientas de multimedia, presets avanzados y voz con TURN para redes restrictivas. Stickers/emojis, GIFs GIPHY, Web Push y voz P2P ya tienen una primera implementación en v0.7; requieren la configuración externa descrita en sus guías.
 
 
 ## Registro público y correo de confirmación
@@ -230,4 +243,9 @@ Sigue `UPGRADE-v0.6.md`. Ejecuta `supabase/migrations/20261102_nexus_v06_identit
 
 ## Notificaciones y límites del navegador
 
-Consulta `NOTIFICATIONS-v0.6.md`. El sonido se reproduce mientras Nexus está abierto después de la primera interacción con la página. Los avisos de escritorio requieren permiso y pueden aparecer con la pestaña oculta. No hay notificaciones push cuando el navegador está completamente cerrado.
+Consulta `NOTIFICATIONS-v0.7.md`. El sonido se reproduce mientras Nexus está abierto después de la primera interacción con la página. Los avisos de escritorio requieren permiso. Web Push puede funcionar con la pestaña oculta o el navegador cerrado, pero necesita VAPID, un service worker, el webhook y permiso explícito del usuario en cada navegador.
+
+
+## v0.7 — medios, Workshop, push y voz
+
+La actualización v0.7 añade stickers/emojis privados, GIFs de GIPHY (clave beta pública en `GIPHY_API_KEY`, atribución `Powered by GIPHY`), valoraciones del Workshop, Web Push mediante VAPID y voz P2P WebRTC de hasta seis participantes. Consulta [UPGRADE-v0.7.md](UPGRADE-v0.7.md), [VOICE-v0.7.md](VOICE-v0.7.md) y [NOTIFICATIONS-v0.7.md](NOTIFICATIONS-v0.7.md).
