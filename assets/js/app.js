@@ -2499,30 +2499,80 @@
 
   async function uploadProfileAsset(file, kind) {
     if (!file) return;
-    const isFont=kind==='name_font_url';
-    const allowedImage=/^image\/(png|jpeg|webp|gif)$/i.test(file.type);
-    const rawExtension=(file.name.split('.').pop()||'').toLowerCase();
-    const extension=rawExtension.replace(/[^a-z0-9]/g,'').slice(0,8);
-    const allowedFont=isFont && ['woff','woff2','ttf'].includes(extension);
-    if (file.size>8*1024*1024 || (!allowedImage && !allowedFont)) { toast(isFont?'La fuente debe ser .woff, .woff2 o .ttf y pesar menos de 8 MB.':'Usa una imagen PNG, JPG, WebP o GIF de máximo 8 MB.','error'); return; }
-    const mime=isFont ? ({woff:'font/woff',woff2:'font/woff2',ttf:'font/ttf'}[extension]) : file.type;
-    const path=`${currentUser.id}/identity-${kind}-${Date.now()}.${extension||'bin'}`;
-    const storage=client.storage.from('profile-media');
-    const {error:uploadError}=await storage.upload(path,file,{contentType:mime,upsert:false});
-    if (uploadError) { showError(uploadError,'No se pudo subir el archivo. Ejecuta la migración v0.6 para habilitar fuentes personalizadas.'); return; }
-    const {data}=storage.getPublicUrl(path);
-    const previousUrl=profile?.[kind];
-    const {error}=await client.from('profiles').update({[kind]:data.publicUrl}).eq('id',currentUser.id);
-    if (error) {
-      await storage.remove([path]);
-      showError(error); return;
+    const isFont = kind === 'name_font_url';
+    const inputSelectorByKind = {
+      name_font_url: '#profile-font-file',
+      name_effect_url: '#profile-name-effect-file',
+      profile_effect_url: '#profile-avatar-effect-file',
+      profile_plate_url: '#profile-plate-file'
+    };
+    const input = document.querySelector(inputSelectorByKind[kind] || '');
+    const rawExtension = (file.name.split('.').pop() || '').toLowerCase();
+    const extension = rawExtension.replace(/[^a-z0-9]/g, '').slice(0, 8);
+    const imageMimeByExtension = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      webp: 'image/webp', gif: 'image/gif'
+    };
+    const fontMimeByExtension = {
+      woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf'
+    };
+    const allowedFont = isFont && Object.hasOwn(fontMimeByExtension, extension);
+    const inferredImageMime = imageMimeByExtension[extension];
+    const allowedImage = !isFont && Boolean(inferredImageMime) &&
+      (!file.type || /^image\/(png|jpeg|webp|gif)$/i.test(file.type));
+
+    if (file.size > 8 * 1024 * 1024 || (!allowedImage && !allowedFont)) {
+      toast(isFont
+        ? 'La fuente debe ser .woff, .woff2 o .ttf y pesar menos de 8 MB.'
+        : 'Usa una imagen PNG, JPG, WebP o GIF de máximo 8 MB.', 'error');
+      if (input) input.value = '';
+      return;
     }
-    profile[kind]=data.publicUrl;
-    if(previousUrl && previousUrl!==data.publicUrl) await removeOwnProfileAsset(previousUrl);
-    messageIdentityCache.clear(); renderIdentity(); renderIdentityAssetLinks();
-    if(currentContext) await loadMessages();
-    await loadConversations();
-    toast(isFont?'Fuente personalizada actualizada.':'Efecto de perfil actualizado.','success');
+
+    // Some browsers report application/octet-stream (or an empty type) for TTF.
+    // Derive the content type from the already-validated extension and also
+    // create a Blob carrying that MIME, so Storage never receives the generic
+    // application/octet-stream header for a font.
+    const contentType = allowedFont ? fontMimeByExtension[extension] : inferredImageMime;
+    const uploadBody = allowedFont ? new Blob([file], { type: contentType }) : file;
+    const path = `${currentUser.id}/identity-${kind}-${Date.now()}.${extension}`;
+    const storage = client.storage.from('profile-media');
+
+    try {
+      const { error: uploadError } = await storage.upload(path, uploadBody, {
+        contentType,
+        upsert: false,
+        cacheControl: '3600'
+      });
+      if (uploadError) {
+        const message = String(uploadError.message || '');
+        if (/mime type .* not supported/i.test(message)) {
+          throw new Error(`Supabase todavía no permite ${contentType} en el bucket profile-media. Ejecuta la migración 20261104_nexus_v071_font_mime.sql y vuelve a intentarlo.`);
+        }
+        throw uploadError;
+      }
+
+      const { data } = storage.getPublicUrl(path);
+      const previousUrl = profile?.[kind];
+      const { error } = await client.from('profiles').update({ [kind]: data.publicUrl }).eq('id', currentUser.id);
+      if (error) {
+        await storage.remove([path]);
+        throw error;
+      }
+
+      profile[kind] = data.publicUrl;
+      if (previousUrl && previousUrl !== data.publicUrl) await removeOwnProfileAsset(previousUrl);
+      messageIdentityCache.clear();
+      renderIdentity();
+      renderIdentityAssetLinks();
+      if (currentContext) await loadMessages();
+      await loadConversations();
+      toast(isFont ? 'Fuente personalizada actualizada.' : 'Efecto de perfil actualizado.', 'success');
+    } catch (error) {
+      showError(error, 'No se pudo subir el archivo.');
+    } finally {
+      if (input) input.value = '';
+    }
   }
   async function uploadProfileImage(file, kind) {
     if (!file) return;

@@ -1,3 +1,5 @@
+> **Hotfix v0.7.1:** corrige la subida de fuentes WOFF/WOFF2/TTF. Ejecuta la migración `20261104_nexus_v071_font_mime.sql` y consulta `FONT-MIME-v0.7.1.md`.
+
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
