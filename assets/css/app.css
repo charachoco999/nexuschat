@@ -118,3 +118,63 @@
 .reaction-chip.selected{border-color:#8b7cff;background:#39345e;color:#fff}
 .reaction-add{width:25px;padding:0;color:#96a2bc}
 @media(max-width:760px){.message-actions{opacity:1}.reply-composer{padding:7px 8px}.message-action-button{font-size:10px}}
+
+/* Nexus v0.5: archived conversations, pinned messages, profile widgets and receipts */
+.conversation-heading-actions{display:flex;align-items:center;gap:6px}
+.button-archive{border:1px solid var(--line);background:#1d2535;color:#aeb8d0;padding:7px 9px;border-radius:8px;font-size:9px;white-space:nowrap}
+.button-archive[aria-pressed="true"]{border-color:#8d7cff88;background:#302b4a;color:#e0d8ff}
+.conversation-row{position:relative;display:flex;align-items:center;gap:3px;margin:2px 0;border-radius:11px}
+.conversation-row .conversation-item{min-width:0;flex:1}
+.conversation-actions{display:flex;align-items:center;gap:1px;padding-right:4px;opacity:0;transition:opacity .15s}
+.conversation-row:hover .conversation-actions,.conversation-row:focus-within .conversation-actions{opacity:1}
+.conversation-actions button{width:25px;height:25px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:14px}
+.conversation-actions button:hover{background:#ffffff12;color:#fff}
+.conversation-row .conversation-item{width:auto}
+.pinned-messages{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:8px 18px;border-bottom:1px solid var(--line);background:#201f35dd}
+.pinned-label{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#c9beff;padding-right:3px}
+.pinned-entry{display:flex;align-items:center;gap:6px;max-width:min(380px,100%);border:1px solid #ffffff19;border-radius:7px;background:#2a2b43;color:#cbd2e8;padding:5px 8px;text-align:left;font-size:9px}
+.pinned-entry strong{color:#d5caff;white-space:nowrap}
+.pinned-entry span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.message-read-receipt{display:block;margin-top:4px;color:#8f9bb4;font-size:9px;text-align:right}
+.invite-tools{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px;border:1px solid var(--line);border-radius:11px;background:#151b28;margin:12px 0}
+.invite-tools .small-muted{margin:4px 0 0;font-size:10px}
+.profile-widget-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#141a27;margin-bottom:15px}
+.profile-widget-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.profile-widget-card{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:0 13px 13px;border:1px solid var(--line);border-radius:12px;background:#171e2c}
+.profile-widget-banner{width:calc(100% + 26px);height:62px;margin:0 -13px 0;background-position:center;background-size:cover}
+.profile-widget-icon{display:grid;place-items:center;overflow:hidden;width:38px;height:38px;margin-top:-19px;border:3px solid #171e2c;border-radius:11px;background:#252b40;color:#eee8ff;font-size:19px;z-index:1}
+.profile-widget-icon img{width:100%;height:100%;object-fit:cover}
+.profile-widget-card strong{margin-top:8px;font-size:12px}
+.profile-widget-card p{margin:5px 0 10px;color:var(--muted);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.profile-widget-card .button-danger{margin-top:auto;padding:6px 9px;font-size:9px}
+#community-nickname-panel .inline-form{display:flex;gap:8px;align-items:center}
+#community-nickname-panel .inline-form input{flex:1;min-width:0}
+.voice-placeholder{background:rgba(25,31,45,.78);backdrop-filter:blur(8px)}
+@media(max-width:760px){.conversation-actions{opacity:1}.profile-widget-form,.profile-widget-grid{grid-template-columns:1fr}.invite-tools{align-items:flex-start;flex-direction:column}.pinned-messages{padding:7px 10px}.pinned-entry{max-width:100%}}
+
+/* Nexus v0.5: public identity cards and safe message author affordance */
+.message-author-clickable{cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px;transition:text-decoration-color .15s ease}
+.message-author-clickable:hover{text-decoration-color:currentColor}
+.message-action-button:disabled{opacity:.35;cursor:not-allowed}
+.public-profile-dialog{width:min(620px,calc(100% - 28px));max-height:min(88vh,860px);overflow:auto}
+.public-profile-body{display:grid;gap:12px;padding-top:6px}
+.public-profile-banner{height:145px;border-radius:12px;background:linear-gradient(120deg,#302b50,#263849);background-position:center;background-size:cover}
+.public-profile-header{display:flex;align-items:flex-end;gap:13px;margin-top:-43px;padding:0 14px}
+.public-profile-avatar{width:82px;height:82px;flex:none;border:4px solid #1b2232;background-color:#30384b;background-position:center;background-size:cover;display:grid;place-items:center;font-size:23px;color:#f3f2ff}
+.public-profile-names{display:grid;gap:4px;padding-bottom:5px;min-width:0}
+.public-profile-names strong{font:600 16px 'Space Grotesk';overflow-wrap:anywhere}
+.public-profile-names small{font-size:10px;color:var(--muted)}
+.profile-pronouns-tag{justify-self:start;padding:5px 8px;border:1px solid #8d7cff44;border-radius:999px;background:#8d7cff18;color:#c9c0ff;font-size:10px}
+.public-profile-bio{margin:0;padding:12px;border:1px solid var(--line);border-radius:10px;background:#141a27;color:#d1d8e9;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.public-profile-aliases{display:flex;flex-wrap:wrap;gap:6px}
+.public-profile-section-title{margin:5px 0 -4px;font:600 12px 'Space Grotesk';color:#d8d3ff}
+.public-profile-widgets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.public-profile-widget{display:flex;flex-direction:column;align-items:flex-start;min-width:0;overflow:hidden;padding:0 12px 12px;border:1px solid var(--line);border-radius:11px;background:#171e2c}
+.public-profile-widget .profile-widget-banner{width:calc(100% + 24px);margin:0 -12px}
+.public-profile-widget .profile-widget-icon{margin-top:-18px;border-color:#171e2c}
+.public-profile-widget strong{margin-top:8px;font-size:11px;overflow-wrap:anywhere}
+.public-profile-widget p{margin:5px 0 0;color:var(--muted);font-size:10px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:560px){.public-profile-widgets{grid-template-columns:1fr}.public-profile-banner{height:110px}.public-profile-avatar{width:70px;height:70px}}
+.voice-placeholder{display:grid;justify-items:center;align-content:center;gap:10px;flex:1;margin:0;width:auto;max-width:none;padding:30px;background:rgba(16,20,31,.40);backdrop-filter:blur(5px);text-align:center}
+.voice-placeholder-orb{display:grid;place-items:center;width:76px;height:76px;border-radius:25px;background:linear-gradient(145deg,#9888ff,#5a4dca);color:#fff;font-size:32px;box-shadow:0 16px 50px #6554d855}
+.voice-placeholder p{max-width:390px;margin:0}

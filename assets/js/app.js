@@ -20,6 +20,9 @@
   let replyTarget = null;
   let editingMessageId = null;
   let conversations = [];
+  let showArchivedConversations = false;
+  const renderingMessageIds = new Set();
+  const renderedMessageIds = new Set();
   const REACTION_OPTIONS = ['👍','❤️','😂','😮','🎉','🔥','👀','🥳'];
   let currentCommunity = null;
   let currentCommunityChannels = [];
@@ -193,7 +196,8 @@
       profile = data;
       renderIdentity();
       subscribeAccountRealtime();
-      loadInitialData();
+      await loadInitialData();
+      await consumePendingCommunityInvite();
     } catch (error) {
       showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
     }
@@ -238,7 +242,7 @@
     $('#context-subtitle').textContent = subtitle;
     $('#context-icon').textContent = icon;
     $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
-    if (view === 'profile') fillProfileForm();
+    if (view === 'profile') { fillProfileForm(); renderProfileWidgets(); fillCommunityNickname(); }
     if (view === 'settings') fillSettingsForm();
   }
   $$('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
@@ -325,18 +329,21 @@
   // ---------- Conversations and realtime messages ----------
   async function loadConversations() {
     if (!currentUser) return;
-    const {data: memberships, error: memberError} = await client.from('conversation_members').select('conversation_id,personal_name').eq('user_id', currentUser.id);
+    const {data: memberships, error: memberError} = await client.from('conversation_members')
+      .select('conversation_id,personal_name,hidden_at')
+      .eq('user_id', currentUser.id);
     if (memberError) throw memberError;
     const ids = [...new Set((memberships || []).map(row => row.conversation_id))];
     if (!ids.length) {
       conversations = [];
-      $('#conversation-list').innerHTML = '<div class="empty-state compact">Todavía no tienes conversaciones.<br>Empieza añadiendo amigos.</div>';
-      $('#dm-count').textContent = '';
+      renderConversationList();
       return;
     }
     const {data: rows, error} = await client.from('conversations').select('*').in('id', ids).order('updated_at', {ascending:false});
     if (error) throw error;
-    const {data: participants} = await client.from('conversation_members').select('conversation_id,user_id,personal_name').in('conversation_id', ids);
+    const {data: participants, error: participantError} = await client.from('conversation_members')
+      .select('conversation_id,user_id,personal_name,hidden_at').in('conversation_id', ids);
+    if (participantError) throw participantError;
     const otherIds = [...new Set((participants || []).filter(m => m.user_id !== currentUser.id).map(m => m.user_id))];
     const otherProfiles = await fetchProfiles(otherIds);
     conversations = (rows || []).map(row => {
@@ -346,22 +353,95 @@
       const mine = members.find(member => member.user_id === currentUser.id);
       const title = mine?.personal_name || row.title || (row.kind === 'direct' ? (otherProfile?.nickname || otherProfile?.username || 'Mensaje directo') : 'Grupo sin nombre');
       const avatar = row.icon_url || (row.kind === 'direct' ? otherProfile?.avatar_url : null);
-      return {...row, displayTitle:title, displayAvatar:avatar};
+      return {...row, displayTitle:title, displayAvatar:avatar, hidden_at:mine?.hidden_at || null};
     });
-    $('#dm-count').textContent = conversations.length || '';
-    $('#conversation-list').innerHTML = conversations.map(row => `
-      <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
-        <span class="avatar" ${avatarStyle(row.displayAvatar)}>${row.displayAvatar ? '' : escapeHtml(initials(row.displayTitle))}</span>
-        <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}</small></span>
-      </button>`).join('');
+    renderConversationList();
+  }
+
+  function renderConversationList() {
+    const visible = conversations.filter(row => showArchivedConversations ? Boolean(row.hidden_at) : !row.hidden_at);
+    const archivedCount = conversations.filter(row => row.hidden_at).length;
+    $('#dm-count').textContent = conversations.filter(row => !row.hidden_at).length || '';
+    const toggle = $('#toggle-archived-conversations');
+    if (toggle) {
+      toggle.textContent = showArchivedConversations ? 'Volver' : `Archivadas${archivedCount ? ` (${archivedCount})` : ''}`;
+      toggle.setAttribute('aria-pressed', String(showArchivedConversations));
+    }
+    if (!visible.length) {
+      $('#conversation-list').innerHTML = showArchivedConversations
+        ? '<div class="empty-state compact">No tienes conversaciones archivadas.</div>'
+        : '<div class="empty-state compact">Todavía no tienes conversaciones.<br>Empieza añadiendo amigos.</div>';
+      return;
+    }
+    $('#conversation-list').innerHTML = visible.map(row => `
+      <div class="conversation-row">
+        <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
+          <span class="avatar" ${avatarStyle(row.displayAvatar)}>${row.displayAvatar ? '' : escapeHtml(initials(row.displayTitle))}</span>
+          <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>
+        </button>
+        <div class="conversation-actions">
+          <button type="button" data-hide-conversation="${row.id}" title="${row.hidden_at ? 'Restaurar conversación' : 'Archivar conversación'}">${row.hidden_at ? '↥' : '⌑'}</button>
+          ${row.kind === 'group' ? `<button type="button" data-leave-conversation="${row.id}" title="Salir del grupo">×</button>` : ''}
+        </div>
+      </div>`).join('');
     $$('[data-conversation]').forEach(button => button.addEventListener('click', () => {
       const row = conversations.find(item => item.id === button.dataset.conversation);
       if (row) openConversation(row);
     }));
+    $$('[data-hide-conversation]').forEach(button => button.addEventListener('click', () => toggleConversationHidden(button.dataset.hideConversation)));
+    $$('[data-leave-conversation]').forEach(button => button.addEventListener('click', () => leaveConversation(button.dataset.leaveConversation)));
   }
 
+  $('#toggle-archived-conversations').addEventListener('click', () => {
+    showArchivedConversations = !showArchivedConversations;
+    renderConversationList();
+  });
+
+  async function toggleConversationHidden(conversationId) {
+    const row = conversations.find(item => item.id === conversationId);
+    if (!row) return;
+    const nextHiddenAt = row.hidden_at ? null : new Date().toISOString();
+    const {error} = await client.from('conversation_members').update({hidden_at:nextHiddenAt})
+      .eq('conversation_id', conversationId).eq('user_id', currentUser.id);
+    if (error) { showError(error, 'No se pudo actualizar la conversación. Ejecuta la migración v0.5.'); return; }
+    await loadConversations();
+    toast(nextHiddenAt ? 'Conversación archivada.' : 'Conversación restaurada.', 'success');
+    if (currentContext?.id === conversationId && nextHiddenAt) resetConversationPanel();
+  }
+
+  async function leaveConversation(conversationId) {
+    const row = conversations.find(item => item.id === conversationId);
+    if (!row) return;
+    const confirmed = confirm(`¿Salir de «${row.displayTitle}»? Los demás participantes conservarán la conversación y sus mensajes.`);
+    if (!confirmed) return;
+    const {error} = await client.rpc('leave_conversation', {p_conversation_id:conversationId});
+    if (error) { showError(error, 'No se pudo eliminar la conversación. Ejecuta la migración v0.5.'); return; }
+    if (currentContext?.id === conversationId) resetConversationPanel();
+    await loadConversations();
+    toast('Has salido del grupo.', 'success');
+  }
+
+  function resetConversationPanel() {
+    currentContext = null;
+    replyTarget = null;
+    if (activeMessageChannel) client.removeChannel(activeMessageChannel);
+    activeMessageChannel = null;
+    const pane = $('#conversation-panel');
+    pane.style.backgroundImage = '';
+    pane.innerHTML = `<div class="welcome-state"><div class="welcome-orb">N</div><p class="eyebrow">BIENVENIDO A NEXUS</p><h2>Tu gente, tus espacios.</h2><p>Abre una conversación o crea una nueva para empezar.</p><button class="button button-primary" id="welcome-new-chat">Nueva conversación</button></div>`;
+    $('#welcome-new-chat').addEventListener('click', createNewChat);
+    renderConversationList();
+  }
   async function openConversation(row) {
     replyTarget = null;
+    if (row.hidden_at) {
+      const {error} = await client.from('conversation_members').update({hidden_at:null})
+        .eq('conversation_id', row.id).eq('user_id', currentUser.id);
+      if (error) { showError(error, 'No se pudo restaurar la conversación.'); return; }
+      row.hidden_at = null;
+      showArchivedConversations = false;
+      renderConversationList();
+    }
     currentContext = {type:'conversation', id:row.id, title:row.displayTitle, subtitle:row.kind === 'direct' ? 'Mensaje directo' : 'Chat grupal', icon:row.displayAvatar};
     switchView('chats');
     await showMessagePanel();
@@ -387,14 +467,17 @@
     panel.innerHTML = `
       <div class="active-conversation">
         <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div id="pinned-messages" class="pinned-messages hidden"></div>
+        ${voiceNotice ? '<div class="voice-placeholder"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Esta sala ya tiene su fondo y configuración de megagrupo. La conexión de audio llegará en una fase WebRTC independiente.</p><span class="tag">Audio todavía no conectado</span></div>' : `
         <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
-        ${voiceNotice ? '<div class="voice-placeholder"><strong>Canal de voz</strong><p>Este canal ya está creado y tiene su propio tipo. La conexión de audio en tiempo real se añadirá en una fase WebRTC independiente.</p></div>' : `
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
+    applyChatCommunityBackground();
+    loadPinnedMessages();
     if (!voiceNotice) {
       $('#cancel-reply').addEventListener('click', clearReplyTarget);
       $('#message-form').addEventListener('submit', sendMessage);
@@ -437,6 +520,62 @@
     input.focus();
   }
 
+  async function openPublicProfile(userId) {
+    const {data:person,error} = await client.from('profiles')
+      .select('id,username,nickname,avatar_url,banner_url,bio,pronouns,aliases,default_name_color,widgets')
+      .eq('id',userId).maybeSingle();
+    if (error || !person) { showError(error || new Error('No se pudo encontrar el perfil.')); return; }
+    let communityNickname = '';
+    if (currentContext?.type === 'channel' && currentCommunity) {
+      const {data:member} = await client.from('community_members').select('nickname')
+        .eq('community_id',currentCommunity.id).eq('user_id',userId).maybeSingle();
+      communityNickname = member?.nickname || '';
+    }
+    $('#public-profile-title').textContent = person.nickname || person.username;
+    const host = $('#public-profile-body'); host.innerHTML = '';
+    const banner = document.createElement('div'); banner.className='public-profile-banner';
+    const bannerUrl = safeHttpsUrl(person.banner_url);
+    if (bannerUrl) banner.style.backgroundImage = `linear-gradient(#10131c33,#10131c88),url("${bannerUrl.replace(/["\\]/g,'')}")`;
+    const header = document.createElement('div'); header.className='public-profile-header';
+    const avatar = document.createElement('span'); avatar.className='avatar public-profile-avatar';
+    if (safeHttpsUrl(person.avatar_url)) avatar.style.backgroundImage=`url("${safeHttpsUrl(person.avatar_url).replace(/["\\]/g,'')}")`;
+    else avatar.textContent=initials(person.nickname || person.username);
+    const names = document.createElement('div'); names.className='public-profile-names';
+    const display = document.createElement('strong'); display.textContent=communityNickname || person.nickname || person.username;
+    const handle = document.createElement('small'); handle.textContent=`@${person.username}${communityNickname ? ` · ${person.nickname || person.username}` : ''}`;
+    names.append(display,handle); header.append(avatar,names); host.append(banner,header);
+    if (person.pronouns) { const pronouns=document.createElement('span'); pronouns.className='profile-pronouns-tag'; pronouns.textContent=person.pronouns; host.append(pronouns); }
+    if (person.bio) { const bio=document.createElement('p'); bio.className='public-profile-bio'; bio.textContent=person.bio; host.append(bio); }
+    const aliases = Array.isArray(person.aliases) ? person.aliases.filter(Boolean).slice(0,10) : [];
+    if (aliases.length) {
+      const aliasWrap=document.createElement('div'); aliasWrap.className='public-profile-aliases';
+      aliases.forEach(alias=>{const tag=document.createElement('span');tag.className='tag';tag.textContent=alias;aliasWrap.append(tag);});
+      host.append(aliasWrap);
+    }
+    const widgets = Array.isArray(person.widgets) ? person.widgets.slice(0,10) : [];
+    if (widgets.length) {
+      const heading=document.createElement('h4'); heading.className='public-profile-section-title'; heading.textContent='Widgets'; host.append(heading);
+      const grid=document.createElement('div'); grid.className='public-profile-widgets';
+      widgets.forEach(widget=>{
+        const card=document.createElement('article'); card.className='public-profile-widget';
+        const widgetBanner=document.createElement('div'); widgetBanner.className='profile-widget-banner';
+        const value=String(widget.banner || '');
+        if (/^#[0-9a-f]{6}$/i.test(value)) widgetBanner.style.background=value;
+        else if (safeHttpsUrl(value)) widgetBanner.style.backgroundImage=`linear-gradient(#10131c22,#10131c66),url("${safeHttpsUrl(value).replace(/["\\]/g,'')}")`;
+        const icon=document.createElement('span'); icon.className='profile-widget-icon';
+        if (safeHttpsUrl(String(widget.icon || ''))) { const image=document.createElement('img'); image.src=safeHttpsUrl(widget.icon); image.alt=''; icon.append(image); }
+        else icon.textContent=String(widget.icon || '✦').slice(0,8);
+        const title=document.createElement('strong'); title.textContent=String(widget.title || 'Widget').slice(0,50);
+        const desc=document.createElement('p'); desc.textContent=String(widget.description || '').slice(0,220);
+        card.append(widgetBanner,icon,title,desc); grid.append(card);
+      });
+      host.append(grid);
+    }
+    $('#public-profile-dialog').showModal();
+  }
+
+  $('#close-public-profile').addEventListener('click',()=>$('#public-profile-dialog').close());
+
   async function fetchProfiles(ids) {
     const unique = [...new Set(ids)].filter(Boolean);
     if (!unique.length) return {};
@@ -452,6 +591,7 @@
     if (error) { showError(error, 'No se pudieron cargar los mensajes.'); return; }
     const container = $('#messages-container');
     if (!container) return;
+    renderedMessageIds.clear();
     container.innerHTML = '';
     if (!data?.length) container.innerHTML = '<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>';
     const profiles = await fetchProfiles((data || []).map(row => row.sender_id));
@@ -464,6 +604,10 @@
     }
     for (const message of (data || [])) await appendMessage(message, profiles[message.sender_id], reactionsByMessage[message.id] || []);
     container.scrollTop = container.scrollHeight;
+    if (currentContext?.type === 'conversation') {
+      await markConversationRead(data?.at(-1)?.id || null);
+      await renderConversationReadReceipts();
+    }
   }
 
   async function getMessageIdentity(senderId) {
@@ -473,6 +617,8 @@
     const result = {roles:[],badges:[]};
     try {
       if (communityId) {
+        const {data:memberRecord} = await client.from('community_members').select('nickname').eq('community_id',communityId).eq('user_id',senderId).maybeSingle();
+        result.communityNickname = memberRecord?.nickname || '';
         const {data:assignments} = await client.from('member_roles').select('role_id').eq('community_id',communityId).eq('user_id',senderId);
         const roleIds = (assignments || []).map(row => row.role_id);
         if (roleIds.length) {
@@ -496,7 +642,17 @@
   }
 
   async function appendMessage(message, sender, initialReactions = null) {
+    if (!message?.id || renderingMessageIds.has(message.id) || renderedMessageIds.has(message.id)) return;
+    const existingContainer = $('#messages-container');
+    if (existingContainer && $(`[data-message-id="${message.id}"]`, existingContainer)) { renderedMessageIds.add(message.id); return; }
+    renderingMessageIds.add(message.id);
+    try { await appendMessageInternal(message, sender, initialReactions); }
+    finally { renderingMessageIds.delete(message.id); }
+  }
+
+  async function appendMessageInternal(message, sender, initialReactions = null) {
     const container = $('#messages-container');
+    const contextIdAtStart = currentContext?.id;
     if (!container || $(`[data-message-id="${message.id}"]`, container)) return;
     const template = $('#message-template').content.cloneNode(true);
     const article = $('.message', template);
@@ -506,9 +662,12 @@
     if (sender?.avatar_url) avatar.style.backgroundImage = `url('${sender.avatar_url}')`;
     else avatar.textContent = initials(sender?.nickname || sender?.username || 'U');
     const author = $('.message-author', article);
-    author.textContent = sender?.nickname || sender?.username || 'Usuario';
-    if (sender?.default_name_color) author.style.color = sender.default_name_color;
     const identity = await getMessageIdentity(message.sender_id);
+    author.textContent = identity.communityNickname || sender?.nickname || sender?.username || 'Usuario';
+    author.classList.add('message-author-clickable');
+    author.title = 'Ver perfil';
+    author.addEventListener('click', () => openPublicProfile(message.sender_id));
+    if (sender?.default_name_color) author.style.color = sender.default_name_color;
     if (identity.roles[0]?.color) author.style.color = identity.roles[0].color;
     if (identity.roles.length || identity.badges.length) {
       const decorations = document.createElement('span');
@@ -549,6 +708,12 @@
     replyButton.textContent = 'Responder';
     replyButton.addEventListener('click', () => setReplyTarget(message, sender));
     messageActions.append(replyButton);
+    const pinButton = document.createElement('button');
+    pinButton.type = 'button'; pinButton.className = 'message-action-button'; pinButton.textContent = 'Fijar';
+    pinButton.dataset.pinMessageId = message.id;
+    if (currentContext?.type === 'channel' && !communityPermissions.manage_messages) { pinButton.disabled = true; pinButton.title = 'Solo moderadores pueden fijar mensajes en este canal.'; }
+    pinButton.addEventListener('click', () => togglePinnedMessage(message));
+    messageActions.append(pinButton);
     if (message.sender_id === currentUser.id && message.message_type === 'text') {
       const editButton = document.createElement('button');
       editButton.type = 'button';
@@ -636,7 +801,9 @@
     }
     const reactionBar = $('.message-reactions', article);
     reactionBar.dataset.reactionMessage = message.id;
+    if (container !== $('#messages-container') || currentContext?.id !== contextIdAtStart) return;
     container.append(template);
+    renderedMessageIds.add(message.id);
     await refreshMessageReactions(article, message.id, initialReactions);
     container.scrollTop = container.scrollHeight;
   }
@@ -716,6 +883,96 @@
     toast('Mensaje editado.','success');
   });
 
+  async function loadPinnedMessages() {
+    const host = $('#pinned-messages');
+    if (!host || !currentContext) return;
+    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
+    const {data:pins,error} = await client.from('pinned_messages').select('id,message_id,pinned_by,created_at')
+      .eq(field,currentContext.id).order('created_at',{ascending:false}).limit(5);
+    if (error) { console.warn('No se pudieron cargar los mensajes fijados:',error); host.classList.add('hidden'); return; }
+    if (!pins?.length) { host.classList.add('hidden'); host.innerHTML=''; $$('[data-pin-message-id]').forEach(button => button.textContent='Fijar'); return; }
+    const messageIds = pins.map(pin => pin.message_id);
+    const {data:messages} = await client.from('messages').select('id,body,attachment,sender_id').in('id',messageIds);
+    const messageMap = Object.fromEntries((messages || []).map(message => [message.id,message]));
+    const profiles = await fetchProfiles((messages || []).map(message => message.sender_id));
+    host.innerHTML = `<div class="pinned-label">Fijados</div>${pins.map(pin => {
+      const message = messageMap[pin.message_id];
+      const author = profiles[message?.sender_id]?.nickname || profiles[message?.sender_id]?.username || 'Usuario';
+      const excerpt = message?.body || message?.attachment?.name || 'Mensaje';
+      return `<button type="button" class="pinned-entry" data-pin-target="${pin.message_id}"><strong>${escapeHtml(author)}</strong><span>${escapeHtml(String(excerpt).slice(0,110))}</span></button>`;
+    }).join('')}`;
+    host.classList.remove('hidden');
+    const pinnedIds = new Set(messageIds);
+    $$('[data-pin-message-id]').forEach(button => { button.textContent = pinnedIds.has(button.dataset.pinMessageId) ? 'Desfijar' : 'Fijar'; });
+    $$('[data-pin-target]',host).forEach(button => button.addEventListener('click', () => {
+      const target = $(`[data-message-id="${button.dataset.pinTarget}"]`,$('#messages-container'));
+      if (target) { target.scrollIntoView({behavior:'smooth',block:'center'}); target.classList.add('message-flash'); setTimeout(()=>target.classList.remove('message-flash'),900); }
+      else toast('Ese mensaje no está en los últimos 100 mensajes cargados.');
+    }));
+  }
+
+  async function togglePinnedMessage(message) {
+    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
+    const {data:existing,error:readError} = await client.from('pinned_messages').select('id')
+      .eq('message_id',message.id).maybeSingle();
+    if (readError) { showError(readError,'No se pudieron consultar los mensajes fijados. Ejecuta la migración v0.5.'); return; }
+    const response = existing
+      ? await client.from('pinned_messages').delete().eq('id',existing.id)
+      : await client.from('pinned_messages').insert({message_id:message.id,[field]:currentContext.id,pinned_by:currentUser.id});
+    if (response.error) { showError(response.error,'No se pudo fijar este mensaje. En canales necesitas gestionar mensajes.'); return; }
+    await loadPinnedMessages();
+    toast(existing ? 'Mensaje desfijado.' : 'Mensaje fijado.','success');
+  }
+
+  async function markConversationRead(messageId) {
+    if (currentContext?.type !== 'conversation') return;
+    const {error} = await client.rpc('mark_conversation_read',{p_conversation_id:currentContext.id,p_message_id:messageId});
+    if (error) console.warn('No se pudo marcar como leído:',error.message);
+  }
+
+  async function renderConversationReadReceipts() {
+    const container = $('#messages-container');
+    if (!container || currentContext?.type !== 'conversation') return;
+    const {data:reads,error} = await client.from('conversation_reads').select('user_id,read_at')
+      .eq('conversation_id',currentContext.id).neq('user_id',currentUser.id);
+    if (error) { console.warn('No se pudieron leer las confirmaciones:',error.message); return; }
+    $$('.message-read-receipt',container).forEach(node=>node.remove());
+    const mine = $$('.message',container).filter(article => article.__nexusMessage?.sender_id === currentUser.id);
+    const latest = mine.at(-1);
+    if (!latest) return;
+    const messageDate = new Date(latest.__nexusMessage.created_at).getTime();
+    const seen = (reads || []).filter(row => new Date(row.read_at).getTime() >= messageDate).length;
+    if (!seen) return;
+    const receipt = document.createElement('small'); receipt.className='message-read-receipt';
+    receipt.textContent = seen === 1 ? 'Visto por 1 persona' : `Visto por ${seen} personas`;
+    $('.message-main',latest).append(receipt);
+  }
+
+  async function refreshPollFromRealtime(payload) {
+    if (!currentContext) return;
+    const pollId = payload.new?.poll_id || payload.old?.poll_id;
+    if (!pollId) return;
+    const {data:poll} = await client.from('polls').select('message_id').eq('id',pollId).maybeSingle();
+    if (!poll) return;
+    const {data:message} = await client.from('messages').select('conversation_id,channel_id').eq('id',poll.message_id).maybeSingle();
+    if (!message) return;
+    const isCurrent = currentContext.type === 'conversation'
+      ? message.conversation_id === currentContext.id
+      : message.channel_id === currentContext.id;
+    if (isCurrent) await loadMessages();
+  }
+
+  async function refreshPinsFromRealtime(payload) {
+    if (!currentContext) return;
+    const row = payload.new || payload.old || {};
+    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
+    if (row[field] === currentContext.id) { await loadPinnedMessages(); return; }
+    const messageId = row.message_id;
+    if (!messageId) return;
+    const {data:message} = await client.from('messages').select('conversation_id,channel_id').eq('id',messageId).maybeSingle();
+    if (message && message[field] === currentContext.id) await loadPinnedMessages();
+  }
+
   function subscribeMessages() {
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
     if (!currentContext) return;
@@ -724,7 +981,10 @@
       .on('postgres_changes', {event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async payload => {
         const profiles = await fetchProfiles([payload.new.sender_id]);
         await appendMessage(payload.new, profiles[payload.new.sender_id]);
-        if (currentContext?.type === 'conversation') scheduleAccountListRefresh('conversations');
+        if (currentContext?.type === 'conversation') {
+          scheduleAccountListRefresh('conversations');
+          if (payload.new.sender_id !== currentUser.id) { await markConversationRead(payload.new.id); await renderConversationReadReceipts(); }
+        }
       })
       .on('postgres_changes', {event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async () => loadMessages())
       .on('postgres_changes', {event:'*',schema:'public',table:'message_reactions'}, async payload => {
@@ -733,6 +993,9 @@
         const article = $(`[data-message-id="${messageId}"]`, $('#messages-container'));
         if (article) await refreshMessageReactions(article,messageId);
       })
+      .on('postgres_changes', {event:'*',schema:'public',table:'poll_votes'}, async payload => refreshPollFromRealtime(payload))
+      .on('postgres_changes', {event:'*',schema:'public',table:'pinned_messages'}, async payload => refreshPinsFromRealtime(payload))
+      .on('postgres_changes', {event:'*',schema:'public',table:'conversation_reads',filter:currentContext.type === 'conversation' ? `conversation_id=eq.${currentContext.id}` : 'conversation_id=eq.00000000-0000-0000-0000-000000000000'}, async () => renderConversationReadReceipts())
       .subscribe(status => {
         const node = $('#connection-status');
         node.classList.toggle('online', status === 'SUBSCRIBED');
@@ -817,17 +1080,26 @@
   async function createPoll() {
     if (!currentContext) return;
     if (currentContext.type === 'channel' && currentContext.channelType === 'media') { toast('Los canales multimedia solo admiten archivos.','error'); return; }
+    if (currentContext.type === 'channel' && currentContext.channelType === 'voice') { toast('Los canales de voz no admiten encuestas.','error'); return; }
     if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     const raw = await ask('Crear encuesta','Escribe la pregunta y dos o más opciones separadas por |.','Pregunta y opciones','¿Qué hacemos? | Opción A | Opción B');
     if (!raw) return;
     const parts = raw.split('|').map(value => value.trim()).filter(Boolean);
-    if (parts.length < 3) { toast('Incluye una pregunta y al menos dos opciones.','error'); return; }
-    const payload = {sender_id:currentUser.id,body:`📊 ${parts[0]}`,message_type:'poll',...(replyTarget ? {reply_to:replyTarget.id} : {})};
-    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
-    const {data: message, error} = await client.from('messages').insert(payload).select().single();
-    if (error) { showError(error); return; }
-    const {error: pollError} = await client.from('polls').insert({message_id:message.id,question:parts[0],options:parts.slice(1),ends_at:null});
-    if (pollError) showError(pollError); else { clearReplyTarget(); await loadMessages(); toast('Encuesta publicada.','success'); }
+    if (parts.length < 3 || parts.length > 11) { toast('Incluye una pregunta y entre 2 y 10 opciones.','error'); return; }
+    if (parts[0].length > 200 || parts.slice(1).some(option => option.length > 100)) { toast('La pregunta admite 200 caracteres y cada opción 100.','error'); return; }
+    const {error} = await client.rpc('create_poll', {
+      p_context_type:currentContext.type,
+      p_context_id:currentContext.id,
+      p_question:parts[0],
+      p_options:parts.slice(1),
+      p_reply_to:replyTarget?.id || null
+    });
+    if (error) { showError(error, 'No se pudo crear la encuesta. Ejecuta la migración v0.5.'); return; }
+    clearReplyTarget();
+    // The message and poll row now commit in one transaction; realtime can only
+    // observe the fully-created poll. Reload is an idempotent fallback.
+    await loadMessages();
+    toast('Encuesta publicada.','success');
   }
 
   $('#new-chat').addEventListener('click', createNewChat);
@@ -982,6 +1254,24 @@
     try { styleNode.textContent = sanitizeCommunityCss(community?.custom_css || ''); }
     catch (error) { styleNode.textContent = ''; console.warn('CSS del megagrupo ignorado:',error); }
   }
+  function applyChatCommunityBackground() {
+    const pane = $('#conversation-panel');
+    if (!pane) return;
+    const background = currentContext?.type === 'channel' ? safeHttpsUrl(currentCommunity?.background_url) : '';
+    if (background) {
+      const safe = background.replace(/["\\]/g,'');
+      pane.style.backgroundImage = `linear-gradient(rgba(12,16,25,.55),rgba(12,16,25,.70)),url("${safe}")`;
+      pane.style.backgroundSize = 'cover';
+      pane.style.backgroundPosition = 'center';
+      pane.style.backgroundAttachment = 'fixed';
+    } else {
+      pane.style.backgroundImage = '';
+      pane.style.backgroundSize = '';
+      pane.style.backgroundPosition = '';
+      pane.style.backgroundAttachment = '';
+    }
+  }
+
   async function createCommunity() {
     const name = await ask('Crear megagrupo','Crea un espacio público para tu comunidad.','Nombre','Mi comunidad');
     if (!name) return;
@@ -1022,6 +1312,7 @@
     ['manage_channels','Gestionar canales'],
     ['manage_roles','Gestionar roles'],
     ['manage_badges','Gestionar medallas'],
+    ['create_invites','Crear invitaciones'],
   ];
   async function loadCommunityManagement() {
     if (!currentCommunity || !communityPermissions.manage_roles) return;
@@ -1309,45 +1600,93 @@
       toast('Megagrupo actualizado.','success');
     }
   });
+  $('#create-community-invite').addEventListener('click', async () => {
+    if (!currentCommunity) return;
+    const hoursRaw = await ask('Duración de invitación','Introduce horas (1-720).','Horas','168','168');
+    if (hoursRaw === null) return;
+    const hours = Number(hoursRaw);
+    if (!Number.isInteger(hours) || hours < 1 || hours > 720) { toast('Introduce una duración entre 1 y 720 horas.','error'); return; }
+    const {data:code,error} = await client.rpc('create_community_invite',{p_community_id:currentCommunity.id,p_expires_hours:hours,p_max_uses:0});
+    if (error) { showError(error,'No se pudo crear la invitación. Ejecuta la migración v0.5 y revisa el permiso create_invites.'); return; }
+    const inviteUrl = new URL(location.href); inviteUrl.searchParams.set('invite',code); inviteUrl.hash='';
+    try { await navigator.clipboard.writeText(inviteUrl.toString()); toast('Invitación creada y enlace copiado.','success'); }
+    catch { prompt('Copia este enlace de invitación:',inviteUrl.toString()); }
+  });
+
+  async function consumePendingCommunityInvite() {
+    const url = new URL(location.href);
+    const code = url.searchParams.get('invite');
+    if (!code) return;
+    url.searchParams.delete('invite');
+    history.replaceState(null,'',url.pathname + url.search + url.hash);
+    const {data:communityId,error} = await client.rpc('join_community_by_invite',{p_code:code});
+    if (error) { showError(error,'No se pudo aceptar la invitación. Puede haber caducado o alcanzado su límite.'); return; }
+    const {data:community, error:communityError} = await client.from('communities').select('*').eq('id',communityId).single();
+    if (communityError) { showError(communityError); return; }
+    await selectCommunity(community);
+    toast(`Te has unido a ${community.name}.`,'success');
+  }
+
   $('#add-alliance').addEventListener('click', async () => {
     if (!currentCommunity) return;
-    const target = await ask('Solicitar alianza','Pega el ID del megagrupo con el que quieres aliarte.','ID del megagrupo','xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+    const target = await ask('Solicitar alianza','Escribe el ID o el nombre exacto del megagrupo.','Megagrupo','Nombre o ID');
     if (!target) return;
-    if (target === currentCommunity.id) { toast('No puedes aliar un megagrupo consigo mismo.'); return; }
-    const {error} = await client.from('alliance_requests').insert({source_community_id:currentCommunity.id,target_community_id:target,status:'pending'});
-    if (error) showError(error,'No se pudo enviar la solicitud. Comprueba el ID y tus permisos.'); else toast('Solicitud de alianza enviada.','success');
+    if (target === currentCommunity.id || target.toLowerCase() === currentCommunity.name.toLowerCase()) { toast('No puedes aliar un megagrupo consigo mismo.'); return; }
+    let targetRow = null;
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    let targetId = null;
+    let targetName = '';
+    if (uuidPattern.test(target)) {
+      // A private community intentionally cannot be discovered through SELECT.
+      // Resolve the supplied ID inside a SECURITY DEFINER RPC instead.
+      targetId = target;
+      const {data:publicTarget} = await client.from('communities').select('name').eq('id',target).maybeSingle();
+      targetName = publicTarget?.name || `megagrupo ${target.slice(0,8)}`;
+    } else {
+      const response = await client.from('communities').select('id,name').ilike('name',target).limit(2);
+      if (response.error) { showError(response.error); return; }
+      if (response.data?.length === 1) targetRow = response.data[0];
+      else if (response.data?.length > 1) { toast('Hay varios megagrupos con ese nombre. Utiliza su ID para elegir el correcto.','error'); return; }
+      if (!targetRow) { toast('No se ha encontrado un megagrupo público con ese nombre. Para uno privado, utiliza su ID.','error'); return; }
+      targetId = targetRow.id;
+      targetName = targetRow.name;
+    }
+    const {error} = await client.rpc('request_community_alliance',{p_source_community_id:currentCommunity.id,p_target_community_id:targetId});
+    if (error) showError(error,'No se pudo enviar la solicitud. Comprueba que eres propietario y que no existe ya una solicitud.');
+    else { toast(`Solicitud de alianza enviada a ${targetName}.`,'success'); loadAllies(); }
   });
   async function loadAllies() {
     if (!currentCommunity) return;
-    const {data:accepted,error} = await client.from('alliance_requests').select('*').eq('status','accepted').or(`source_community_id.eq.${currentCommunity.id},target_community_id.eq.${currentCommunity.id}`);
-    if (error) { console.warn(error); return; }
-    const {data:pending,error:pendingError} = await client.from('alliance_requests').select('*').eq('target_community_id',currentCommunity.id).eq('status','pending');
-    if (pendingError) console.warn(pendingError);
-    const ids = [
-      ...(accepted || []).map(row => row.source_community_id === currentCommunity.id ? row.target_community_id : row.source_community_id),
-      ...(pending || []).map(row => row.source_community_id)
-    ];
-    const {data:partners} = ids.length ? await client.from('communities').select('id,name').in('id',[...new Set(ids)]) : {data:[]};
-    const partnerMap = Object.fromEntries((partners || []).map(row => [row.id,row]));
-    const acceptedMarkup = (accepted || []).map(row => {
-      const id = row.source_community_id === currentCommunity.id ? row.target_community_id : row.source_community_id;
-      const partner = partnerMap[id];
-      return partner ? `<button class="channel-item" data-ally="${id}"><span class="channel-hash">◇</span>${escapeHtml(partner.name)}</button>` : '';
-    }).join('');
+    // This RPC returns only communities linked to the current community by an
+    // alliance request. It can therefore reveal the partner name/icon even if
+    // that partner is private, without exposing private community discovery.
+    const {data:links,error} = await client.rpc('get_community_alliances',{p_community_id:currentCommunity.id});
+    if (error) { console.warn('No se pudieron cargar las alianzas:',error); return; }
+    const rows = links || [];
+    const accepted = rows.filter(row=>row.status === 'accepted');
+    const incoming = rows.filter(row=>row.status === 'pending' && row.direction === 'incoming');
+    const outgoing = rows.filter(row=>row.status === 'pending' && row.direction === 'outgoing');
+    const acceptedMarkup = accepted.map(row => `<button class="channel-item" data-ally="${row.partner_id}"><span class="channel-hash">◇</span>${escapeHtml(row.partner_name)}</button>`).join('');
     const canAccept = currentCommunity.owner_id === currentUser.id;
-    const pendingMarkup = (pending || []).map(row => `<div class="alliance-request"><span>${escapeHtml(partnerMap[row.source_community_id]?.name || 'Otro megagrupo')}</span>${canAccept ? `<button class="button button-primary" data-accept-alliance="${row.id}">Aceptar</button>` : '<span class="tag">Pendiente</span>'}</div>`).join('');
-    $('#allied-list').innerHTML = `${pendingMarkup}${acceptedMarkup}` || '<p class="muted" style="font-size:10px;padding:0 10px">Sin alianzas todavía.</p>';
+    const incomingMarkup = incoming.map(row => `<div class="alliance-request"><span>${escapeHtml(row.partner_name || 'Otro megagrupo')}</span>${canAccept ? `<button class="button button-primary" data-accept-alliance="${row.request_id}">Aceptar</button><button class="button button-secondary" data-decline-alliance="${row.request_id}">Rechazar</button>` : '<span class="tag">Pendiente</span>'}</div>`).join('');
+    const outgoingMarkup = outgoing.map(row => `<div class="alliance-request"><span>${escapeHtml(row.partner_name || 'Otro megagrupo')}</span><span class="tag">Solicitud enviada</span></div>`).join('');
+    $('#allied-list').innerHTML = `${incomingMarkup}${outgoingMarkup}${acceptedMarkup}` || '<p class="muted" style="font-size:10px;padding:0 10px">Sin alianzas todavía.</p>';
     $$('[data-ally]').forEach(button => button.addEventListener('click', async () => {
-      const {data:community} = await client.from('communities').select('*').eq('id',button.dataset.ally).single();
-      if (!community) return;
-      // The alliance grants discovery; each account still joins the public community explicitly.
-      const {error:joinError} = await client.from('community_members').insert({community_id:community.id,user_id:currentUser.id});
-      if (joinError && !String(joinError.message).includes('duplicate')) { showError(joinError,'No se pudo entrar al megagrupo aliado.'); return; }
+      const targetId = button.dataset.ally;
+      const {error:joinError} = await client.rpc('join_allied_community',{p_source_community_id:currentCommunity.id,p_target_community_id:targetId});
+      if (joinError) { showError(joinError,'No se pudo entrar al megagrupo aliado. Ejecuta la migración v0.5.'); return; }
+      // Joining first grants member-level SELECT access, including for a private ally.
+      const {data:community,error:communityError} = await client.from('communities').select('*').eq('id',targetId).single();
+      if (communityError || !community) { showError(communityError || new Error('Te has unido, pero no se pudo cargar el megagrupo.')); return; }
       selectCommunity(community);
     }));
     $$('[data-accept-alliance]').forEach(button => button.addEventListener('click', async () => {
       const {error:acceptError} = await client.from('alliance_requests').update({status:'accepted'}).eq('id',button.dataset.acceptAlliance).eq('target_community_id',currentCommunity.id);
       if (acceptError) showError(acceptError,'No se pudo aceptar la alianza.'); else {toast('Alianza aceptada.','success');loadAllies();}
+    }));
+    $$('[data-decline-alliance]').forEach(button => button.addEventListener('click', async () => {
+      const {error:declineError} = await client.from('alliance_requests').update({status:'declined'}).eq('id',button.dataset.declineAlliance).eq('target_community_id',currentCommunity.id);
+      if (declineError) showError(declineError,'No se pudo rechazar la solicitud.'); else {toast('Solicitud rechazada.');loadAllies();}
     }));
   }
 
@@ -1358,14 +1697,92 @@
     $('#profile-pronouns').value = profile.pronouns || '';
     $('#profile-bio').value = profile.bio || '';
     $('#profile-color').value = profile.default_name_color || '#a99bff';
+    $('#profile-aliases').value = (profile.aliases || []).join(', ');
   }
   $('#profile-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const patch = {nickname:$('#profile-nickname').value.trim(),pronouns:$('#profile-pronouns').value.trim(),bio:$('#profile-bio').value.trim(),default_name_color:$('#profile-color').value};
+    const aliases = [...new Set($('#profile-aliases').value.split(',').map(value => value.trim()).filter(Boolean))].slice(0,10);
+    if (aliases.some(value => value.length > 24)) { toast('Cada alias admite un máximo de 24 caracteres.','error'); return; }
+    const patch = {nickname:$('#profile-nickname').value.trim(),pronouns:$('#profile-pronouns').value.trim(),bio:$('#profile-bio').value.trim(),default_name_color:$('#profile-color').value,aliases};
     const {error} = await client.from('profiles').update(patch).eq('id',currentUser.id);
     if (error) { showError(error); return; }
     Object.assign(profile,patch); renderIdentity(); toast('Perfil actualizado.','success');
   });
+
+  function renderProfileWidgets() {
+    const list = $('#profile-widgets-list');
+    if (!list) return;
+    const widgets = Array.isArray(profile?.widgets) ? profile.widgets.slice(0,10) : [];
+    list.innerHTML = '';
+    if (!widgets.length) {
+      const empty = document.createElement('p'); empty.className = 'muted small-muted';
+      empty.textContent = 'Todavía no has creado widgets para tu perfil.'; list.append(empty);
+    }
+    widgets.forEach((widget,index) => {
+      const card = document.createElement('article'); card.className = 'profile-widget-card';
+      const banner = document.createElement('div'); banner.className = 'profile-widget-banner';
+      const bannerValue = String(widget.banner || '');
+      if (/^#[0-9a-f]{6}$/i.test(bannerValue)) banner.style.background = bannerValue;
+      else if (safeHttpsUrl(bannerValue)) banner.style.backgroundImage = `linear-gradient(#11182755,#11182799),url("${safeHttpsUrl(bannerValue).replace(/["\\]/g,'')}")`;
+      else banner.style.background = 'linear-gradient(120deg,#34304f,#252e43)';
+      const icon = document.createElement('span'); icon.className = 'profile-widget-icon';
+      const iconValue = String(widget.icon || '✦');
+      if (safeHttpsUrl(iconValue)) { const image = document.createElement('img'); image.src = safeHttpsUrl(iconValue); image.alt = ''; image.loading = 'lazy'; icon.append(image); }
+      else icon.textContent = iconValue.slice(0,8);
+      const title = document.createElement('strong'); title.textContent = widget.title || 'Widget';
+      const desc = document.createElement('p'); desc.textContent = widget.description || '';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button button-danger'; remove.textContent = 'Eliminar';
+      remove.addEventListener('click', async () => {
+        const next = widgets.filter((_,i) => i !== index);
+        const {error} = await client.from('profiles').update({widgets:next}).eq('id',currentUser.id);
+        if (error) showError(error,'No se pudo eliminar el widget.');
+        else { profile.widgets=next; renderProfileWidgets(); toast('Widget eliminado.','success'); }
+      });
+      card.append(banner,icon,title,desc,remove); list.append(card);
+    });
+    const count = $('#profile-widget-count'); if (count) count.textContent = `${widgets.length}/10`;
+  }
+
+  $('#profile-widget-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const widgets = Array.isArray(profile?.widgets) ? [...profile.widgets] : [];
+    if (widgets.length >= 10) { toast('Tu perfil ya tiene el máximo de 10 widgets.','error'); return; }
+    const title = $('#widget-title').value.trim();
+    const description = $('#widget-description').value.trim();
+    const icon = $('#widget-icon').value.trim() || '✦';
+    const banner = $('#widget-banner').value.trim() || '#34304f';
+    if (title.length < 1 || title.length > 50 || description.length > 220) { toast('Revisa el título o la descripción del widget.','error'); return; }
+    if (icon.length > 300 || (icon.startsWith('http') && !safeHttpsUrl(icon))) { toast('El icono debe ser un emoji o una URL HTTPS.','error'); return; }
+    if (!/^#[0-9a-f]{6}$/i.test(banner) && !safeHttpsUrl(banner)) { toast('El banner debe ser un color HEX o una URL HTTPS.','error'); return; }
+    widgets.push({id:crypto.randomUUID(),title,description,icon,banner});
+    const {error} = await client.from('profiles').update({widgets}).eq('id',currentUser.id);
+    if (error) { showError(error,'No se pudo guardar el widget.'); return; }
+    profile.widgets = widgets; $('#profile-widget-form').reset(); $('#widget-banner').value='#34304f'; renderProfileWidgets();
+    toast('Widget añadido a tu perfil.','success');
+  });
+
+  async function fillCommunityNickname() {
+    const panel = $('#community-nickname-panel');
+    if (!panel) return;
+    panel.classList.toggle('hidden', !currentCommunity);
+    if (!currentCommunity) return;
+    const {data,error} = await client.from('community_members').select('nickname')
+      .eq('community_id',currentCommunity.id).eq('user_id',currentUser.id).maybeSingle();
+    if (error) { console.warn('No se pudo cargar el nickname del megagrupo:',error); return; }
+    $('#profile-community-nickname').value = data?.nickname || '';
+    $('#profile-community-name').textContent = currentCommunity.name;
+  }
+
+  $('#save-community-nickname').addEventListener('click', async () => {
+    if (!currentCommunity) { toast('Selecciona primero un megagrupo.'); return; }
+    const nickname = $('#profile-community-nickname').value.trim();
+    if (nickname.length > 40) { toast('El nickname admite un máximo de 40 caracteres.','error'); return; }
+    const {error} = await client.from('community_members').update({nickname: nickname || null})
+      .eq('community_id',currentCommunity.id).eq('user_id',currentUser.id);
+    if (error) { showError(error,'No se pudo guardar el nickname. Ejecuta la migración v0.5.'); return; }
+    messageIdentityCache.clear(); toast('Nickname del megagrupo actualizado.','success');
+  });
+
   async function uploadProfileImage(file, kind) {
     if (!file) return;
     if (file.size > 8*1024*1024 || !file.type.startsWith('image/')) { toast('Usa una imagen de máximo 8 MB.','error'); return; }

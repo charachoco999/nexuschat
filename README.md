@@ -2,9 +2,24 @@
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.4 añade bandeja y solicitudes de amistad en tiempo real, respuestas, edición de mensajes propios y reacciones sincronizadas. Incluye los módulos anteriores de roles, permisos, medallas, canales y apariencia de megagrupo. No es todavía una alternativa completa a Discord; las funciones que necesitan servicios externos o módulos posteriores se indican más abajo.
+> **Estado:** v0.5 añade archivo/salida de conversaciones, encuestas atómicas, fondos de megagrupo en canales, widgets y fichas de perfil, invitaciones, AutoAlly por ID, mensajes fijados y confirmaciones de lectura. Incluye los módulos anteriores de roles, permisos, medallas, canales y mensajería en tiempo real. No es todavía una alternativa completa a Discord; las funciones que necesitan servicios externos o módulos posteriores se indican más abajo.
 
 ## 1. Qué incluye esta versión
+
+### Añadido en v0.5
+
+- Ocultar/archivar conversaciones de forma individual y restaurarlas más tarde.
+- Salir de conversaciones o grupos desde la bandeja sin borrar el historial para los demás participantes.
+- Permite crear varias conversaciones independientes con la misma persona.
+- Encuestas creadas mediante una función SQL transaccional: el mensaje y la encuesta se confirman juntos para evitar que Realtime muestre una tarjeta duplicada/incompleta.
+- El fondo visual de un megagrupo también se aplica a canales de texto y a la vista de canales de voz. El audio de voz aún no está implementado.
+- Fichas públicas de perfil, aliases, nickname por megagrupo y hasta 10 widgets.
+- Invitaciones compartibles con vencimiento y límites de uso.
+- AutoAlly: solicitudes por ID de megagrupos privados y acceso a comunidades con alianza aceptada.
+- Mensajes fijados y confirmaciones de lectura en conversaciones privadas y grupales.
+- Permisos SQL de edición limitados a las columnas de perfil visual que necesita cada usuario.
+
+Consulta `UPGRADE-v0.5.md` para la migración y las pruebas recomendadas.
 
 ### Funciona al configurar Supabase
 
@@ -27,13 +42,12 @@ Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfa
 - Los roles y medallas asignados se muestran junto al nombre en los mensajes de los canales del megagrupo.
 - Función Edge opcional para que un administrador envíe un correo de recuperación a otra cuenta.
 
-### Preparado en la base de datos, pendiente de interfaz completa
+### Preparado parcialmente / pendiente de completar
 
-- Solicitudes y relaciones de alianza (`alliance_requests`).
-- Stickers y emojis personalizados, personales, de conversación o de comunidad (`custom_assets`).
-- Perfiles alternativos (`alt_profiles`).
-- Campos de perfil para aliases, widgets, fuentes, efectos y placas.
-- Configuración visual y CSS personalizado por megagrupo.
+- Stickers y emojis personalizados, personales, de conversación o de comunidad (`custom_assets`): la tabla de recursos está preparada, pero falta el editor y el selector en el compositor.
+- Perfiles alternativos (`alt_profiles`): falta el selector Quick-Alt completo y la medalla visible de identidad alternativa.
+- Fuentes, efectos y placas de perfil: existen campos de almacenamiento, pero falta el editor y su aplicación visual.
+- CSS personalizado de megagrupo: está disponible con un conjunto de selectores y propiedades limitado por seguridad.
 
 ### Necesita un servicio o una fase adicional
 
@@ -176,7 +190,7 @@ nexus-chat/
 
 ## 8. Próxima evolución recomendada
 
-La siguiente evolución puede centrarse en confirmaciones de lectura y mensajes no leídos, panel de miembros, personalización detallada de perfil/cliente y alianza con flujo completo. Después conviene completar Quick-Alt, stickers/emojis y GIFs, y finalmente añadir voz con WebRTC/TURN. Así cada módulo puede probarse sin convertir la aplicación en una torre de piezas que nadie sabe depurar.
+La siguiente fase puede completar Quick-Alt, stickers y emojis personalizados, buscador de GIFs, efectos y fuentes importadas, placas de perfil y controles multimedia avanzados. Después conviene añadir voz real con WebRTC/TURN y terminar los controles de moderación y el Workshop. Las confirmaciones de lectura, las alianzas, las invitaciones y los mensajes fijados ya tienen una primera implementación en v0.5.
 
 
 ## Registro público y correo de confirmación
@@ -188,3 +202,8 @@ Nexus v0.3 muestra un mensaje claro cuando se alcanza ese límite. La limitació
 ## Actualización v0.3
 
 Consulta `UPGRADE-v0.3.md`. Si aún no se aplicaron, ejecuta primero las migraciones de v0.2 para Storage y medallas; después ejecuta `supabase/migrations/20261101_channel_permissions.sql` para habilitar las reglas RLS por tipo de canal. La actualización también incorpora soporte opcional para Cloudflare Turnstile en el registro y la recuperación.
+
+
+## Actualizar desde v0.4
+
+Ejecuta `supabase/migrations/20261101_nexus_v05_features.sql` en Supabase SQL Editor y después publica el contenido del paquete `nexus-chat-v0.5-upgrade.zip` en la raíz del repositorio. Conserva tu `assets/js/config.js`. Consulta `UPGRADE-v0.5.md` antes de desplegar.

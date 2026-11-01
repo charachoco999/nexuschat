@@ -1,0 +1,11 @@
+// Copia este archivo como config.js y rellena los valores de tu propio proyecto.
+// La URL y la clave publicable/anon son datos de cliente. Nunca pegues aquí una
+// service_role key, una contraseña SMTP ni una API key privada de otro proveedor.
+window.NEXUS_CONFIG = {
+  SUPABASE_URL: 'https://TU-PROYECTO.supabase.co',
+  SUPABASE_ANON_KEY: 'TU-CLAVE-PUBLICA',
+  APP_NAME: 'Nexus',
+  // Opcional: clave pública de Cloudflare Turnstile. Configura también CAPTCHA
+  // en Supabase Auth para que la validación del token se haga en el servidor.
+  TURNSTILE_SITE_KEY: ''
+};
