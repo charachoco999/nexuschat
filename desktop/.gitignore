@@ -1,8 +1,0 @@
-node_modules/
-dist/
-src-tauri/target/
-*.log
-dist-installers/
-# Private Tauri updater signing material (never commit these files)
-*.key
-*.key.pub

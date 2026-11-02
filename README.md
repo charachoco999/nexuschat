@@ -1,10 +1,30 @@
-> **Nexus v0.8:** rendimiento del historial, presencia global y por contexto, marcos de perfil, recuperación de contraseña con formulario dedicado y CSS ampliado para megagrupos. Consulta `UPGRADE-v0.8.md` antes de actualizar.
+> **Nexus v0.10.0-alpha.1:** audio, compartir pantalla en voz, categorías de canales, notificaciones personalizadas, límite de historial, resaltado de código, vista previa de enlaces, tipografía de mensajes, Markdown ampliado, BoxGlow y medallas universales. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha1.md` antes de actualizar.
 
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.9 añade navegación móvil, miembros en línea en tarjetas, contadores de no leídos, tarjetas visuales de voz con modo compacto, un selector de emojis/stickers unificado, widgets de enlace y compactación de paneles. Conserva las funciones de v0.8 y anteriores. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
+## Nexus v0.10.0-alpha.1
+
+Esta entrega se centra en la experiencia web y móvil. No es una versión 1.0 y debe probarse junto con las instalaciones anteriores antes de considerarla estable.
+
+- Mensajes de audio grabados desde el compositor y reproducidos desde el chat.
+- Compartir pantalla en canales de voz mediante WebRTC, cuando el navegador y el dispositivo lo permiten.
+- Sonido de notificación personalizado guardado localmente en cada dispositivo.
+- Categorías de canales de megagrupo y preferencias de notificación individuales por conversación/canal.
+- Ajustes generales de notificación por MD, grupo y megagrupo, incluido el modo de solo menciones para megagrupos.
+- Control de mensajes cargados inicialmente (25, 50, 75 o 100).
+- Resaltado de sintaxis para bloques de código, tarjetas ligeras de vista previa de enlaces y fuente de mensajes independiente de la fuente del nombre.
+- Markdown personalizado: `{red:text}`, `{color:#ff8800:text}`, `{size:24:text}`, `{font:serif:text}` y `{glow:blue:text}`.
+- BoxGlow para mensajes y tarjetas de perfil.
+- Medallas universales gestionadas exclusivamente por administradores de plataforma; cada usuario puede ocultar las suyas.
+- Indicadores de dispositivo móvil/escritorio en presencia.
+
+**Limitaciones de esta alpha:** la vista previa de enlaces muestra favicon, texto y dominio, no una tarjeta Open Graph completa con imagen y descripción. El sonido personalizado es local al dispositivo. Compartir pantalla depende de `getDisplayMedia`, HTTPS y compatibilidad del navegador; algunos navegadores móviles no lo ofrecen. La voz sigue utilizando P2P y STUN como en versiones anteriores, por lo que algunas redes pueden requerir TURN. La grabación depende de `MediaRecorder` y de los formatos aceptados por el navegador.
+
+Consulta `UPGRADE-v0.10-alpha1.md` para aplicar la migración y desplegar.
+
+> **Estado:** v0.10.0-alpha.1 amplía la versión web y móvil a partir de v0.9.1. Desktop se mantiene en su rama Alpha 2 y el actualizador automático queda aparcado. No se requiere dominio ni servicio externo de pago para estas funciones.
 
 ## 1. Qué incluye esta versión
 
@@ -296,3 +316,8 @@ Consulta `UPGRADE-v0.8.md` para actualizar una instalación v0.7.2, `MEGAGROUP-C
 ## Nexus v0.9
 
 Consulta `CHANGELOG-v0.9.md` para las funciones nuevas y `UPGRADE-v0.9.md` para el procedimiento de actualización desde v0.8.
+
+
+## Actualizar a Nexus v0.10.0-alpha.1
+
+Antes de desplegar, sigue `UPGRADE-v0.10-alpha1.md`. Ejecuta `supabase/migrations/20261102_nexus_v010_features.sql` en Supabase SQL Editor y después publica los archivos del proyecto, conservando `assets/js/config.js`.

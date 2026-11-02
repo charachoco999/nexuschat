@@ -10,12 +10,14 @@
   <meta name="theme-color" content="#141925">
   <link rel="icon" href="./nexus-icon.svg" type="image/svg+xml">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M27 72V28h10l26 27V28h10v44H63L37 45v27z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="assets/css/app.css?v=0.9.1-media-voice-scroll-hotfix">
+  <link rel="stylesheet" href="assets/css/app.css?v=0.10.0-alpha.1">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
   <script defer src="assets/js/config.js"></script>
-  <script defer src="assets/js/app.js?v=0.9.1-media-voice-scroll-hotfix"></script>
+  <script defer src="assets/js/app.js?v=0.10.0-alpha.1"></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
@@ -78,7 +80,7 @@
       </div>
     </aside>
     <button id="mobile-menu-scrim" class="mobile-menu-scrim hidden" type="button" aria-label="Cerrar menú"></button>
-    <div id="global-voice-audio-host" class="voice-audio-host" aria-hidden="true"></div>
+    <div id="global-voice-audio-host" class="voice-audio-host" aria-hidden="true"></div><div id="global-voice-video-host" class="global-voice-video-host" aria-live="polite"></div>
 
     <section class="main-panel">
       <header class="topbar">
@@ -88,7 +90,7 @@
 
       <section id="voice-session-dock" class="voice-session-dock hidden" aria-live="polite">
         <div class="voice-session-dock-copy"><span class="voice-session-live-dot"></span><div><strong id="voice-session-dock-title">Llamada de voz activa</strong><small id="voice-session-dock-subtitle">La llamada continúa mientras navegas por Nexus.</small></div></div>
-        <div class="voice-session-dock-actions"><button type="button" class="button button-secondary" id="voice-session-dock-mute">Silenciar</button><button type="button" class="button button-danger" id="voice-session-dock-leave">Salir de voz</button></div>
+        <div class="voice-session-dock-actions"><button type="button" class="button button-secondary" id="voice-session-dock-mute">Silenciar</button><button type="button" class="button button-secondary" id="voice-session-dock-share" disabled>Compartir pantalla</button><button type="button" class="button button-danger" id="voice-session-dock-leave">Salir de voz</button></div>
       </section>
 
       <aside id="notification-panel" class="notification-panel hidden" aria-label="Notificaciones">
@@ -151,7 +153,38 @@
         </section>
       </div></section>
 
-      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label><label class="field">Estado personalizado<input id="setting-custom-status" maxlength="60" placeholder="Ej. Construyendo Nexus ✦"></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label><label class="setting-check full-field"><input type="checkbox" id="setting-compact-panels"> Compactar paneles: ocultar los paneles que no corresponden al contexto</label><div class="full-field settings-subsection"><h3>Optimizaciones</h3><p class="muted small-muted">Reduce elementos visuales para mejorar la fluidez en equipos modestos.</p><label class="setting-check"><input type="checkbox" id="setting-voice-compact"> Desactivar tarjetas visuales en chats de voz</label></div><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><small class="muted small-muted" id="change-password-note">El enlace abrirá un formulario independiente para establecer la nueva contraseña. Al terminar, Nexus cerrará esa sesión temporal y tendrás que iniciar sesión de nuevo.</small><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
+      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia, notificaciones y rendimiento de Nexus.</p></div></div>
+        <form id="settings-form" class="surface form-grid">
+          <label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label>
+          <label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label>
+          <label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label>
+          <label class="field">Estado personalizado<input id="setting-custom-status" maxlength="60" placeholder="Ej. Construyendo Nexus ✦"></label>
+          <label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label>
+          <div class="full-field settings-subsection"><h3>Notificaciones</h3>
+            <label class="setting-check"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label>
+            <label class="setting-check"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label>
+            <label class="setting-check"><input type="checkbox" id="setting-notify-direct" checked> Notificaciones de mensajes directos</label>
+            <label class="setting-check"><input type="checkbox" id="setting-notify-group" checked> Notificaciones de grupos</label>
+            <label class="setting-check"><input type="checkbox" id="setting-notify-community" checked> Notificaciones de megagrupos</label>
+            <label class="setting-check"><input type="checkbox" id="setting-community-mentions-only"> En megagrupos, recibir solo menciones</label>
+            <label class="field">Sonido personalizado (solo este dispositivo)<input id="setting-notify-audio-file" type="file" accept="audio/*"></label>
+            <div class="inline-form"><button type="button" id="clear-notify-audio" class="button button-secondary">Quitar sonido personalizado</button><small id="notify-audio-status" class="muted">Se utiliza el sonido predeterminado.</small></div>
+          </div>
+          <label class="setting-check full-field"><input type="checkbox" id="setting-compact-panels"> Compactar paneles</label>
+          <div class="full-field settings-subsection"><h3>Optimizaciones</h3><p class="muted small-muted">Ajustes de rendimiento para equipos modestos y móviles.</p>
+            <label class="field">Mensajes cargados inicialmente<select id="setting-message-page-size"><option value="25">25 · Muy ligero</option><option value="50">50 · Equilibrado</option><option value="75">75</option><option value="100">100 · Más historial</option></select></label>
+            <label class="setting-check"><input type="checkbox" id="setting-voice-compact"> Desactivar tarjetas visuales en chats de voz</label>
+          </div>
+          <div class="full-field settings-subsection"><h3>Identidad de mensajes</h3><p class="muted small-muted">Esta fuente es independiente de la fuente de tu nombre de usuario. Se mostrará también a quienes reciban tus mensajes.</p><label class="field">Fuente de los mensajes<select id="setting-message-font"><option value="default">Predeterminada</option><option value="profile">Mi fuente de mensajes</option></select></label><label class="field">Subir fuente de mensajes (.woff/.woff2/.ttf)<input id="setting-message-font-file" type="file" accept=".woff,.woff2,.ttf,font/woff,font/woff2,font/ttf"></label>
+          </div>
+          <div class="full-field settings-subsection"><h3>BoxGlow</h3><p class="muted small-muted">Un aura suave alrededor de tus mensajes y tarjetas de usuario. Recomendamos usar gradientes simples. Si utilizas una imagen o GIF, solo se mostrará en una franja fina recortada.</p><label class="setting-check"><input type="checkbox" id="setting-boxglow-enabled"> Activar BoxGlow</label><label class="field">Color del aura<input id="setting-boxglow-color" type="color" value="#8d7cff"></label><label class="field">Textura opcional (URL HTTPS de imagen/GIF)<input id="setting-boxglow-image" type="url" placeholder="https://…"></label><label class="field">Intensidad <strong id="setting-boxglow-intensity-label">35%</strong><input id="setting-boxglow-intensity" type="range" min="0" max="100" value="35"></label></div>
+          <div class="full-field form-actions"><button class="button button-primary">Guardar configuración</button></div>
+        </form>
+        <section class="surface settings-surface"><div class="surface-heading"><h3>Medallas universales</h3><span class="tag">NEXUS</span></div><p class="muted small-muted">Puedes ocultar las medallas universales que se muestran junto a tu nombre. El cambio se aplica a mensajes, perfiles y listas de miembros.</p><div id="global-badge-visibility" class="global-badge-visibility"><small class="muted">Cargando medallas…</small></div></section>
+        <section class="surface settings-surface"><div class="surface-heading"><h3>Guía de Markdown</h3><button class="button button-secondary" type="button" id="open-markdown-guide">Abrir guía</button></div><p class="muted">Consulta ejemplos de formato, código y etiquetas personalizadas de Nexus.</p></section>
+        <div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><small class="muted small-muted" id="change-password-note">El enlace abrirá un formulario independiente para establecer la nueva contraseña. Al terminar, Nexus cerrará esa sesión temporal y tendrás que iniciar sesión de nuevo.</small><button class="button button-danger" id="logout-button">Cerrar sesión</button></div>
+        <div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div><div class="settings-subsection"><h3>Medallas globales de Nexus</h3><p class="muted small-muted">Solo administradores de plataforma pueden crear y asignar medallas universales.</p><form id="platform-badge-create" class="inline-form"><input id="platform-badge-name" maxlength="40" placeholder="Nombre de medalla" required><input id="platform-badge-icon" maxlength="500" placeholder="Emoji o URL HTTPS" required><input id="platform-badge-user" maxlength="24" placeholder="Usuario (opcional)"><button class="button button-primary" type="submit">Crear</button></form><div id="platform-badge-list" class="list-stack"></div></div></div>
+      </div></section>
 
       <section class="view" id="view-community"><div class="content-page"><div class="community-hero" id="community-hero"><div class="community-hero-copy"><p class="eyebrow">MEGAGRUPO</p><h1 id="community-name">Comunidad</h1><p id="community-description" class="muted"></p></div><button class="button button-secondary" id="community-settings">Administrar</button></div><div class="community-info-grid"><div class="surface"><p class="eyebrow">MIEMBROS</p><h2 id="community-members-count">—</h2></div><div class="surface"><p class="eyebrow">CANALES</p><h2 id="community-channels-count">—</h2></div><div class="surface"><p class="eyebrow">COMUNIDAD</p><h2 id="community-id-short">—</h2></div></div><div class="surface settings-surface"><div class="surface-heading"><h3>Acerca de este megagrupo</h3></div><p class="muted">Selecciona un canal en la barra lateral para conversar. Los canales de voz, anuncios y multimedia tienen su propio tipo y sus capacidades se irán habilitando por módulos.</p></div>
         <section id="community-roles-area" class="surface settings-surface hidden">
@@ -190,6 +223,16 @@
     </section>
   </div>
 
+
+  <dialog id="markdown-guide-dialog" class="dialog-card wide-dialog"><div class="dialog-heading"><h3>Guía de Markdown de Nexus</h3><button type="button" class="icon-button" id="close-markdown-guide">×</button></div><div class="markdown-guide-content">
+    <h4>Formato básico</h4><p><code>**negrita**</code> · <code>*cursiva*</code> · <code>~~tachado~~</code> · <code>`código`</code></p><p><code>&gt; cita</code> · <code>[texto](https://ejemplo.com)</code></p>
+    <h4>Bloques de código</h4><pre><code>```js
+const nexus = true;
+```</code></pre><p class="muted small-muted">Escribe el identificador del lenguaje después de las tres comillas invertidas para activar el coloreado.</p>
+    <h4>Markdown personalizado</h4><p><code>{red:Texto rojo}</code></p><p><code>{color:#ff8800:Texto naranja}</code></p><p><code>{size:24:Texto de 24 píxeles}</code></p><p><code>{font:serif:Texto serif}</code></p><p><code>{glow:blue:Texto azul brillante}</code></p>
+    <p class="muted small-muted">Los colores, tamaños y fuentes están limitados a valores seguros. No se admite HTML arbitrario ni CSS libre.</p></div></dialog>
+  <dialog id="context-notification-dialog" class="dialog-card"><form method="dialog" id="context-notification-form"><div class="dialog-heading"><h3>Notificaciones de este espacio</h3><button type="button" class="icon-button" id="close-context-notifications">×</button></div><p id="context-notification-name" class="muted small-muted">Configuración individual</p><label class="field">Modo<select id="context-notification-mode"><option value="default">Usar configuración general</option><option value="all">Todos los mensajes</option><option value="mentions">Solo menciones</option><option value="mute">Silenciar</option></select></label><div class="dialog-actions"><button type="button" class="button button-secondary" id="cancel-context-notifications">Cancelar</button><button type="submit" class="button button-primary">Guardar</button></div></form></dialog>
+
   <dialog id="prompt-dialog" class="dialog-card"><form method="dialog" id="prompt-form"><div class="dialog-heading"><h3 id="prompt-title">Crear</h3><button class="icon-button" value="cancel" aria-label="Cerrar">×</button></div><p id="prompt-description" class="muted"></p><label class="field" id="prompt-field-label"><span id="prompt-label">Nombre</span><input id="prompt-input" autocomplete="off"></label><div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="prompt-confirm" value="default">Continuar</button></div></form></dialog>
 
   <dialog id="channel-editor-dialog" class="dialog-card wide-dialog">
@@ -198,6 +241,7 @@
       <input type="hidden" id="channel-edit-id">
       <label class="field">Nombre del canal<input id="channel-edit-name" maxlength="70" required placeholder="general"></label>
       <label class="field">Tipo de canal<select id="channel-edit-type"><option value="text">Texto</option><option value="announcements">Anuncios</option><option value="media">Solo multimedia</option><option value="voice">Voz (audio pendiente de integrar)</option></select></label>
+      <label class="field">Categoría<input id="channel-edit-category" maxlength="40" placeholder="General" value="General"></label>
       <label class="field">Descripción<textarea id="channel-edit-description" rows="3" maxlength="240" placeholder="Para qué se utiliza este canal…"></textarea></label>
       <label class="field">Posición en la lista<input id="channel-edit-position" type="number" min="0" max="500" step="1" value="0"></label>
       <p class="muted small-muted">Los canales de anuncios requieren el permiso «Publicar anuncios». Los canales multimedia solo aceptan archivos. La voz se podrá activar cuando se integre WebRTC.</p>
