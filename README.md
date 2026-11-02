@@ -4,7 +4,7 @@
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.8 añade paginación y caché acotada de mensajes, presencia, indicadores de escritura, marcos de perfil y personalización ampliada. Conserva stickers, emojis, GIFs GIPHY, valoraciones, Web Push, voz WebRTC, Quick-Alt, menciones, invitaciones y moderación. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
+> **Estado:** v0.9 añade navegación móvil, miembros en línea en tarjetas, contadores de no leídos, tarjetas visuales de voz con modo compacto, un selector de emojis/stickers unificado, widgets de enlace y compactación de paneles. Conserva las funciones de v0.8 y anteriores. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
 
 ## 1. Qué incluye esta versión
 
@@ -15,7 +15,7 @@ Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfa
 - Permite crear varias conversaciones independientes con la misma persona.
 - Encuestas creadas mediante una función SQL transaccional: el mensaje y la encuesta se confirman juntos para evitar que Realtime muestre una tarjeta duplicada/incompleta.
 - El fondo visual de un megagrupo también se aplica a canales de texto y de voz. Desde v0.7, los canales de voz permiten audio P2P WebRTC; su fiabilidad depende de la red y puede requerir TURN.
-- Fichas públicas de perfil, aliases, nickname por megagrupo y hasta 10 widgets.
+- Fichas públicas de perfil, aliases, nickname por megagrupo y hasta 32 widgets.
 - Invitaciones compartibles con vencimiento y límites de uso.
 - AutoAlly: solicitudes por ID de megagrupos privados y acceso a comunidades con alianza aceptada.
 - Mensajes fijados y confirmaciones de lectura en conversaciones privadas y grupales.
@@ -62,6 +62,19 @@ Consulta `UPGRADE-v0.7.md` para añadir la clave GIPHY, activar push y desplegar
 - Más selectores y propiedades CSS para personalizar los canales y paneles de un megagrupo sin afectar a MDs ni a otras comunidades.
 
 Consulta `UPGRADE-v0.8.md` y `MEGAGROUP-CSS-v0.8.md` para la migración, instalación y selectores admitidos.
+
+
+### Añadido en v0.9
+
+- Interfaz adaptable a móvil con menú lateral, navegación de una sola columna y botón de volver entre la bandeja y el chat.
+- Preferencia **Compactar paneles** para mostrar la navegación personal en MDs o los canales al trabajar dentro de un megagrupo.
+- Botón **X en línea** que abre tarjetas de participantes con avatar, marco y estado.
+- Contadores de mensajes pendientes junto a conversaciones y canales, con seguimiento de lectura de canales mediante `channel_reads`.
+- Tarjetas de participantes en canales de voz con avatar, marco y placa de perfil; se pueden sustituir por una lista compacta desde **Configuración → Optimizaciones**.
+- Selector conjunto de emojis estándar, emojis personalizados y stickers.
+- Nuevo widget de enlace externo con URL HTTPS, texto opcional y favicon automático. El máximo de widgets de perfil pasa de 10 a 32.
+
+Consulta `UPGRADE-v0.9.md` para ejecutar la migración y desplegar la actualización.
 
 ### Funciona al configurar Supabase
 
@@ -149,6 +162,11 @@ Para una instalación que ya está publicada, sigue `UPGRADE-v0.2.md`. Ejecuta `
 ## 2.2. Actualizar desde v0.3 a v0.4
 
 Sigue `UPGRADE-v0.4.md`. Ejecuta `supabase/migrations/20261101_realtime_chat_enhancements.sql` en SQL Editor y actualiza los archivos del frontend. La migración habilita actualizaciones en tiempo real para solicitudes, bandeja y reacciones, además de crear las reglas seguras para responder, editar y reaccionar.
+
+## 2.3. Actualizar desde v0.8 a v0.9
+
+Sigue `UPGRADE-v0.9.md`. Ejecuta `supabase/migrations/20261106_nexus_v09_mobile_unread_widgets.sql` en Supabase SQL Editor antes de publicar los archivos del frontend. Conserva `assets/js/config.js`.
+
 
 ---
 
@@ -274,3 +292,7 @@ Las cargas de imágenes y fuentes validan la firma binaria y envían un MIME exp
 ## Nexus v0.8
 
 Consulta `UPGRADE-v0.8.md` para actualizar una instalación v0.7.2, `MEGAGROUP-CSS-v0.8.md` para la personalización CSS de megagrupos y `PASSWORD-RECOVERY-v0.8.md` para el flujo de recuperación. La actualización usa una migración incremental; no vuelvas a ejecutar `schema.sql` sobre un proyecto existente.
+
+## Nexus v0.9
+
+Consulta `CHANGELOG-v0.9.md` para las funciones nuevas y `UPGRADE-v0.9.md` para el procedimiento de actualización desde v0.8.

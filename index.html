@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#10131c">
   <meta name="description" content="Nexus, plataforma de chats y comunidades personalizables.">
   <title>Nexus — Chat & Communities</title>
@@ -10,12 +10,12 @@
   <meta name="theme-color" content="#141925">
   <link rel="icon" href="./nexus-icon.svg" type="image/svg+xml">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M27 72V28h10l26 27V28h10v44H63L37 45v27z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="assets/css/app.css">
+  <link rel="stylesheet" href="assets/css/app.css?v=0.9.0-mobile-betteremoji-unread-voice-widgets">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
   <script defer src="assets/js/config.js"></script>
-  <script defer src="assets/js/app.js?v=0.8.0-batched-history-presence-frames"></script>
+  <script defer src="assets/js/app.js?v=0.9.0-mobile-betteremoji-unread-voice-widgets"></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
@@ -77,10 +77,11 @@
         <button class="icon-button" id="open-settings" title="Configuración">⚙</button>
       </div>
     </aside>
+    <button id="mobile-menu-scrim" class="mobile-menu-scrim hidden" type="button" aria-label="Cerrar menú"></button>
 
     <section class="main-panel">
       <header class="topbar">
-        <div class="topbar-title"><span class="topbar-icon" id="context-icon">◫</span><div><h2 id="context-title">Mensajes</h2><p id="context-subtitle">Tus conversaciones, en un mismo lugar.</p></div></div>
+        <div class="topbar-title"><button id="mobile-menu-toggle" class="icon-button mobile-menu-toggle" type="button" aria-label="Abrir menú" title="Menú">☰</button><span class="topbar-icon" id="context-icon">◫</span><div><h2 id="context-title">Mensajes</h2><p id="context-subtitle">Tus conversaciones, en un mismo lugar.</p></div></div>
         <div class="topbar-actions"><span class="connection-status" id="connection-status"><i></i> Conectando</span><button class="notification-bell" id="open-notifications" type="button" title="Notificaciones" aria-expanded="false">♢<span id="notification-count" class="notification-count hidden">0</span></button><button class="icon-button" id="top-profile" title="Perfil">●</button></div>
       </header>
 
@@ -113,12 +114,14 @@
           <div class="full-field form-actions"><button class="button button-primary" type="submit">Guardar perfil</button></div>
         </form>
         <section id="community-nickname-panel" class="surface settings-surface hidden"><div class="surface-heading"><div><h3>Nickname de megagrupo</h3><p class="muted small-muted">Este nombre solo se utiliza dentro de <strong id="profile-community-name"></strong>.</p></div></div><div class="inline-form"><input id="profile-community-nickname" maxlength="40" placeholder="Nickname en este megagrupo"><button class="button button-secondary" id="save-community-nickname" type="button">Guardar</button></div></section>
-        <section class="surface settings-surface"><div class="surface-heading"><div><h3>Widgets del perfil</h3><p class="muted small-muted">Añade hasta 10 tarjetas con icono, banner, título y descripción.</p></div><span class="tag" id="profile-widget-count">0/10</span></div>
+        <section class="surface settings-surface"><div class="surface-heading"><div><h3>Widgets del perfil</h3><p class="muted small-muted">Añade hasta 32 tarjetas o enlaces a perfiles y páginas externas.</p></div><span class="tag" id="profile-widget-count">0/32</span></div>
           <form id="profile-widget-form" class="profile-widget-form">
-            <label class="field">Título<input id="widget-title" maxlength="50" required placeholder="Ej. Mis proyectos"></label>
+            <label class="field">Título (opcional para enlaces)<input id="widget-title" maxlength="50" placeholder="Ej. Mis proyectos"></label>
             <label class="field">Icono (emoji o URL HTTPS)<input id="widget-icon" maxlength="300" placeholder="✦"></label>
-            <label class="field full-field">Descripción<textarea id="widget-description" maxlength="220" rows="2" placeholder="Una pequeña descripción…"></textarea></label>
-            <label class="field full-field">Banner (color HEX o URL HTTPS)<input id="widget-banner" maxlength="500" value="#34304f" placeholder="#34304f o https://…"></label>
+            <label class="field">Tipo de widget<select id="widget-type"><option value="card">Tarjeta</option><option value="link">Enlace externo</option></select></label>
+            <label class="field full-field hidden" id="widget-url-field">Enlace HTTPS<input id="widget-url" type="url" maxlength="500" placeholder="https://tu-perfil.example"></label>
+            <label class="field full-field">Descripción / texto opcional<textarea id="widget-description" maxlength="220" rows="2" placeholder="Una pequeña descripción…"></textarea></label>
+            <label class="field full-field" id="widget-banner-field">Banner (color HEX o URL HTTPS)<input id="widget-banner" maxlength="500" value="#34304f" placeholder="#34304f o https://…"></label>
             <div class="full-field form-actions"><button class="button button-primary" type="submit">Añadir widget</button></div>
           </form>
           <div id="profile-widgets-list" class="profile-widget-grid"><p class="muted small-muted">Cargando widgets…</p></div>
@@ -142,7 +145,7 @@
         </section>
       </div></section>
 
-      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label><label class="field">Estado personalizado<input id="setting-custom-status" maxlength="60" placeholder="Ej. Construyendo Nexus ✦"></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><small class="muted small-muted" id="change-password-note">El enlace abrirá un formulario independiente para establecer la nueva contraseña. Al terminar, Nexus cerrará esa sesión temporal y tendrás que iniciar sesión de nuevo.</small><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
+      <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia de tu cliente.</p></div></div><form id="settings-form" class="surface form-grid"><label class="field">Color de acento<input type="color" id="setting-accent" value="#8d7cff"></label><label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label><label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label><label class="field">Estado personalizado<input id="setting-custom-status" maxlength="60" placeholder="Ej. Construyendo Nexus ✦"></label><label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label><label class="setting-check full-field"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label><label class="setting-check full-field"><input type="checkbox" id="setting-compact-panels"> Compactar paneles: ocultar los paneles que no corresponden al contexto</label><div class="full-field settings-subsection"><h3>Optimizaciones</h3><p class="muted small-muted">Reduce elementos visuales para mejorar la fluidez en equipos modestos.</p><label class="setting-check"><input type="checkbox" id="setting-voice-compact"> Desactivar tarjetas visuales en chats de voz</label></div><div class="full-field form-actions"><button class="button button-primary">Guardar apariencia</button></div></form><div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><small class="muted small-muted" id="change-password-note">El enlace abrirá un formulario independiente para establecer la nueva contraseña. Al terminar, Nexus cerrará esa sesión temporal y tendrás que iniciar sesión de nuevo.</small><button class="button button-danger" id="logout-button">Cerrar sesión</button></div><div id="admin-area" class="surface settings-surface hidden"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div id="admin-results" class="list-stack"></div></div></div></section>
 
       <section class="view" id="view-community"><div class="content-page"><div class="community-hero" id="community-hero"><div class="community-hero-copy"><p class="eyebrow">MEGAGRUPO</p><h1 id="community-name">Comunidad</h1><p id="community-description" class="muted"></p></div><button class="button button-secondary" id="community-settings">Administrar</button></div><div class="community-info-grid"><div class="surface"><p class="eyebrow">MIEMBROS</p><h2 id="community-members-count">—</h2></div><div class="surface"><p class="eyebrow">CANALES</p><h2 id="community-channels-count">—</h2></div><div class="surface"><p class="eyebrow">COMUNIDAD</p><h2 id="community-id-short">—</h2></div></div><div class="surface settings-surface"><div class="surface-heading"><h3>Acerca de este megagrupo</h3></div><p class="muted">Selecciona un canal en la barra lateral para conversar. Los canales de voz, anuncios y multimedia tienen su propio tipo y sus capacidades se irán habilitando por módulos.</p></div>
         <section id="community-roles-area" class="surface settings-surface hidden">
@@ -223,8 +226,10 @@
 
   <dialog id="public-profile-dialog" class="dialog-card public-profile-dialog"><div class="dialog-heading"><h3 id="public-profile-title">Perfil</h3><button type="button" class="icon-button" id="close-public-profile" aria-label="Cerrar">×</button></div><div id="public-profile-body" class="public-profile-body"></div></dialog>
 
+  <dialog id="online-members-dialog" class="dialog-card online-members-dialog"><div class="dialog-heading"><div><h3>Miembros en línea</h3><p class="muted small-muted" id="online-members-subtitle">Personas conectadas a este chat.</p></div><button type="button" class="icon-button" id="close-online-members" aria-label="Cerrar">×</button></div><div id="online-members-grid" class="online-members-grid"></div></dialog>
+
   <dialog id="asset-picker-dialog" class="dialog-card wide-dialog">
-    <div class="dialog-heading"><div><h3>Stickers y emojis</h3><p class="muted small-muted">Recursos privados de tu cuenta, conversación o megagrupo.</p></div><button type="button" class="icon-button" id="close-asset-picker" aria-label="Cerrar">×</button></div>
+    <div class="dialog-heading"><div><h3>Emojis y stickers</h3><p class="muted small-muted">Emojis estándar, personalizados y stickers de tu cuenta, conversación o megagrupo.</p></div><button type="button" class="icon-button" id="close-asset-picker" aria-label="Cerrar">×</button></div>
     <form id="asset-upload-form" class="asset-upload-form">
       <label class="field">Nombre<input id="custom-asset-name" maxlength="32" required pattern="[a-z0-9_-]{2,32}" placeholder="ej. happy_cat"></label>
       <label class="field">Tipo<select id="custom-asset-type"><option value="sticker">Sticker</option><option value="emoji">Emoji personalizado</option></select></label>
@@ -232,7 +237,7 @@
       <label class="field">Imagen PNG, JPG, WebP o GIF<input id="custom-asset-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required></label>
       <button class="button button-primary" type="submit" id="upload-custom-asset">Subir recurso</button>
     </form>
-    <div class="asset-picker-tabs"><button type="button" class="button button-secondary" data-asset-tab="sticker">Stickers</button><button type="button" class="button button-secondary" data-asset-tab="emoji">Emojis</button></div>
+    <div class="asset-picker-tabs"><button type="button" class="button button-secondary" data-asset-tab="standard">Emojis estándar</button><button type="button" class="button button-secondary" data-asset-tab="sticker">Stickers</button><button type="button" class="button button-secondary" data-asset-tab="emoji">Emojis personalizados</button></div>
     <div id="asset-picker-grid" class="asset-picker-grid"><p class="empty-state compact">Cargando recursos…</p></div>
     <p class="muted small-muted">Los GIF animados se conservan como GIF. Límite por archivo: 5 MB. Los recursos compartidos solo son visibles dentro de su ámbito.</p>
   </dialog>

@@ -56,6 +56,9 @@
   let pushEnabledLocal = false;
   let globalPresenceChannel = null;
   const onlineUserIds = new Set();
+  const unreadCounts = new Map();
+  let contextPresenceMembers = [];
+  const STANDARD_EMOJIS = ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','😊','😍','🥰','😘','😎','🤔','🫡','😭','😡','😴','🤯','🥳','🤩','🙃','😇','🙏','👏','👍','👎','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','🔥','✨','⭐','🌟','🎉','🎊','💯','🚀','💡','💻','🎮','🐱','🐶','🌈','☀️','🌙','🍀','🍕','🍪','☕'];
   const MESSAGE_PAGE_SIZE = 50;
   const MESSAGE_CACHE_LIMIT = 200;
   const MESSAGE_CACHE_CONTEXTS = 12;
@@ -300,10 +303,12 @@
   async function startApp(user) {
     currentUser = user;
     showApp();
+    applyClientPreferences();
     try {
       const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
       if (error) throw error;
       profile = data;
+      applyClientPreferences();
       await loadActiveAltProfile();
       renderIdentity();
       subscribeAccountRealtime();
@@ -363,6 +368,9 @@
   function switchView(view) {
     if(view!=='chats'&&voiceSession)leaveVoiceRoom({refresh:false});
     currentView = view;
+    $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels && currentCommunity && (view==='community' || (view==='chats' && currentContext?.type==='channel'))));
+    $('#app-screen').classList.remove('mobile-chat-open');
+    $('#app-screen').classList.remove('mobile-menu-open'); $('#mobile-menu-scrim')?.classList.add('hidden');
     $$('.view').forEach(node => node.classList.toggle('active', node.id === `view-${view}`));
     $$('[data-view]').forEach(node => node.classList.toggle('active', node.dataset.view === view));
     const labels = {
@@ -382,12 +390,17 @@
     if (view === 'settings') fillSettingsForm();
   }
   $$('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
+  function returnToPersonalInbox(){if(currentContext?.type==='channel'){if(voiceSession)leaveVoiceRoom({refresh:false});resetConversationPanel();}$('#app-screen').classList.remove('community-focus');}
+  $$('.rail-logo, #sidebar-personal [data-view="chats"]').forEach(node=>node.addEventListener('click',returnToPersonalInbox));
   $('#rail-profile').addEventListener('click', () => switchView('profile'));
   $('#open-profile').addEventListener('click', () => switchView('profile'));
   $('#top-profile').addEventListener('click', () => switchView('profile'));
   $('#open-settings').addEventListener('click', () => switchView('settings'));
   $('#logout-button').addEventListener('click', signOut);
   $('#global-search').addEventListener('click', () => addFriendFlow());
+  $('#mobile-menu-toggle')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.toggle('mobile-menu-open');$('#mobile-menu-scrim')?.classList.toggle('hidden',!app.classList.contains('mobile-menu-open'));});
+  $('#mobile-menu-scrim')?.addEventListener('click',()=>{$('#app-screen').classList.remove('mobile-menu-open');$('#mobile-menu-scrim').classList.add('hidden');});
+
 
   async function loadActiveAltProfile() {
     activeAltProfile=null;
@@ -556,7 +569,7 @@
       .subscribe(async status=>{
         if(status==='SUBSCRIBED'&&globalPresenceChannel){
           try{
-            await globalPresenceChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});
+            await globalPresenceChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',status_text:String(profile?.settings?.customStatus||'').slice(0,60),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),joined_at:new Date().toISOString()});
             syncGlobalPresence();
           }catch(error){console.warn('No se pudo publicar presencia global:',error);}
         }
@@ -691,6 +704,7 @@
     notificationItems.unshift(item); notificationItems=notificationItems.slice(0,50);
     playNotificationSound();
     renderNotificationPanel();
+    refreshUnreadCounts();
     if (document.visibilityState==='hidden' && profile?.settings?.desktopNotifications===true && 'Notification' in window && Notification.permission==='granted') {
       const notice=new Notification(mention ? `Te han mencionado · ${source.title}` : source.title,{body:preview,icon:safeHttpsUrl(source.icon)||undefined,tag:`nexus-${message.id}`});
       notice.onclick=()=>{window.focus();openNotificationTarget(item);notice.close();};
@@ -794,6 +808,27 @@
       return {...row, displayTitle:title, displayAvatar:avatar, directUserId:row.kind==='direct'?other?.user_id:null, displayFrame:row.kind==='direct'?otherProfile?.profile_frame_url:null, displayPlate:row.kind==='direct'?otherProfile?.profile_plate_url:null,displayPlateOpacity:profilePlateOpacity(otherProfile?.settings), hidden_at:mine?.hidden_at || null};
     });
     renderConversationList();
+    refreshUnreadCounts();
+  }
+
+  async function refreshUnreadCounts(){
+    if(!client||!currentUser)return;
+    try{
+      const {data,error}=await client.rpc('get_nexus_unread_counts');
+      if(error)throw error;
+      unreadCounts.clear();
+      for(const row of data||[])unreadCounts.set(`${row.context_type}:${row.context_id}`,Number(row.unread_count)||0);
+      renderConversationList();
+      renderChannelUnreadBadges();
+    }catch(error){console.warn('No se pudieron actualizar los contadores de mensajes pendientes:',error.message||error);}
+  }
+  function renderChannelUnreadBadges(){
+    $$('[data-channel]').forEach(button=>{
+      const count=unreadCounts.get(`channel:${button.dataset.channel}`)||0;
+      let badge=$('.unread-badge',button);
+      if(count){if(!badge){badge=document.createElement('span');badge.className='unread-badge';button.append(badge);}badge.textContent=count>99?'99+':String(count);}
+      else badge?.remove();
+    });
   }
 
   function renderConversationList() {
@@ -815,7 +850,7 @@
       <div class="conversation-row ${row.directUserId&&onlineUserIds.has(row.directUserId)?'direct-user-online':''}" ${row.directUserId?`data-direct-user-id="${row.directUserId}"`:''} ${safeHttpsUrl(row.displayPlate)?`style="--profile-plate-image:url('${escapeHtml(safeHttpsUrl(row.displayPlate))}');--profile-plate-opacity:${row.displayPlateOpacity}"`:''}>
         <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
           ${avatarMarkup({avatar_url:row.displayAvatar,profile_frame_url:row.displayFrame,nickname:row.displayTitle})}
-          <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>${row.kind==='direct'?'<span class="conversation-presence-dot" aria-label="Desconectado" title="Desconectado"></span>':''}
+          <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>${(unreadCounts.get(`conversation:${row.id}`)||0)>0?`<span class="unread-badge">${(unreadCounts.get(`conversation:${row.id}`)||0)>99?'99+':unreadCounts.get(`conversation:${row.id}`)}</span>`:''}${row.kind==='direct'?'<span class="conversation-presence-dot" aria-label="Desconectado" title="Desconectado"></span>':''}
         </button>
         <div class="conversation-actions">
           <button type="button" data-hide-conversation="${row.id}" title="${row.hidden_at ? 'Restaurar conversación' : 'Archivar conversación'}">${row.hidden_at ? '↥' : '⌑'}</button>
@@ -875,6 +910,7 @@
     if(voiceSession)await leaveVoiceRoom({refresh:false});
     switchView('chats');
     if(currentContext?.type==='conversation'&&currentContext.id===row.id&&$('#messages-container')){
+      $('#app-screen').classList.add('mobile-chat-open');
       await syncMessageDelta({...currentContext},{render:true});
       $$('.conversation-item').forEach(button=>button.classList.toggle('active',button.dataset.conversation===row.id));
       return;
@@ -888,8 +924,8 @@
       showArchivedConversations = false;
       renderConversationList();
     }
-    currentContext = {type:'conversation', id:row.id, title:row.displayTitle, subtitle:row.kind === 'direct' ? 'Mensaje directo' : 'Chat grupal', icon:row.displayAvatar};
-    switchView('chats');
+    currentContext = {type:'conversation', id:row.id, title:row.displayTitle, subtitle:row.kind === 'direct' ? 'Mensaje directo' : 'Chat grupal', icon:row.displayAvatar, frame:row.displayFrame};
+    switchView('chats'); $('#app-screen').classList.remove('community-focus'); $('#app-screen').classList.add('mobile-chat-open');
     await showMessagePanel();
     await loadMessages();
     subscribeMessages();
@@ -913,18 +949,20 @@
         : 'Enter para enviar · Shift + Enter para nueva línea · Markdown disponible';
     panel.innerHTML = `
       <div class="active-conversation">
-        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small><span class="context-presence-status" id="context-presence-status">Estado de miembros al conectar…</span><div class="context-online-members" id="context-online-members" aria-label="Miembros conectados"></div></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div class="conversation-head"><button type="button" class="conversation-back" id="conversation-back" aria-label="Volver a conversaciones">‹</button>${avatarMarkup({avatar_url:c.icon,profile_frame_url:c.frame,nickname:c.title})}<div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small><div class="context-presence-controls"><button type="button" id="context-online-trigger" class="online-members-trigger" aria-haspopup="dialog" aria-controls="online-members-dialog"><span class="online-members-dot"></span><span id="context-online-count">0 en línea</span></button><span class="context-presence-status" id="context-presence-status"></span></div></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
         <div id="pinned-messages" class="pinned-messages hidden"></div>
         ${voiceNotice ? '<div class="voice-placeholder voice-room"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Conéctate para hablar con los miembros presentes. El audio se transmite directamente entre navegadores cuando la red lo permite.</p><div id="voice-status" class="voice-status">Desconectado</div><div id="voice-participants" class="voice-participants"><span class="tag">Aún no hay participantes conectados</span></div><div class="voice-room-actions"><button type="button" class="button button-primary" id="join-voice-room">Conectar micrófono</button><button type="button" class="button button-secondary" id="voice-mute" disabled>Silenciar</button><button type="button" class="button button-secondary" id="leave-voice-room" disabled>Salir</button></div><div id="voice-audio-host" class="voice-audio-host"></div><small class="muted">La calidad de conexión depende de la red. Algunas redes necesitan un servidor TURN adicional.</small></div>' : `
         <div class="messages" id="messages-container"><button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button><div class="empty-state compact">Cargando mensajes…</div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
-          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Sticker / Emoji</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
+          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Emojis / Stickers</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
     applyChatCommunityBackground();
+    $('#conversation-back')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.remove('mobile-chat-open');if(currentContext?.type==='channel'){app.classList.add('mobile-menu-open');$('#mobile-menu-scrim')?.classList.remove('hidden');}});
+    $('#context-online-trigger')?.addEventListener('click',openOnlineMembersDialog);
     loadPinnedMessages();
     if (!voiceNotice) {
       $('#cancel-reply').addEventListener('click', clearReplyTarget);
@@ -939,7 +977,7 @@
       });
       $('#attach-file').addEventListener('click', () => $('#chat-file').click());
       $('#chat-file').addEventListener('change', uploadAttachment);
-      $('#open-asset-picker')?.addEventListener('click', () => openAssetPicker('sticker'));
+      $('#open-asset-picker')?.addEventListener('click', () => openAssetPicker('standard'));
       $('#open-gif-search')?.addEventListener('click', openGifSearch);
       if (!mediaOnly && !announcementLocked) {
         $('#create-poll').addEventListener('click', createPoll);
@@ -1005,36 +1043,48 @@
   }
   function renderContextPresence() {
     const node=$('#context-presence-status');
-    if(!node)return;
-    const state=activeMessageChannel?.presenceState?.()||{};
+    const state=activeMessageChannel?.presenceState?.()||voiceSession?.channel?.presenceState?.()||{};
     const online=[];const seen=new Set();
     for(const [key,metas] of Object.entries(state)){
       const meta=metas?.[0]||{};const id=meta.user_id||key;
       if(!id||seen.has(id))continue;seen.add(id);
-      online.push({id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url)});
+      online.push({id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url),frame:safeHttpsUrl(meta.profile_frame_url),plate:safeHttpsUrl(meta.profile_plate_url),plateOpacity:Number.isFinite(Number(meta.profile_plate_opacity))?Math.max(0,Math.min(.6,Number(meta.profile_plate_opacity))):.13});
     }
+    contextPresenceMembers=online.sort((a,b)=>a.id===currentUser?.id?-1:b.id===currentUser?.id?1:a.name.localeCompare(b.name,'es'));
     const others=online.filter(item=>item.id!==currentUser?.id);
     const typing=[...typingUsers.values()].filter(item=>item.expires>Date.now());
+    const trigger=$('#context-online-trigger');
+    if(trigger){const count=$('#context-online-count');if(count)count.textContent=`${online.length} en línea`;trigger.title=online.map(item=>item.id===currentUser?.id?'Tú':item.name).join(', ')||'Sin miembros conectados';}
     const parts=[];
-    parts.push(others.length?`${others.length} ${others.length===1?'miembro':'miembros'} más en línea`:online.length?'Solo tú en línea':'Sin miembros conectados');
     if(typing.length)parts.push(`${typing.map(item=>item.name).slice(0,2).join(', ')} ${typing.length===1?'está':'están'} escribiendo…`);
-    node.textContent=parts.join(' · ');
-    const host=$('#context-online-members');
-    if(!host)return;
-    host.replaceChildren();
-    for(const member of online.slice(0,8)){
-      const chip=document.createElement('button');chip.type='button';chip.className=`presence-member-chip ${member.id===currentUser?.id?'self':''}`;
-      chip.title=[member.username?`@${member.username}`:member.name,member.status].filter(Boolean).join(' · ');
-      const avatar=document.createElement('span');avatar.className='presence-member-avatar';
-      if(member.avatar)avatar.style.backgroundImage=`url("${member.avatar.replace(/["\\]/g,'')}")`;
-      else avatar.textContent=initials(member.name);
-      const label=document.createElement('span');label.textContent=member.id===currentUser?.id?'Tú':member.name;
-      chip.append(avatar,label);
-      if(member.id!==currentUser?.id)chip.addEventListener('click',()=>openPublicProfile(member.id));
-      host.append(chip);
-    }
-    if(online.length>8){const more=document.createElement('span');more.className='presence-member-more';more.textContent=`+${online.length-8}`;host.append(more);}
+    if(node)node.textContent=parts.join(' · ');
+    const legacyHost=$('#context-online-members');if(legacyHost)legacyHost.replaceChildren();
+    if($('#online-members-dialog')?.open)renderOnlineMembersDialog();
   }
+  function openOnlineMembersDialog(){
+    const dialog=$('#online-members-dialog');if(!dialog)return;
+    renderOnlineMembersDialog();if(!dialog.open)dialog.showModal();
+  }
+  function renderOnlineMembersDialog(){
+    const host=$('#online-members-grid');if(!host)return;
+    const subtitle=$('#online-members-subtitle');if(subtitle)subtitle.textContent=`${contextPresenceMembers.length} ${contextPresenceMembers.length===1?'persona conectada':'personas conectadas'} a este chat`;
+    host.replaceChildren();
+    if(!contextPresenceMembers.length){host.innerHTML='<p class="empty-state compact">Todavía no hay miembros conectados.</p>';return;}
+    for(const member of contextPresenceMembers){
+      const card=document.createElement('button');card.type='button';card.className='online-member-card';
+      if(member.plate){card.style.backgroundImage=`linear-gradient(135deg,#151b2bdd,#25223cdd),url("${member.plate.replace(/["\\]/g,'')}")`;card.style.setProperty('--profile-plate-opacity',String(member.plateOpacity));}
+      const avatar=avatarMarkup({avatar_url:member.avatar,profile_frame_url:member.frame,nickname:member.name},'online-member-avatar');
+      const copy=document.createElement('span');copy.className='online-member-copy';
+      const name=document.createElement('strong');name.textContent=member.id===currentUser?.id?`${member.name} · Tú`:member.name;
+      const status=document.createElement('small');status.textContent=member.status|| (member.id===currentUser?.id?'Tu sesión':'En línea');
+      copy.append(name,status);card.insertAdjacentHTML('afterbegin',avatar);card.append(copy);
+      if(member.id!==currentUser?.id)card.addEventListener('click',()=>{ $('#online-members-dialog').close();openPublicProfile(member.id); });
+      else card.disabled=true;
+      host.append(card);
+    }
+  }
+  $('#close-online-members')?.addEventListener('click',()=>$('#online-members-dialog').close());
+  $('#online-members-dialog')?.addEventListener('click',event=>{if(event.target===event.currentTarget)event.currentTarget.close();});
   function handleTypingBroadcast(event) {
     const payload=event?.payload||{};
     if(!payload.user_id||payload.user_id===currentUser?.id) return;
@@ -1107,7 +1157,7 @@
       aliases.forEach(alias=>{const tag=document.createElement('span');tag.className='tag';tag.textContent=alias;aliasWrap.append(tag);});
       host.append(aliasWrap);
     }
-    const widgets = Array.isArray(person.widgets) ? person.widgets.slice(0,10) : [];
+    const widgets = Array.isArray(person.widgets) ? person.widgets.slice(0,32) : [];
     if (widgets.length) {
       const heading=document.createElement('h4'); heading.className='public-profile-section-title'; heading.textContent='Widgets'; host.append(heading);
       const grid=document.createElement('div'); grid.className='public-profile-widgets';
@@ -1122,7 +1172,15 @@
         else icon.textContent=String(widget.icon || '✦').slice(0,8);
         const title=document.createElement('strong'); title.textContent=String(widget.title || 'Widget').slice(0,50);
         const desc=document.createElement('p'); desc.textContent=String(widget.description || '').slice(0,220);
-        card.append(widgetBanner,icon,title,desc); grid.append(card);
+        if(widget.type==='link'&&safeHttpsUrl(widget.url)){
+          card.classList.add('public-profile-link-widget');
+          const iconImage=document.createElement('img');iconImage.className='profile-widget-favicon';iconImage.alt='';iconImage.loading='lazy';
+          try{iconImage.src=`https://www.google.com/s2/favicons?domain=${encodeURIComponent(new URL(widget.url).hostname)}&sz=64`;iconImage.onerror=()=>{icon.replaceChildren(document.createTextNode('↗'));};}catch{icon.textContent='↗';}
+          icon.replaceChildren(iconImage);
+          const link=document.createElement('a');link.href=safeHttpsUrl(widget.url);link.target='_blank';link.rel='noopener noreferrer';link.className='profile-widget-open-link';link.textContent='Abrir enlace ↗';
+          card.append(icon,title,desc,link);
+        }else card.append(widgetBanner,icon,title,desc);
+        grid.append(card);
       });
       host.append(grid);
     }
@@ -1265,11 +1323,12 @@
     }
     updateLoadOlderButton();
     if(currentContext?.id!==context.id)return;
+    const state=messageCache.get(key);
     if(context.type==='conversation'){
-      const state=messageCache.get(key);
       await markConversationRead(state?.rows?.at(-1)?.id||null);
       await renderConversationReadReceipts();
-    }
+    }else await markChannelRead(context.id);
+    refreshUnreadCounts();
   }
   async function syncMessageDelta(context=currentContext,{render=true}={}) {
     if(!context||!client)return;
@@ -1301,7 +1360,8 @@
       if(context.type==='conversation'){
         await markConversationRead(collected.at(-1).id);
         await renderConversationReadReceipts();
-      }
+      }else await markChannelRead(context.id);
+      refreshUnreadCounts();
     }
   }
 
@@ -1716,6 +1776,11 @@
     const {error} = await client.rpc('mark_conversation_read',{p_conversation_id:currentContext.id,p_message_id:messageId});
     if (error) console.warn('No se pudo marcar como leído:',error.message);
   }
+  async function markChannelRead(channelId){
+    if(!channelId||!client)return;
+    const {error}=await client.rpc('mark_channel_read',{p_channel_id:channelId});
+    if(error)console.warn('No se pudo marcar el canal como leído:',error.message);
+  }
 
   async function renderConversationReadReceipts() {
     const container = $('#messages-container');
@@ -1808,7 +1873,8 @@
         if(context.type==='conversation'){
           scheduleAccountListRefresh('conversations');
           if(payload.new.sender_id!==currentUser.id){await markConversationRead(payload.new.id);await renderConversationReadReceipts();}
-        }
+        }else if(payload.new.sender_id!==currentUser.id){await markChannelRead(context.id);}
+        refreshUnreadCounts();
       })
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{if(currentContext?.id===context.id)refreshSingleMessage(payload.new);})
       .on('postgres_changes',{event:'DELETE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{
@@ -1834,7 +1900,7 @@
         const node=$('#connection-status');
         if(node){node.classList.toggle('online',status==='SUBSCRIBED');node.innerHTML=`<i></i> ${status==='SUBSCRIBED'?'En directo':status==='CHANNEL_ERROR'?'Sin conexión':'Conectando'}`;}
         if(status==='SUBSCRIBED'&&currentContext?.id===context.id){
-          try{await activeMessageChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});renderContextPresence();}
+          try{await activeMessageChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});renderContextPresence();}
           catch(error){console.warn('No se pudo publicar presencia:',error);}
         }
       });
@@ -1989,19 +2055,28 @@
   }
   function openAssetPicker(type='sticker'){
     if(!currentContext){toast('Abre primero una conversación o canal.');return;}
-    assetPickerType=type;$('#custom-asset-type').value=type;
+    assetPickerType=type;if(type!=='standard')$('#custom-asset-type').value=type;
     const scope=$('#custom-asset-scope');scope.querySelector('[value="conversation"]').disabled=currentContext.type!=='conversation';scope.querySelector('[value="community"]').disabled=currentContext.type!=='channel'||!currentCommunity;
-    scope.value='personal';$('#asset-picker-dialog').showModal();loadAssetPicker();
+    scope.value='personal';$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab.dataset.assetTab===type));$('#asset-picker-dialog').showModal();loadAssetPicker();
   }
   async function loadAssetPicker(){
-    const host=$('#asset-picker-grid');if(!host)return;host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';
+    const host=$('#asset-picker-grid');if(!host)return;
+    if(assetPickerType==='standard'){
+      $('#asset-upload-form')?.classList.add('hidden');
+      host.innerHTML=`<div class="standard-emoji-grid">${STANDARD_EMOJIS.map(emoji=>`<button type="button" class="standard-emoji" data-standard-emoji="${emoji}" aria-label="Insertar ${emoji}">${emoji}</button>`).join('')}</div>`;
+      $$('[data-standard-emoji]').forEach(button=>button.addEventListener('click',()=>{const input=$('#message-input');if(!input)return;input.setRangeText(button.dataset.standardEmoji,input.selectionStart,input.selectionEnd,'end');input.focus();autoResizeComposer(input);broadcastTypingState(true);}));
+      return;
+    }
+    $('#asset-upload-form')?.classList.remove('hidden');
+    $('#custom-asset-type').value=assetPickerType;
+    host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';
     const rows=await listCustomAssets(assetPickerType);
     host.innerHTML=rows.length?rows.map(row=>`<article class="custom-asset-card"><img src="${escapeHtml(row.signedUrl)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${row.scope==='personal'?'Personal':row.scope==='conversation'?'Conversación':'Megagrupo'}${row.animated?' · GIF':''}</small><div><button type="button" class="button button-primary" data-use-custom-asset="${row.id}">${assetPickerType==='emoji'?'Insertar':'Enviar'}</button>${row.owner_id===currentUser.id?`<button type="button" class="button button-secondary" data-archive-custom-asset="${row.id}">Archivar</button>`:''}</div></article>`).join(''):'<p class="empty-state compact">No hay recursos en este ámbito. Sube el primero.</p>';
     $$('[data-use-custom-asset]').forEach(button=>button.addEventListener('click',()=>{const item=rows.find(row=>row.id===button.dataset.useCustomAsset);if(!item)return;if(assetPickerType==='emoji'){const input=$('#message-input');const token=`:${item.name}: `;const start=input.selectionStart,end=input.selectionEnd;input.setRangeText(token,start,end,'end');input.focus();loadCustomEmojiCache(true);}else sendStickerMessage(item);}));
     $$('[data-archive-custom-asset]').forEach(button=>button.addEventListener('click',()=>archiveCustomAsset(button.dataset.archiveCustomAsset)));
   }
   $('#close-asset-picker').addEventListener('click',()=>$('#asset-picker-dialog').close());
-  $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{assetPickerType=button.dataset.assetTab;$('#custom-asset-type').value=assetPickerType;loadAssetPicker();}));
+  $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{assetPickerType=button.dataset.assetTab;if(assetPickerType!=='standard')$('#custom-asset-type').value=assetPickerType;$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab===button));loadAssetPicker();}));
   $('#asset-upload-form').addEventListener('submit',uploadCustomAsset);
   async function uploadCustomAsset(event){
     event.preventDefault();if(!currentContext||!currentUser)return;
@@ -2602,6 +2677,8 @@
     $('#community-channels-count').textContent = currentCommunityChannels.length;
     $('#add-channel').classList.toggle('hidden',!communityPermissions.manage_channels);
     $('#channel-list').innerHTML = currentCommunityChannels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}" title="${escapeHtml(channel.description || channelTypeLabel(channel.type))}"><span class="channel-hash">${channelTypeIcon(channel.type)}</span><span class="channel-item-name">${escapeHtml(channel.name)}</span><span class="channel-type-mini">${channel.type === 'text' ? '' : escapeHtml(channelTypeLabel(channel.type))}</span></button>${communityPermissions.manage_channels ? `<span class="channel-admin-actions"><button type="button" data-edit-channel="${channel.id}" title="Editar canal">✎</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button></span>` : ''}</div>`).join('') || '<p class="muted channel-empty">Todavía no hay canales.</p>';
+    renderChannelUnreadBadges();
+    refreshUnreadCounts();
     $$('[data-channel]').forEach(button => button.addEventListener('click', () => {
       const channel = currentCommunityChannels.find(row => row.id === button.dataset.channel);
       if (channel) openCommunityChannel(channel);
@@ -2654,9 +2731,18 @@
   function renderVoiceParticipants(){
     const host=$('#voice-participants');if(!host||!voiceSession)return;
     const state=voiceSession.channel?.presenceState?.()||{};const participants=[];
-    for(const key of Object.keys(state)){const first=state[key]?.[0]||{};participants.push({id:key,name:first.nickname||first.username||'Miembro',self:key===currentUser.id});}
-    if(!participants.length&&voiceSession.localJoined)participants.push({id:currentUser.id,name:profile?.nickname||profile?.username||'Tú',self:true});
-    host.innerHTML=participants.map(item=>`<span class="voice-participant ${item.self?'self':''}"><i></i>${escapeHtml(item.name)}${item.self?' · Tú':''}</span>`).join('')||'<span class="tag">Aún no hay participantes conectados</span>';
+    for(const key of Object.keys(state)){const first=state[key]?.[0]||{};participants.push({id:first.user_id||key,name:first.nickname||first.username||'Miembro',avatar_url:safeHttpsUrl(first.avatar_url),profile_frame_url:safeHttpsUrl(first.profile_frame_url),profile_plate_url:safeHttpsUrl(first.profile_plate_url),profile_plate_opacity:Math.max(0,Math.min(.6,Number(first.profile_plate_opacity??.13))),self:(first.user_id||key)===currentUser.id});}
+    if(!participants.length&&voiceSession.localJoined)participants.push({id:currentUser.id,name:profile?.nickname||profile?.username||'Tú',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),self:true});
+    const compact=Boolean(profile?.settings?.voiceCompactMode);
+    host.classList.toggle('voice-participants-compact',compact);
+    if(compact){host.innerHTML=participants.map(item=>`<span class="voice-participant ${item.self?'self':''}"><i></i>${escapeHtml(item.name)}${item.self?' · Tú':''}</span>`).join('')||'<span class="tag">Aún no hay participantes conectados</span>';}
+    else{
+      host.innerHTML=participants.map(item=>{
+        const avatar=avatarMarkup({avatar_url:item.avatar_url,profile_frame_url:item.profile_frame_url,nickname:item.name},'voice-participant-avatar');
+        const plate=item.profile_plate_url?`style="--voice-card-plate:url('${escapeHtml(item.profile_plate_url)}');--voice-card-plate-opacity:${item.profile_plate_opacity}"`:'';
+        return `<article class="voice-participant-card ${item.self?'self':''}" ${plate}><div class="voice-participant-photo">${avatar}</div><strong>${escapeHtml(item.name)}${item.self?' · Tú':''}</strong><span class="voice-speaking-indicator">● Conectado</span></article>`;
+      }).join('')||'<span class="tag">Aún no hay participantes conectados</span>';
+    }
     const join=$('#join-voice-room'),mute=$('#voice-mute'),leave=$('#leave-voice-room');if(join)join.disabled=Boolean(voiceSession.localJoined);if(mute)mute.disabled=!voiceSession.localJoined;if(leave)leave.disabled=!voiceSession.localJoined;
   }
   function getVoicePeer(peerId){
@@ -2686,7 +2772,7 @@
   async function syncVoicePeers(){
     if(!voiceSession?.localJoined)return;const state=voiceSession.channel.presenceState()||{};
     for(const peerId of Object.keys(state)){if(peerId===currentUser.id||voiceSession.peers.has(peerId))continue;if(currentUser.id.localeCompare(peerId)<0)await createVoiceOffer(peerId);}
-    renderVoiceParticipants();
+    renderVoiceParticipants();renderContextPresence();
   }
   async function joinVoiceRoom(){
     if(voiceSession?.localJoined||!currentContext||currentContext.type!=='channel'||currentContext.channelType!=='voice')return;
@@ -2700,10 +2786,10 @@
       realtime.on('broadcast',{event:'signal'},handleVoiceSignal);
       realtime.on('presence',{event:'sync'},syncVoicePeers);
       realtime.on('presence',{event:'join'},syncVoicePeers);
-      realtime.on('presence',{event:'leave'},event=>{const key=event?.key||event?.leftPresences?.[0]?.user_id;if(key&&voiceSession?.peers.has(key)){const peer=voiceSession.peers.get(key);peer.pc.close();peer.audio?.remove();voiceSession.peers.delete(key);}renderVoiceParticipants();});
+      realtime.on('presence',{event:'leave'},event=>{const key=event?.key||event?.leftPresences?.[0]?.user_id;if(key&&voiceSession?.peers.has(key)){const peer=voiceSession.peers.get(key);peer.pc.close();peer.audio?.remove();voiceSession.peers.delete(key);}renderVoiceParticipants();renderContextPresence();});
       realtime.subscribe(async status=>{
         if(status==='SUBSCRIBED'){
-          try{await realtime.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',joined_at:new Date().toISOString()});voiceSession.localJoined=true;voiceStatus('Conectado · micrófono activo');renderVoiceParticipants();await syncVoicePeers();}
+          try{await realtime.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});voiceSession.localJoined=true;voiceStatus('Conectado · micrófono activo');renderVoiceParticipants();renderContextPresence();await syncVoicePeers();}
           catch(error){voiceStatus('No se pudo entrar en la sala.');showError(error,'No se pudo activar la señalización de voz.');}
         }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){voiceStatus('No se pudo conectar a la sala. Comprueba las políticas Realtime privadas.');}
       });
@@ -2717,6 +2803,7 @@
     try{await session.channel?.untrack();}catch{};
     for(const peer of session.peers.values()){peer.pc.close();peer.audio?.remove();}
     if(session.channel)await client.removeChannel(session.channel);
+    renderContextPresence();
     if(options.refresh!==false&&currentContext?.type==='channel'&&currentContext.channelType==='voice')await showMessagePanel();
   }
 
@@ -2724,6 +2811,7 @@
     if (voiceSession && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
     switchView('chats');
     if(currentContext?.type==='channel'&&currentContext.id===channel.id){
+      $('#app-screen').classList.add('mobile-chat-open');
       if(channel.type==='voice'&&$('#voice-status')){renderVoiceParticipants();return;}
       if($('#messages-container')){await syncMessageDelta({...currentContext},{render:true});$$('.channel-item').forEach(button=>button.classList.toggle('active',button.dataset.channel===channel.id));return;}
     }
@@ -2731,13 +2819,13 @@
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
-      switchView('chats');
+      switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
       await showMessagePanel();
       $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
       return;
     }
     currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || ''};
-    switchView('chats');
+    switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
     await showMessagePanel();
     if (channel.type === 'media') $('#message-input').placeholder = 'Este canal solo admite archivos…';
     await loadMessages();
@@ -2921,7 +3009,7 @@
   function renderProfileWidgets() {
     const list = $('#profile-widgets-list');
     if (!list) return;
-    const widgets = Array.isArray(profile?.widgets) ? profile.widgets.slice(0,10) : [];
+    const widgets = Array.isArray(profile?.widgets) ? profile.widgets.slice(0,32) : [];
     list.innerHTML = '';
     if (!widgets.length) {
       const empty = document.createElement('p'); empty.className = 'muted small-muted';
@@ -2947,26 +3035,42 @@
         if (error) showError(error,'No se pudo eliminar el widget.');
         else { profile.widgets=next; renderProfileWidgets(); toast('Widget eliminado.','success'); }
       });
-      card.append(banner,icon,title,desc,remove); list.append(card);
+      if(widget.type==='link' && safeHttpsUrl(widget.url)){
+        card.classList.add('profile-widget-link-card');
+        const link=document.createElement('a');link.className='profile-widget-open-link';link.href=safeHttpsUrl(widget.url);link.target='_blank';link.rel='noopener noreferrer';link.textContent='Abrir enlace ↗';
+        const iconImage=document.createElement('img');iconImage.className='profile-widget-favicon';iconImage.alt='';iconImage.loading='lazy';
+        try{const hostName=new URL(widget.url).hostname;iconImage.src=`https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostName)}&sz=64`;iconImage.onerror=()=>{icon.replaceChildren(document.createTextNode('↗'));};}catch{icon.textContent='↗';}
+        icon.replaceChildren(iconImage);card.append(icon, title, desc, link, remove);
+      }else card.append(banner,icon,title,desc,remove);
+      list.append(card);
     });
-    const count = $('#profile-widget-count'); if (count) count.textContent = `${widgets.length}/10`;
+    const count = $('#profile-widget-count'); if (count) count.textContent = `${widgets.length}/32`;
   }
 
   $('#profile-widget-form').addEventListener('submit', async event => {
     event.preventDefault();
     const widgets = Array.isArray(profile?.widgets) ? [...profile.widgets] : [];
-    if (widgets.length >= 10) { toast('Tu perfil ya tiene el máximo de 10 widgets.','error'); return; }
-    const title = $('#widget-title').value.trim();
+    if (widgets.length >= 32) { toast('Tu perfil ya tiene el máximo de 32 widgets.','error'); return; }
+    let title = $('#widget-title').value.trim();
     const description = $('#widget-description').value.trim();
+    const type=$('#widget-type')?.value||'card';
     const icon = $('#widget-icon').value.trim() || '✦';
     const banner = $('#widget-banner').value.trim() || '#34304f';
-    if (title.length < 1 || title.length > 50 || description.length > 220) { toast('Revisa el título o la descripción del widget.','error'); return; }
-    if (icon.length > 300 || (icon.startsWith('http') && !safeHttpsUrl(icon))) { toast('El icono debe ser un emoji o una URL HTTPS.','error'); return; }
-    if (!/^#[0-9a-f]{6}$/i.test(banner) && !safeHttpsUrl(banner)) { toast('El banner debe ser un color HEX o una URL HTTPS.','error'); return; }
-    widgets.push({id:crypto.randomUUID(),title,description,icon,banner});
+    const url=$('#widget-url')?.value.trim()||'';
+    if (title.length > 50 || description.length > 220) { toast('Revisa el título o la descripción del widget.','error'); return; }
+    if(type==='link'){
+      if(!safeHttpsUrl(url)){toast('El widget de enlace necesita una URL HTTPS válida.','error');return;}
+      if(!title){try{title=new URL(safeHttpsUrl(url)).hostname;}catch{title='Enlace';}}
+      widgets.push({id:crypto.randomUUID(),type:'link',title,description,url:safeHttpsUrl(url)});
+    }else{
+      if(!title){toast('Las tarjetas necesitan un título.','error');return;}
+      if (icon.length > 300 || (icon.startsWith('http') && !safeHttpsUrl(icon))) { toast('El icono debe ser un emoji o una URL HTTPS.','error'); return; }
+      if (!/^#[0-9a-f]{6}$/i.test(banner) && !safeHttpsUrl(banner)) { toast('El banner debe ser un color HEX o una URL HTTPS.','error'); return; }
+      widgets.push({id:crypto.randomUUID(),type:'card',title,description,icon,banner});
+    }
     const {error} = await client.from('profiles').update({widgets}).eq('id',currentUser.id);
     if (error) { showError(error,'No se pudo guardar el widget.'); return; }
-    profile.widgets = widgets; $('#profile-widget-form').reset(); $('#widget-banner').value='#34304f'; renderProfileWidgets();
+    profile.widgets = widgets; $('#profile-widget-form').reset(); $('#widget-banner').value='#34304f'; $('#widget-url-field')?.classList.add('hidden'); $('#widget-banner-field')?.classList.remove('hidden'); renderProfileWidgets();
     toast('Widget añadido a tu perfil.','success');
   });
 
@@ -3181,12 +3285,21 @@
     $('#setting-notify-while-open').checked = settings.notifyWhileOpen !== false;
     $('#setting-composer-font').value = settings.composerFont || 'default';
     $('#setting-custom-status').value = String(settings.customStatus || '').slice(0,60);
+    $('#setting-compact-panels').checked=Boolean(settings.compactPanels);
+    $('#setting-voice-compact').checked=Boolean(settings.voiceCompactMode);
+    applyClientPreferences();
   }
+  function applyClientPreferences(){
+    const settings=profile?.settings||{};
+    $('#app-screen')?.classList.toggle('compact-panels',Boolean(settings.compactPanels));
+    $('#app-screen')?.classList.toggle('community-focus',Boolean(settings.compactPanels&&currentCommunity&&(currentView==='community'||(currentView==='chats'&&currentContext?.type==='channel'))));
+  }
+  $('#widget-type')?.addEventListener('change',()=>{const link=$('#widget-type').value==='link';$('#widget-url-field')?.classList.toggle('hidden',!link);$('#widget-banner-field')?.classList.toggle('hidden',link);$('#widget-icon')?.closest('.field')?.classList.toggle('hidden',link);});
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60)};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
-    if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyComposerFont($('#message-input')); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); toast('Apariencia guardada.','success'); }
+    if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); toast('Apariencia guardada.','success'); }
   });
   $('#change-password').addEventListener('click', async () => {
     const recoveryRedirect=new URL(location.href); recoveryRedirect.search=''; recoveryRedirect.hash=''; recoveryRedirect.searchParams.set('recovery','1');
