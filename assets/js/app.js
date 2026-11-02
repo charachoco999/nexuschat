@@ -7,6 +7,9 @@
   const cfg = window.NEXUS_CONFIG || {};
   const hasConfig = Boolean(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_URL.includes('TU-PROYECTO') && !cfg.SUPABASE_ANON_KEY.includes('TU-PUBLISHABLE'));
   const client = hasConfig ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  const authHashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const authQueryParams = new URLSearchParams(location.search);
+  let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const PENDING_INVITE_KEY = 'nexus-pending-community-invite';
   const readPendingInvite = () => { try { return localStorage.getItem(PENDING_INVITE_KEY); } catch { return null; } };
   const savePendingInvite = code => { try { localStorage.setItem(PENDING_INVITE_KEY, code); } catch {} };
@@ -51,6 +54,20 @@
   let voiceSession = null;
   let serviceWorkerRegistration = null;
   let pushEnabledLocal = false;
+  let globalPresenceChannel = null;
+  const onlineUserIds = new Set();
+  const MESSAGE_PAGE_SIZE = 50;
+  const MESSAGE_CACHE_LIMIT = 200;
+  const MESSAGE_CACHE_CONTEXTS = 12;
+  const messageCache = new Map();
+  let oldestMessageTimestamp = null;
+  let oldestMessageId = null;
+  let hasOlderMessages = false;
+  let loadingOlderMessages = false;
+  let typingStopTimer = null;
+  let lastTypingBroadcastAt = 0;
+  let localTypingActive = false;
+  const typingUsers = new Map();
 
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const initials = (value = '?') => String(value).trim().slice(0, 1).toUpperCase() || '?';
@@ -97,11 +114,21 @@
   const avatarMarkup = (p, extra = '') => {
     const photo=safeHttpsUrl(p?.avatar_url);
     const effect=safeHttpsUrl(p?.profile_effect_url);
+    const frame=safeHttpsUrl(p?.profile_frame_url);
     const styles=[];
     if(photo) styles.push(`background-image:url('${photo.replace(/["\\]/g,'')}')`,'color:transparent');
     if(effect) styles.push(`--profile-effect-image:url('${effect.replace(/["\\]/g,'')}')`);
-    return `<span class="avatar ${extra}${effect?' avatar-effect':''}" ${styles.length?`style="${styles.join(';')}"`:''}>${photo?'':escapeHtml(initials(p?.nickname || p?.username || '?'))}</span>`;
+    if(frame) styles.push(`--profile-frame-image:url('${frame.replace(/["\\]/g,'')}')`);
+    const classes=[ 'avatar', extra, effect?'avatar-effect':'', frame?'avatar-frame':'' ].filter(Boolean).join(' ');
+    return `<span class="${classes}" ${styles.length?`style="${styles.join(';')}"`:''}>${photo?'':escapeHtml(initials(p?.nickname || p?.username || '?'))}</span>`;
   };
+  function applyProfileFrame(node, person) {
+    if(!node) return;
+    const frame=safeHttpsUrl(person?.profile_frame_url);
+    node.classList.toggle('avatar-frame',Boolean(frame));
+    if(frame) node.style.setProperty('--profile-frame-image',`url("${frame.replace(/["\\]/g,'')}")`);
+    else node.style.removeProperty('--profile-frame-image');
+  }
   const profilePlateOpacity = settings => {
     const value=Number(settings?.profilePlateOpacity);
     return Number.isFinite(value) ? Math.max(0,Math.min(.6,value)) : .13;
@@ -119,6 +146,22 @@
   };
   const showAuth = () => { $('#auth-screen').classList.remove('hidden'); $('#app-screen').classList.add('hidden'); };
   const showApp = () => { $('#auth-screen').classList.add('hidden'); $('#app-screen').classList.remove('hidden'); };
+  function showRecoveryScreen() {
+    showAuth();
+    $('#auth-form').classList.add('hidden');
+    $('.auth-links').classList.add('hidden');
+    $('#auth-recovery-form').classList.remove('hidden');
+    $('#auth-title').textContent = 'Elige una nueva contraseña';
+    $('#auth-subtitle').textContent = 'Verifica el cambio y vuelve a iniciar sesión.';
+    $('#auth-note').textContent = 'El enlace de recuperación solo autoriza este cambio de contraseña.';
+  }
+  function showLoginScreen() {
+    $('#auth-form').classList.remove('hidden');
+    $('.auth-links').classList.remove('hidden');
+    $('#auth-recovery-form').classList.add('hidden');
+    setAuthMode('login');
+    showAuth();
+  }
 
   // ---------- Authentication ----------
   let authMode = 'login';
@@ -222,6 +265,34 @@
     finally { if (cfg.TURNSTILE_SITE_KEY) resetAuthCaptcha(); }
   });
 
+  $('#auth-recovery-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!requireClient()) return;
+    const password = $('#recovery-password').value;
+    const confirmation = $('#recovery-password-confirm').value;
+    if (password.length < 8) { toast('La contraseña debe tener al menos 8 caracteres.', 'error'); return; }
+    if (password !== confirmation) { toast('Las contraseñas no coinciden.', 'error'); return; }
+    const button = $('#recovery-submit'); button.disabled = true;
+    try {
+      const {error} = await client.auth.updateUser({password});
+      if (error) throw error;
+      recoveryMode = false;
+      history.replaceState(null, '', location.pathname);
+      await client.auth.signOut();
+      $('#auth-recovery-form').reset();
+      showLoginScreen();
+      toast('Contraseña actualizada. Inicia sesión con tu nueva contraseña.', 'success');
+    } catch (error) {
+      showAuthError(error, 'No se pudo actualizar la contraseña. Solicita un enlace nuevo.');
+    } finally { button.disabled = false; }
+  });
+  $('#cancel-password-recovery').addEventListener('click', async () => {
+    recoveryMode = false;
+    history.replaceState(null, '', location.pathname);
+    await client?.auth.signOut();
+    showLoginScreen();
+  });
+
   $('#auth-note').textContent = hasConfig
     ? 'Tus datos se guardan en tu propio proyecto de Supabase.'
     : 'Antes de usar la plataforma, configura tu proyecto Supabase en assets/js/config.js. La guía está en README.md.';
@@ -236,6 +307,7 @@
       await loadActiveAltProfile();
       renderIdentity();
       subscribeAccountRealtime();
+      subscribeGlobalPresence();
       subscribeMessageNotifications();
       await loadAltProfiles();
       await loadInitialData();
@@ -257,8 +329,12 @@
     if (friendsRealtimeChannel) client.removeChannel(friendsRealtimeChannel);
     if (inboxRealtimeChannel) client.removeChannel(inboxRealtimeChannel);
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
+    if (typingStopTimer) clearTimeout(typingStopTimer); typingStopTimer=null; localTypingActive=false;
     if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
-    friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null; messageNotificationChannel = null;
+    if (globalPresenceChannel) client.removeChannel(globalPresenceChannel);
+    friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null; messageNotificationChannel = null; globalPresenceChannel = null;
+    onlineUserIds.clear();
+    messageCache.clear(); typingUsers.clear();
     if (listRefreshTimer) clearTimeout(listRefreshTimer);
     pendingListRefreshes.clear();
     currentUser = null; profile = null; currentContext = null; replyTarget = null; activeAltProfile = null;
@@ -268,11 +344,20 @@
 
   if (client) {
     client.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || recoveryMode) {
+        recoveryMode = true;
+        showRecoveryScreen();
+        return;
+      }
       if (session?.user && !currentUser) startApp(session.user);
-      if (!session?.user) { currentUser = null; profile = null; showAuth(); }
+      if (!session?.user) { currentUser = null; profile = null; showLoginScreen(); }
     });
-    client.auth.getSession().then(({data}) => data.session?.user ? startApp(data.session.user) : showAuth());
-  } else showAuth();
+    client.auth.getSession().then(({data}) => {
+      if (recoveryMode) showRecoveryScreen();
+      else if (data.session?.user) startApp(data.session.user);
+      else showLoginScreen();
+    });
+  } else showLoginScreen();
 
   // ---------- Navigation and identity ----------
   function switchView(view) {
@@ -376,7 +461,10 @@
       avatarNode?.classList.toggle('avatar-effect',Boolean(effect));
       if(effect) avatarNode.style.setProperty('--profile-effect-image',`url("${effect.replace(/["\\]/g,'')}")`);
       else avatarNode?.style.removeProperty('--profile-effect-image');
+      applyProfileFrame(avatarNode,profile);
     }
+    const statusNode=$('#sidebar-custom-status');
+    if(statusNode){statusNode.textContent=String(profile?.settings?.customStatus||'').slice(0,60);statusNode.title=statusNode.textContent;}
     if (/^#[0-9a-f]{6}$/i.test(profile?.settings?.accent || '')) document.documentElement.style.setProperty('--accent', profile.settings.accent);
     if (/^https:\/\//i.test(profile?.settings?.background || '')) document.body.style.backgroundImage = `url('${profile.settings.background}')`;
     applyOwnProfileFont();
@@ -384,14 +472,6 @@
 
   async function loadInitialData() {
     await Promise.allSettled([loadConversations(), loadFriends(), loadCommunities(), checkAdmin()]);
-    if (location.hash.includes('access_token') || location.hash.includes('type=recovery')) {
-      const password = prompt('Escribe tu nueva contraseña (mínimo 8 caracteres):');
-      if (password && password.length >= 8) {
-        const {error} = await client.auth.updateUser({password});
-        if (error) showError(error); else toast('Contraseña actualizada.', 'success');
-      }
-      history.replaceState(null, '', location.pathname);
-    }
   }
 
   // ---------- Prompt dialog ----------
@@ -441,6 +521,46 @@
       .on('postgres_changes', {event:'*', schema:'public', table:'conversation_members', filter:`user_id=eq.${currentUser.id}`}, () => scheduleAccountListRefresh('conversations'))
       .on('postgres_changes', {event:'*', schema:'public', table:'conversations'}, () => scheduleAccountListRefresh('conversations'))
       .subscribe();
+  }
+
+  function refreshFriendPresenceIndicators() {
+    $$('.person-row[data-person-id]').forEach(node => {
+      const online=onlineUserIds.has(node.dataset.personId);
+      node.classList.toggle('is-online',online);
+      const label=$('.person-presence',node);
+      if(label) label.textContent=online?'En línea':'Desconectado';
+    });
+    $$('.conversation-row[data-direct-user-id]').forEach(node => {
+      const online=onlineUserIds.has(node.dataset.directUserId);
+      node.classList.toggle('direct-user-online',online);
+      const label=$('.conversation-presence-dot',node);
+      if(label){label.title=online?'En línea':'Desconectado';label.setAttribute('aria-label',label.title);}
+    });
+  }
+  function syncGlobalPresence() {
+    onlineUserIds.clear();
+    const state=globalPresenceChannel?.presenceState?.()||{};
+    for(const [key,metas] of Object.entries(state)){
+      const userId=metas?.[0]?.user_id||key;
+      if(userId) onlineUserIds.add(userId);
+    }
+    refreshFriendPresenceIndicators();
+  }
+  function subscribeGlobalPresence() {
+    if(!client||!currentUser)return;
+    if(globalPresenceChannel)client.removeChannel(globalPresenceChannel);
+    globalPresenceChannel=client.channel('nexus-online',{config:{private:true,presence:{key:currentUser.id},broadcast:{self:false,ack:false}}})
+      .on('presence',{event:'sync'},syncGlobalPresence)
+      .on('presence',{event:'join'},syncGlobalPresence)
+      .on('presence',{event:'leave'},syncGlobalPresence)
+      .subscribe(async status=>{
+        if(status==='SUBSCRIBED'&&globalPresenceChannel){
+          try{
+            await globalPresenceChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});
+            syncGlobalPresence();
+          }catch(error){console.warn('No se pudo publicar presencia global:',error);}
+        }
+      });
   }
 
   // ---------- Message notifications ----------
@@ -671,7 +791,7 @@
       const mine = members.find(member => member.user_id === currentUser.id);
       const title = mine?.personal_name || row.title || (row.kind === 'direct' ? (otherProfile?.nickname || otherProfile?.username || 'Mensaje directo') : 'Grupo sin nombre');
       const avatar = row.icon_url || (row.kind === 'direct' ? otherProfile?.avatar_url : null);
-      return {...row, displayTitle:title, displayAvatar:avatar, displayPlate:row.kind==='direct'?otherProfile?.profile_plate_url:null,displayPlateOpacity:profilePlateOpacity(otherProfile?.settings), hidden_at:mine?.hidden_at || null};
+      return {...row, displayTitle:title, displayAvatar:avatar, directUserId:row.kind==='direct'?other?.user_id:null, displayFrame:row.kind==='direct'?otherProfile?.profile_frame_url:null, displayPlate:row.kind==='direct'?otherProfile?.profile_plate_url:null,displayPlateOpacity:profilePlateOpacity(otherProfile?.settings), hidden_at:mine?.hidden_at || null};
     });
     renderConversationList();
   }
@@ -692,16 +812,17 @@
       return;
     }
     $('#conversation-list').innerHTML = visible.map(row => `
-      <div class="conversation-row" ${safeHttpsUrl(row.displayPlate)?`style="--profile-plate-image:url('${escapeHtml(safeHttpsUrl(row.displayPlate))}');--profile-plate-opacity:${row.displayPlateOpacity}"`:''}>
+      <div class="conversation-row ${row.directUserId&&onlineUserIds.has(row.directUserId)?'direct-user-online':''}" ${row.directUserId?`data-direct-user-id="${row.directUserId}"`:''} ${safeHttpsUrl(row.displayPlate)?`style="--profile-plate-image:url('${escapeHtml(safeHttpsUrl(row.displayPlate))}');--profile-plate-opacity:${row.displayPlateOpacity}"`:''}>
         <button class="conversation-item ${currentContext?.id === row.id ? 'active' : ''}" data-conversation="${row.id}">
-          <span class="avatar" ${avatarStyle(row.displayAvatar)}>${row.displayAvatar ? '' : escapeHtml(initials(row.displayTitle))}</span>
-          <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>
+          ${avatarMarkup({avatar_url:row.displayAvatar,profile_frame_url:row.displayFrame,nickname:row.displayTitle})}
+          <span class="conversation-copy"><strong>${escapeHtml(row.displayTitle)}</strong><small>${row.kind === 'direct' ? 'Mensaje directo' : 'Grupo'}${row.hidden_at ? ' · Archivada' : ''}</small></span>${row.kind==='direct'?'<span class="conversation-presence-dot" aria-label="Desconectado" title="Desconectado"></span>':''}
         </button>
         <div class="conversation-actions">
           <button type="button" data-hide-conversation="${row.id}" title="${row.hidden_at ? 'Restaurar conversación' : 'Archivar conversación'}">${row.hidden_at ? '↥' : '⌑'}</button>
           ${row.kind === 'group' ? `<button type="button" data-leave-conversation="${row.id}" title="Salir del grupo">×</button>` : ''}
         </div>
       </div>`).join('');
+    refreshFriendPresenceIndicators();
     $$('[data-conversation]').forEach(button => button.addEventListener('click', () => {
       const row = conversations.find(item => item.id === button.dataset.conversation);
       if (row) openConversation(row);
@@ -752,6 +873,12 @@
   }
   async function openConversation(row) {
     if(voiceSession)await leaveVoiceRoom({refresh:false});
+    switchView('chats');
+    if(currentContext?.type==='conversation'&&currentContext.id===row.id&&$('#messages-container')){
+      await syncMessageDelta({...currentContext},{render:true});
+      $$('.conversation-item').forEach(button=>button.classList.toggle('active',button.dataset.conversation===row.id));
+      return;
+    }
     replyTarget = null;
     if (row.hidden_at) {
       const {error} = await client.from('conversation_members').update({hidden_at:null})
@@ -772,6 +899,7 @@
   async function showMessagePanel() {
     const panel = $('#conversation-panel');
     const c = currentContext;
+    panel.classList.toggle('community-chat-active',Boolean(c?.type==='channel'&&currentCommunity));
     const isCommunityChannel = c.type === 'channel';
     const mediaOnly = isCommunityChannel && c.channelType === 'media';
     const announcementLocked = isCommunityChannel && c.channelType === 'announcements' && !communityPermissions.post_announcements;
@@ -785,10 +913,10 @@
         : 'Enter para enviar · Shift + Enter para nueva línea · Markdown disponible';
     panel.innerHTML = `
       <div class="active-conversation">
-        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div class="conversation-head"><span class="avatar" ${avatarStyle(c.icon)}>${c.icon ? '' : escapeHtml(initials(c.title))}</span><div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small><span class="context-presence-status" id="context-presence-status">Estado de miembros al conectar…</span><div class="context-online-members" id="context-online-members" aria-label="Miembros conectados"></div></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
         <div id="pinned-messages" class="pinned-messages hidden"></div>
         ${voiceNotice ? '<div class="voice-placeholder voice-room"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Conéctate para hablar con los miembros presentes. El audio se transmite directamente entre navegadores cuando la red lo permite.</p><div id="voice-status" class="voice-status">Desconectado</div><div id="voice-participants" class="voice-participants"><span class="tag">Aún no hay participantes conectados</span></div><div class="voice-room-actions"><button type="button" class="button button-primary" id="join-voice-room">Conectar micrófono</button><button type="button" class="button button-secondary" id="voice-mute" disabled>Silenciar</button><button type="button" class="button button-secondary" id="leave-voice-room" disabled>Salir</button></div><div id="voice-audio-host" class="voice-audio-host"></div><small class="muted">La calidad de conexión depende de la red. Algunas redes necesitan un servidor TURN adicional.</small></div>' : `
-        <div class="messages" id="messages-container"><div class="empty-state compact">Cargando mensajes…</div></div>
+        <div class="messages" id="messages-container"><button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button><div class="empty-state compact">Cargando mensajes…</div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
@@ -801,7 +929,10 @@
     if (!voiceNotice) {
       $('#cancel-reply').addEventListener('click', clearReplyTarget);
       $('#message-form').addEventListener('submit', sendMessage);
-      $('#message-input').addEventListener('input', updateMentionSuggestions);
+      $('#message-input').addEventListener('input', handleComposerInput);
+      applyComposerFont($('#message-input'));
+      autoResizeComposer($('#message-input'));
+      $('#load-older-messages')?.addEventListener('click',loadOlderMessages);
       $('#message-input').addEventListener('keydown', event => {
         if (event.key === 'Escape') hideMentionSuggestions();
         if (event.key === 'Enter' && !event.shiftKey && !$('#mention-suggestions')?.querySelector('[data-mention-option].active')) { event.preventDefault(); $('#message-form').requestSubmit(); }
@@ -829,6 +960,91 @@
     });
   }
 
+  function autoResizeComposer(input) {
+    if(!input) return;
+    input.style.height='auto';
+    input.style.height=`${Math.min(input.scrollHeight,180)}px`;
+    input.style.overflowY=input.scrollHeight>180?'auto':'hidden';
+  }
+  function applyComposerFont(input) {
+    if(!input) return;
+    const choice=profile?.settings?.composerFont||'default';
+    if(choice==='profile' && safeHttpsUrl(profile?.name_font_url)) {
+      applyProfileFontToNode(input,currentUser?.id,profile.name_font_url);
+    } else {
+      input.style.fontFamily=({
+        default:'DM Sans, sans-serif',
+        space:'Space Grotesk, sans-serif',
+        serif:'Georgia, serif',
+        mono:'ui-monospace, SFMono-Regular, Consolas, monospace'
+      })[choice] || 'DM Sans, sans-serif';
+    }
+  }
+  function handleComposerInput(event) {
+    updateMentionSuggestions();
+    autoResizeComposer(event.currentTarget);
+    broadcastTypingState(Boolean(event.currentTarget.value.trim()));
+  }
+  function sendTypingState(typing) {
+    if(!activeMessageChannel || !currentUser) return;
+    try { const pending=activeMessageChannel.send({type:'broadcast',event:'typing',payload:{user_id:currentUser.id,typing:Boolean(typing),name:profile?.nickname||profile?.username||'Alguien'}}); pending?.catch?.(()=>{}); } catch (_) {}
+  }
+  function broadcastTypingState(typing) {
+    if(!typing){
+      if(typingStopTimer) clearTimeout(typingStopTimer);
+      typingStopTimer=null;
+      if(localTypingActive){localTypingActive=false;sendTypingState(false);}
+      return;
+    }
+    const now=Date.now();
+    if(!localTypingActive || now-lastTypingBroadcastAt>1400){
+      lastTypingBroadcastAt=now;localTypingActive=true;sendTypingState(true);
+    }
+    if(typingStopTimer) clearTimeout(typingStopTimer);
+    typingStopTimer=setTimeout(()=>broadcastTypingState(false),4200);
+  }
+  function renderContextPresence() {
+    const node=$('#context-presence-status');
+    if(!node)return;
+    const state=activeMessageChannel?.presenceState?.()||{};
+    const online=[];const seen=new Set();
+    for(const [key,metas] of Object.entries(state)){
+      const meta=metas?.[0]||{};const id=meta.user_id||key;
+      if(!id||seen.has(id))continue;seen.add(id);
+      online.push({id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url)});
+    }
+    const others=online.filter(item=>item.id!==currentUser?.id);
+    const typing=[...typingUsers.values()].filter(item=>item.expires>Date.now());
+    const parts=[];
+    parts.push(others.length?`${others.length} ${others.length===1?'miembro':'miembros'} más en línea`:online.length?'Solo tú en línea':'Sin miembros conectados');
+    if(typing.length)parts.push(`${typing.map(item=>item.name).slice(0,2).join(', ')} ${typing.length===1?'está':'están'} escribiendo…`);
+    node.textContent=parts.join(' · ');
+    const host=$('#context-online-members');
+    if(!host)return;
+    host.replaceChildren();
+    for(const member of online.slice(0,8)){
+      const chip=document.createElement('button');chip.type='button';chip.className=`presence-member-chip ${member.id===currentUser?.id?'self':''}`;
+      chip.title=[member.username?`@${member.username}`:member.name,member.status].filter(Boolean).join(' · ');
+      const avatar=document.createElement('span');avatar.className='presence-member-avatar';
+      if(member.avatar)avatar.style.backgroundImage=`url("${member.avatar.replace(/["\\]/g,'')}")`;
+      else avatar.textContent=initials(member.name);
+      const label=document.createElement('span');label.textContent=member.id===currentUser?.id?'Tú':member.name;
+      chip.append(avatar,label);
+      if(member.id!==currentUser?.id)chip.addEventListener('click',()=>openPublicProfile(member.id));
+      host.append(chip);
+    }
+    if(online.length>8){const more=document.createElement('span');more.className='presence-member-more';more.textContent=`+${online.length-8}`;host.append(more);}
+  }
+  function handleTypingBroadcast(event) {
+    const payload=event?.payload||{};
+    if(!payload.user_id||payload.user_id===currentUser?.id) return;
+    if(!payload.typing){typingUsers.delete(payload.user_id);renderContextPresence();return;}
+    const entry={name:String(payload.name||'Alguien').slice(0,40),expires:Date.now()+5000};
+    typingUsers.set(payload.user_id,entry);
+    setTimeout(()=>{const active=typingUsers.get(payload.user_id);if(active===entry){typingUsers.delete(payload.user_id);renderContextPresence();}},5100);
+    renderContextPresence();
+  }
+
   function clearReplyTarget() {
     replyTarget = null;
     const preview = $('#reply-composer');
@@ -854,7 +1070,7 @@
 
   async function openPublicProfile(userId) {
     const {data:person,error} = await client.from('profiles')
-      .select('id,username,nickname,avatar_url,banner_url,bio,pronouns,aliases,default_name_color,widgets,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,settings')
+      .select('id,username,nickname,avatar_url,banner_url,bio,pronouns,aliases,default_name_color,widgets,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,profile_frame_url,settings')
       .eq('id',userId).maybeSingle();
     if (error || !person) { showError(error || new Error('No se pudo encontrar el perfil.')); return; }
     let communityNickname = '';
@@ -873,6 +1089,7 @@
     if (safeHttpsUrl(person.avatar_url)) avatar.style.backgroundImage=`url("${safeHttpsUrl(person.avatar_url).replace(/["\\]/g,'')}")`;
     else avatar.textContent=initials(person.nickname || person.username);
     if (safeHttpsUrl(person.profile_effect_url)) avatar.style.setProperty('--profile-effect-image',`url("${safeHttpsUrl(person.profile_effect_url).replace(/["\\]/g,'')}")`);
+    applyProfileFrame(avatar,person);
     applyProfilePlate(header,person);
     const names = document.createElement('div'); names.className='public-profile-names';
     const display = document.createElement('strong'); display.textContent=communityNickname || person.nickname || person.username;
@@ -880,6 +1097,8 @@
     applyProfileFontToNode(display, person.id, person.name_font_url);
     const handle = document.createElement('small'); handle.textContent=`@${person.username}${communityNickname ? ` · ${person.nickname || person.username}` : ''}`;
     names.append(display,handle); header.append(avatar,names); host.append(banner,header);
+    const publicStatus=String(person.settings?.customStatus||'').trim().slice(0,60);
+    if(publicStatus){const status=document.createElement('p');status.className='public-profile-status';status.textContent=publicStatus;host.append(status);}
     if (person.pronouns) { const pronouns=document.createElement('span'); pronouns.className='profile-pronouns-tag'; pronouns.textContent=person.pronouns; host.append(pronouns); }
     if (person.bio) { const bio=document.createElement('p'); bio.className='public-profile-bio'; bio.textContent=person.bio; host.append(bio); }
     const aliases = Array.isArray(person.aliases) ? person.aliases.filter(Boolean).slice(0,10) : [];
@@ -915,36 +1134,231 @@
   async function fetchProfiles(ids) {
     const unique = [...new Set(ids)].filter(Boolean);
     if (!unique.length) return {};
-    const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,settings').in('id', unique);
+    const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color,name_font_url,name_effect_url,profile_effect_url,profile_plate_url,profile_frame_url,settings').in('id', unique);
     if (error) { console.warn(error); return {}; }
     return Object.fromEntries((data || []).map(row => [row.id,row]));
   }
 
-  async function loadMessages() {
-    if (!currentContext) return;
-    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
-    const {data, error} = await client.from('messages').select('*').eq(field, currentContext.id).order('created_at', {ascending:true}).limit(100);
-    if (error) { showError(error, 'No se pudieron cargar los mensajes.'); return; }
-    const container = $('#messages-container');
-    if (!container) return;
-    await loadCustomEmojiCache(true);
-    renderedMessageIds.clear();
-    container.innerHTML = '';
-    if (!data?.length) container.innerHTML = '<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>';
-    const profiles = await fetchProfiles((data || []).map(row => row.sender_id));
-    const messageIds = (data || []).map(row => row.id);
-    const reactionsByMessage = {};
-    if (messageIds.length) {
-      const {data:reactionRows,error:reactionError} = await client.from('message_reactions').select('message_id,emoji,user_id').in('message_id',messageIds);
-      if (reactionError) console.warn('No se pudieron cargar las reacciones:',reactionError);
-      else for (const reaction of reactionRows || []) (reactionsByMessage[reaction.message_id] ||= []).push(reaction);
+  function messageContextKey(context=currentContext) {
+    return context ? `${context.type}:${context.id}` : '';
+  }
+  function saveMessageCache(key, rows, olderFlag) {
+    const previous=messageCache.get(key);
+    const merged=new Map((previous?.rows||[]).map(row=>[row.id,row]));
+    for(const row of rows||[]) merged.set(row.id,row);
+    const sorted=[...merged.values()].sort((a,b)=>(new Date(a.created_at)-new Date(b.created_at))||String(a.id).localeCompare(String(b.id)));
+    let older=typeof olderFlag==='boolean'?olderFlag:Boolean(previous?.hasOlder);
+    if(sorted.length>MESSAGE_CACHE_LIMIT){sorted.splice(0,sorted.length-MESSAGE_CACHE_LIMIT);older=true;}
+    messageCache.delete(key);messageCache.set(key,{rows:sorted,hasOlder:older});
+    while(messageCache.size>MESSAGE_CACHE_CONTEXTS) messageCache.delete(messageCache.keys().next().value);
+    return messageCache.get(key);
+  }
+  function cacheMessage(row) {
+    const key=messageContextKey();if(!key||!row?.id)return;
+    const state=messageCache.get(key)||{rows:[],hasOlder:false};
+    const result=saveMessageCache(key,[row],state.hasOlder);
+    // A live message is newer than the paging boundary. Never move the
+    // oldest cursor forward just because the bounded cache trimmed entries.
+    hasOlderMessages=result.hasOlder;
+  }
+
+  async function signedUrlLookup(bucket, paths) {
+    const unique=[...new Set((paths||[]).filter(Boolean))];
+    if(!unique.length)return new Map();
+    const {data,error}=await client.storage.from(bucket).createSignedUrls(unique,3600);
+    if(error){console.warn(`No se pudieron firmar archivos de ${bucket}:`,error);return new Map();}
+    return new Map((data||[]).filter(item=>item?.path&&item?.signedUrl).map(item=>[item.path,item.signedUrl]));
+  }
+  function updateLoadOlderButton() {
+    const button=$('#load-older-messages');
+    if(!button)return;
+    button.classList.toggle('hidden',!hasOlderMessages);
+    button.disabled=loadingOlderMessages;
+    button.textContent=loadingOlderMessages?'Cargando…':'Cargar mensajes anteriores';
+  }
+  async function renderMessageRows(rows) {
+    if(!rows?.length)return;
+    const renderContextKey=messageContextKey();
+    const messageIds=rows.map(row=>row.id);
+    const replyIds=[...new Set(rows.map(row=>row.reply_to).filter(Boolean))];
+    const pollMessageIds=rows.filter(row=>row.message_type==='poll').map(row=>row.id);
+    const stickerAssetIds=[...new Set(rows.map(row=>row.attachment?.custom_asset_id).filter(Boolean))];
+    const emojiAssetIds=[...new Set(rows.flatMap(row=>Array.isArray(row.formatting?.custom_emojis)?row.formatting.custom_emojis:[]).filter(id=>typeof id==='string'))];
+    const mediaPaths=[...new Set(rows.map(row=>row.attachment?.path).filter(Boolean))];
+    const [profilesResponse,reactionsResponse,repliesResponse,pollsResponse,stickersResponse,emojisResponse]=await Promise.all([
+      fetchProfiles(rows.map(row=>row.sender_id)),
+      messageIds.length?client.from('message_reactions').select('message_id,emoji,user_id').in('message_id',messageIds):Promise.resolve({data:[],error:null}),
+      replyIds.length?client.from('messages').select('id,body,sender_id,attachment').in('id',replyIds):Promise.resolve({data:[],error:null}),
+      pollMessageIds.length?client.from('polls').select('*').in('message_id',pollMessageIds):Promise.resolve({data:[],error:null}),
+      stickerAssetIds.length?client.from('custom_assets').select('id,name,asset_url').in('id',stickerAssetIds).eq('asset_type','sticker'):Promise.resolve({data:[],error:null}),
+      emojiAssetIds.length?client.from('custom_assets').select('id,name,asset_url,animated').in('id',emojiAssetIds).eq('asset_type','emoji').is('archived_at',null):Promise.resolve({data:[],error:null})
+    ]);
+    const profiles={...profilesResponse};
+    const replyRows=repliesResponse.data||[];
+    const replyProfiles=replyRows.length?await fetchProfiles(replyRows.map(row=>row.sender_id)):{};
+    Object.assign(profiles,replyProfiles);
+    await preloadMessageIdentities([...rows.map(row=>row.sender_id),...replyRows.map(row=>row.sender_id)]);
+    const reactionsByMessage=new Map();
+    if(reactionsResponse.error)console.warn('No se pudieron cargar las reacciones:',reactionsResponse.error);
+    else for(const reaction of reactionsResponse.data||[]){if(!reactionsByMessage.has(reaction.message_id))reactionsByMessage.set(reaction.message_id,[]);reactionsByMessage.get(reaction.message_id).push(reaction);}
+    const pollsByMessage=new Map((pollsResponse.data||[]).map(poll=>[poll.message_id,poll]));
+    const pollIds=(pollsResponse.data||[]).map(poll=>poll.id);
+    const votesResponse=pollIds.length?await client.from('poll_votes').select('poll_id,option_index,user_id').in('poll_id',pollIds):{data:[],error:null};
+    if(votesResponse.error)console.warn('No se pudieron cargar los votos de las encuestas:',votesResponse.error);
+    const votesByPoll=new Map();
+    for(const vote of votesResponse.data||[]){if(!votesByPoll.has(vote.poll_id))votesByPoll.set(vote.poll_id,[]);votesByPoll.get(vote.poll_id).push(vote);}
+    const assetRows=[...(stickersResponse.data||[]),...(emojisResponse.data||[])];
+    const assetById=new Map(assetRows.map(asset=>[asset.id,asset]));
+    const assetUrls=await signedUrlLookup('nexus-assets',assetRows.map(asset=>asset.asset_url));
+    for(const asset of emojisResponse.data||[]){const signedUrl=assetUrls.get(asset.asset_url);if(signedUrl)customEmojiCache.set(asset.name,{...asset,signedUrl});}
+    const mediaUrls=await signedUrlLookup('chat-media',mediaPaths);
+    const batchData={
+      replies:new Map(replyRows.map(row=>[row.id,row])),
+      replyProfiles,
+      polls:pollsByMessage,
+      pollVotes:votesByPoll,
+      assets:assetById,
+      assetUrls,
+      mediaUrls,
+      customEmojiReady:true
+    };
+    for(const message of rows){
+      if(messageContextKey()!==renderContextKey) return;
+      await appendMessage(message,profiles[message.sender_id],reactionsByMessage.get(message.id)||[],batchData);
     }
-    for (const message of (data || [])) await appendMessage(message, profiles[message.sender_id], reactionsByMessage[message.id] || []);
-    container.scrollTop = container.scrollHeight;
-    if (currentContext?.type === 'conversation') {
-      await markConversationRead(data?.at(-1)?.id || null);
+  }
+  async function loadMessages() {
+    if(!currentContext)return;
+    const context={...currentContext};
+    const key=messageContextKey(context);
+    const field=context.type==='conversation'?'conversation_id':'channel_id';
+    const container=$('#messages-container');
+    if(!container)return;
+    await loadCustomEmojiCache(false);
+    renderedMessageIds.clear();renderingMessageIds.clear();
+    typingUsers.clear();
+    container.innerHTML='<button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button>';
+    $('#load-older-messages')?.addEventListener('click',loadOlderMessages);
+    const cached=messageCache.get(key);
+    if(cached){messageCache.delete(key);messageCache.set(key,cached);}
+    let rows=cached?.rows||null;
+    if(rows?.length){
+      hasOlderMessages=Boolean(cached.hasOlder);
+      oldestMessageTimestamp=rows[0].created_at;
+      oldestMessageId=rows[0].id;
+      await renderMessageRows(rows);
+      container.scrollTop=container.scrollHeight;
+      // Reopening a chat renders the memory cache immediately, then catches up
+      // from its compound (created_at,id) cursor without reloading the history.
+      await syncMessageDelta(context,{render:true});
+    } else {
+      const {data,error}=await client.from('messages').select('*').eq(field,context.id).order('created_at',{ascending:false}).order('id',{ascending:false}).limit(MESSAGE_PAGE_SIZE);
+      if(error){showError(error,'No se pudieron cargar los mensajes.');return;}
+      rows=(data||[]).reverse();
+      hasOlderMessages=(data||[]).length===MESSAGE_PAGE_SIZE;
+      oldestMessageTimestamp=rows[0]?.created_at||null;
+      oldestMessageId=rows[0]?.id||null;
+      saveMessageCache(key,rows,hasOlderMessages);
+      if(!rows.length)container.insertAdjacentHTML('beforeend','<div class="empty-state compact">Este espacio está tranquilo. Envía el primer mensaje.</div>');
+      await renderMessageRows(rows);
+      container.scrollTop=container.scrollHeight;
+    }
+    updateLoadOlderButton();
+    if(currentContext?.id!==context.id)return;
+    if(context.type==='conversation'){
+      const state=messageCache.get(key);
+      await markConversationRead(state?.rows?.at(-1)?.id||null);
       await renderConversationReadReceipts();
     }
+  }
+  async function syncMessageDelta(context=currentContext,{render=true}={}) {
+    if(!context||!client)return;
+    const key=messageContextKey(context);const state=messageCache.get(key);
+    if(!state?.rows?.length){if(render&&currentContext?.id===context.id)await loadMessages();return;}
+    const field=context.type==='conversation'?'conversation_id':'channel_id';
+    let cursor={created_at:state.rows.at(-1).created_at,id:state.rows.at(-1).id};
+    const collected=[];let keepGoing=true;
+    while(keepGoing){
+      const {data,error}=await client.from('messages').select('*').eq(field,context.id)
+        .or(`created_at.gt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.gt.${cursor.id})`)
+        .order('created_at',{ascending:true}).order('id',{ascending:true}).limit(100);
+      if(error){console.warn('No se pudieron sincronizar los mensajes nuevos:',error);break;}
+      const page=data||[];if(!page.length)break;
+      const known=new Set((messageCache.get(key)?.rows||[]).map(row=>row.id));
+      const additions=page.filter(row=>!known.has(row.id));
+      if(additions.length){const previousHasOlder=messageCache.get(key)?.hasOlder??false;saveMessageCache(key,additions,previousHasOlder);collected.push(...additions);}
+      const last=page.at(-1);cursor={created_at:last.created_at,id:last.id};
+      keepGoing=page.length===100;
+      if(page.length<100)break;
+    }
+    if(render&&collected.length&&currentContext?.id===context.id&&currentContext?.type===context.type){
+      const container=$('#messages-container');
+      const wasNearBottom=container ? container.scrollHeight-container.scrollTop-container.clientHeight<120 : true;
+      // Reuse the same batched renderer as the initial page. Reopening a busy
+      // chat should not turn into one profile/role/reaction query per message.
+      await renderMessageRows(collected);
+      if(wasNearBottom&&container)container.scrollTop=container.scrollHeight;
+      if(context.type==='conversation'){
+        await markConversationRead(collected.at(-1).id);
+        await renderConversationReadReceipts();
+      }
+    }
+  }
+
+  async function loadOlderMessages() {
+    if(!currentContext||loadingOlderMessages||!hasOlderMessages||!oldestMessageTimestamp||!oldestMessageId)return;
+    const context={...currentContext};const key=messageContextKey(context);const field=context.type==='conversation'?'conversation_id':'channel_id';
+    const container=$('#messages-container');if(!container)return;
+    loadingOlderMessages=true;updateLoadOlderButton();
+    const previousHeight=container.scrollHeight;const previousTop=container.scrollTop;
+    try{
+      const {data,error}=await client.from('messages').select('*').eq(field,context.id).or(`created_at.lt.${oldestMessageTimestamp},and(created_at.eq.${oldestMessageTimestamp},id.lt.${oldestMessageId})`).order('created_at',{ascending:false}).order('id',{ascending:false}).limit(MESSAGE_PAGE_SIZE);
+      if(error)throw error;
+      const older=(data||[]).reverse();
+      if(older.length<MESSAGE_PAGE_SIZE)hasOlderMessages=false;
+      if(older.length){
+        saveMessageCache(key,older,hasOlderMessages);
+        // Continue from the actual page boundary even if the in-memory cache
+        // trimmed older entries to stay within its 200-message budget.
+        oldestMessageTimestamp=older[0]?.created_at||oldestMessageTimestamp;
+        oldestMessageId=older[0]?.id||oldestMessageId;
+        await renderMessageRows(older);
+        const button=$('#load-older-messages');
+        const messageNodes=older.map(row=>$(`[data-message-id="${row.id}"]`,container)).filter(Boolean);
+        const firstExisting=[...container.querySelectorAll('.message')].find(node=>!messageNodes.includes(node));
+        for(const node of messageNodes)container.insertBefore(node,firstExisting||null);
+        container.scrollTop=previousTop+(container.scrollHeight-previousHeight);
+      }else hasOlderMessages=false;
+    }catch(error){showError(error,'No se pudieron cargar mensajes anteriores.');}
+    finally{loadingOlderMessages=false;updateLoadOlderButton();}
+  }
+
+  async function preloadMessageIdentities(userIds) {
+    const communityId=currentContext?.type==='channel'?currentCommunity?.id:null;
+    const unique=[...new Set((userIds||[]).filter(Boolean))];
+    const missing=unique.filter(id=>!messageIdentityCache.has(`${communityId||'personal'}:${id}`));
+    if(!missing.length)return;
+    const empty=()=>({roles:[],badges:[],communityNickname:''});
+    try{
+      const [membersResponse,assignmentsResponse,badgeAssignmentsResponse]=await Promise.all([
+        communityId?client.from('community_members').select('user_id,nickname').eq('community_id',communityId).in('user_id',missing):Promise.resolve({data:[],error:null}),
+        communityId?client.from('member_roles').select('user_id,role_id').eq('community_id',communityId).in('user_id',missing):Promise.resolve({data:[],error:null}),
+        (()=>{let query=client.from('member_badges').select('user_id,badge_id').in('user_id',missing);query=communityId?query.eq('community_id',communityId):query.is('community_id',null);return query;})()
+      ]);
+      for(const response of [membersResponse,assignmentsResponse,badgeAssignmentsResponse])if(response.error)console.warn('No se pudo precargar identidad de mensajes:',response.error);
+      const roleIds=[...new Set((assignmentsResponse.data||[]).map(row=>row.role_id))];
+      const badgeIds=[...new Set((badgeAssignmentsResponse.data||[]).map(row=>row.badge_id))];
+      const [rolesResponse,badgesResponse]=await Promise.all([
+        roleIds.length?client.from('community_roles').select('id,name,color,position').in('id',roleIds).order('position',{ascending:false}):Promise.resolve({data:[],error:null}),
+        badgeIds.length?client.from('badges').select('id,name,icon_url,animated').in('id',badgeIds):Promise.resolve({data:[],error:null})
+      ]);
+      const roleById=new Map((rolesResponse.data||[]).map(row=>[row.id,row]));
+      const badgeById=new Map((badgesResponse.data||[]).map(row=>[row.id,row]));
+      const memberById=new Map((membersResponse.data||[]).map(row=>[row.user_id,row]));
+      const rolesByUser=new Map();for(const row of assignmentsResponse.data||[]){const role=roleById.get(row.role_id);if(role){if(!rolesByUser.has(row.user_id))rolesByUser.set(row.user_id,[]);rolesByUser.get(row.user_id).push(role);}}
+      const badgesByUser=new Map();for(const row of badgeAssignmentsResponse.data||[]){const badge=badgeById.get(row.badge_id);if(badge){if(!badgesByUser.has(row.user_id))badgesByUser.set(row.user_id,[]);badgesByUser.get(row.user_id).push(badge);}}
+      for(const id of missing){const member=memberById.get(id);messageIdentityCache.set(`${communityId||'personal'}:${id}`,{...empty(),communityNickname:member?.nickname||'',roles:rolesByUser.get(id)||[],badges:badgesByUser.get(id)||[]});}
+    }catch(error){console.warn('No se pudo precargar identidad de mensajes:',error);}
   }
 
   async function getMessageIdentity(senderId) {
@@ -978,22 +1392,23 @@
     return result;
   }
 
-  async function appendMessage(message, sender, initialReactions = null) {
+  async function appendMessage(message, sender, initialReactions = null, batchData = null) {
     if (!message?.id || renderingMessageIds.has(message.id) || renderedMessageIds.has(message.id)) return;
     const existingContainer = $('#messages-container');
     if (existingContainer && $(`[data-message-id="${message.id}"]`, existingContainer)) { renderedMessageIds.add(message.id); return; }
     renderingMessageIds.add(message.id);
-    try { await appendMessageInternal(message, sender, initialReactions); }
+    try { await appendMessageInternal(message, sender, initialReactions, batchData); }
     finally { renderingMessageIds.delete(message.id); }
   }
 
-  async function appendMessageInternal(message, sender, initialReactions = null) {
+  async function appendMessageInternal(message, sender, initialReactions = null, batchData = null) {
     const container = $('#messages-container');
     const contextIdAtStart = currentContext?.id;
     if (!container || $(`[data-message-id="${message.id}"]`, container)) return;
     const template = $('#message-template').content.cloneNode(true);
     const article = $('.message', template);
     article.dataset.messageId = message.id;
+    article.dataset.createdAt = message.created_at || '';
     article.__nexusMessage = message;
     const avatar = $('.avatar-message', article);
     const shownSender = message.alt_profile_id ? await resolveAltSender(message.alt_profile_id, sender) : (sender || {});
@@ -1001,6 +1416,7 @@
     if (avatarUrl) avatar.style.backgroundImage = `url('${avatarUrl}')`;
     else avatar.textContent = initials(shownSender.nickname || shownSender.username || 'U');
     if (safeHttpsUrl(sender?.profile_effect_url)) avatar.style.setProperty('--profile-effect-image', `url("${safeHttpsUrl(sender.profile_effect_url).replace(/["\\]/g,'')}")`);
+    applyProfileFrame(avatar,sender);
     const author = $('.message-author', article);
     const identity = await getMessageIdentity(message.sender_id);
     author.textContent = message.alt_profile_id ? (shownSender.nickname || shownSender.username || 'Alt') : (identity.communityNickname || sender?.nickname || sender?.username || 'Usuario');
@@ -1078,7 +1494,7 @@
         if (!confirm('¿Eliminar este mensaje?')) return;
         const {error} = await client.from('messages').delete().eq('id',message.id);
         if (error) showError(error,'No tienes permiso para eliminar este mensaje.');
-        else { article.remove(); toast('Mensaje eliminado.','success'); }
+        else { const key=messageContextKey(); const state=messageCache.get(key); if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==message.id),state.hasOlder); article.remove(); renderedMessageIds.delete(message.id); toast('Mensaje eliminado.','success'); }
       });
       messageActions.append(deleteButton);
     }
@@ -1094,9 +1510,10 @@
         if (target) { target.scrollIntoView({behavior:'smooth',block:'center'}); target.classList.add('message-flash'); setTimeout(() => target.classList.remove('message-flash'), 900); }
       });
       $('.message-main', article).insertBefore(quote, $('.message-body', article));
-      const {data:original} = await client.from('messages').select('body,sender_id,attachment').eq('id',message.reply_to).maybeSingle();
+      let original=batchData?.replies?.get(message.reply_to)||null;
+      if(!batchData){const response=await client.from('messages').select('body,sender_id,attachment').eq('id',message.reply_to).maybeSingle();original=response.data||null;}
       if (original) {
-        const replyProfiles = await fetchProfiles([original.sender_id]);
+        const replyProfiles = batchData?.replyProfiles || await fetchProfiles([original.sender_id]);
         const replyName = replyProfiles[original.sender_id]?.nickname || replyProfiles[original.sender_id]?.username || 'Usuario';
         quote.textContent = `${replyName}: ${String(original.body || original.attachment?.name || 'Mensaje').slice(0,150)}`;
       } else quote.textContent = 'Mensaje original no disponible';
@@ -1109,14 +1526,16 @@
       body.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rendered, {USE_PROFILES:{html:true}}) : escapeHtml(source);
       applyMentionMarkup(body, message.formatting?.mentions || []);
       if (Array.isArray(message.formatting?.custom_emojis) && message.formatting.custom_emojis.length) {
-        await ensureCustomEmojiAssetsForMessage(message);
+        if(!batchData?.customEmojiReady)await ensureCustomEmojiAssetsForMessage(message);
         renderCustomEmojiTokens(body);
       }
     } catch { body.textContent = source; }
     if (message.message_type === 'poll') {
-      const {data: poll} = await client.from('polls').select('*').eq('message_id',message.id).maybeSingle();
+      let poll=batchData?.polls?.get(message.id)||null;
+      if(!batchData){const response=await client.from('polls').select('*').eq('message_id',message.id).maybeSingle();poll=response.data||null;}
       if (poll) {
-        const {data: votes} = await client.from('poll_votes').select('option_index,user_id').eq('poll_id',poll.id);
+        let votes=batchData?.pollVotes?.get(poll.id)||[];
+        if(!batchData){const response=await client.from('poll_votes').select('option_index,user_id').eq('poll_id',poll.id);votes=response.data||[];}
         const counts = (poll.options || []).map((_,index) => (votes || []).filter(vote => vote.option_index === index).length);
         const mine = (votes || []).find(vote => vote.user_id === currentUser.id);
         const card = document.createElement('div');
@@ -1128,11 +1547,12 @@
           const button = document.createElement('button');
           button.type = 'button';
           button.className = `poll-option ${mine?.option_index === index ? 'selected' : ''}`;
+          button.dataset.pollOption=String(index);
           button.textContent = `${option} · ${counts[index] || 0}`;
           button.disabled = Boolean(poll.ends_at && new Date(poll.ends_at) < new Date());
           button.addEventListener('click', async () => {
             const {error} = await client.from('poll_votes').upsert({poll_id:poll.id,user_id:currentUser.id,option_index:index},{onConflict:'poll_id,user_id'});
-            if (error) showError(error); else loadMessages();
+            if (error) showError(error); else refreshPollCard(message.id);
           });
           card.append(button);
         });
@@ -1140,33 +1560,34 @@
       }
     }
     if (message.attachment?.kind === 'sticker' && message.attachment?.custom_asset_id) {
-      const {data:asset,error:assetError}=await client.from('custom_assets').select('id,name,asset_url').eq('id',message.attachment.custom_asset_id).maybeSingle();
-      if (!assetError && asset?.asset_url) {
-        const {data:signed}=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);
-        if (signed?.signedUrl) { const image=document.createElement('img'); image.className='message-custom-sticker'; image.src=signed.signedUrl; image.alt=asset.name||'Sticker'; image.loading='lazy'; $('.message-attachment',article).append(image); }
-      }
+      let asset=batchData?.assets?.get(message.attachment.custom_asset_id)||null;
+      let signedUrl=asset?.asset_url?batchData?.assetUrls?.get(asset.asset_url):null;
+      if(!batchData){const response=await client.from('custom_assets').select('id,name,asset_url').eq('id',message.attachment.custom_asset_id).maybeSingle();asset=response.data||null;if(asset?.asset_url){const signed=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);signedUrl=signed.data?.signedUrl||null;}}
+      if(asset?.asset_url&&signedUrl){const image=document.createElement('img');image.className='message-custom-sticker';image.src=signedUrl;image.alt=asset.name||'Sticker';image.loading='lazy';$('.message-attachment',article).append(image);}
     } else if (message.attachment?.kind === 'gif' && isGiphyMediaUrl(message.attachment.url)) {
       const image=document.createElement('img'); image.className='message-gif'; image.src=message.attachment.url; image.alt=String(message.attachment.alt||'GIF').slice(0,120); image.loading='lazy'; $('.message-attachment',article).append(image);
       const credit=document.createElement('small'); credit.className='gif-credit'; credit.textContent='Powered by GIPHY'; $('.message-attachment',article).append(credit);
     }
     if (message.attachment?.path) {
-      const {data} = await client.storage.from('chat-media').createSignedUrl(message.attachment.path, 3600);
-      if (data?.signedUrl) {
+      let signedUrl=batchData?.mediaUrls?.get(message.attachment.path)||null;
+      if(!batchData){const response=await client.storage.from('chat-media').createSignedUrl(message.attachment.path,3600);signedUrl=response.data?.signedUrl||null;}
+      if (signedUrl) {
         const attachment = $('.message-attachment', article);
         const type = message.attachment.mimetype || '';
         const name = escapeHtml(message.attachment.name || 'archivo');
-        if (type.startsWith('image/')) attachment.innerHTML = `<a href="${data.signedUrl}" target="_blank" rel="noopener"><img src="${data.signedUrl}" alt="${name}" loading="lazy"></a>`;
-        else if (type.startsWith('video/')) attachment.innerHTML = `<video controls preload="metadata" src="${data.signedUrl}"></video><a href="${data.signedUrl}" download="${name}">Descargar vídeo</a>`;
-        else attachment.innerHTML = `<a href="${data.signedUrl}" download="${name}">Descargar ${name}</a>`;
+        if (type.startsWith('image/')) attachment.innerHTML = `<a href="${signedUrl}" target="_blank" rel="noopener"><img src="${signedUrl}" alt="${name}" loading="lazy"></a>`;
+        else if (type.startsWith('video/')) attachment.innerHTML = `<video controls preload="metadata" src="${signedUrl}"></video><a href="${signedUrl}" download="${name}">Descargar vídeo</a>`;
+        else attachment.innerHTML = `<a href="${signedUrl}" download="${name}">Descargar ${name}</a>`;
       }
     }
     const reactionBar = $('.message-reactions', article);
     reactionBar.dataset.reactionMessage = message.id;
     if (container !== $('#messages-container') || currentContext?.id !== contextIdAtStart) return;
+    const stickToBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
     container.append(template);
     renderedMessageIds.add(message.id);
     await refreshMessageReactions(article, message.id, initialReactions);
-    container.scrollTop = container.scrollHeight;
+    if(stickToBottom) container.scrollTop = container.scrollHeight;
   }
 
   async function refreshMessageReactions(article, messageId, initialRows = null) {
@@ -1238,12 +1659,14 @@
     const mentions=await collectMessageMentions(body);
     await loadCustomEmojiCache();
     const customEmojis=collectCustomEmojiIds(body);
-    const {error} = await client.rpc('edit_message_with_mentions',{p_message_id:editingMessageId,p_body:body,p_mentions:mentions,p_custom_emojis:customEmojis});
+    const editedId=editingMessageId;
+    const {error} = await client.rpc('edit_message_with_mentions',{p_message_id:editedId,p_body:body,p_mentions:mentions,p_custom_emojis:customEmojis});
     save.disabled = false;
     if (error) { showError(error,'No se pudo editar el mensaje.'); return; }
     $('#edit-message-dialog').close();
     editingMessageId = null;
-    await loadMessages();
+    const {data:updatedMessage}=await client.from('messages').select('*').eq('id',editedId).maybeSingle();
+    if(updatedMessage) await refreshSingleMessage(updatedMessage);
     toast('Mensaje editado.','success');
   });
 
@@ -1312,18 +1735,36 @@
     $('.message-main',latest).append(receipt);
   }
 
+  async function refreshPollCard(messageId) {
+    const article=$(`[data-message-id="${messageId}"]`,$('#messages-container'));
+    if(!article)return;
+    const {data:poll,error:pollError}=await client.from('polls').select('*').eq('message_id',messageId).maybeSingle();
+    if(pollError||!poll)return;
+    const {data:votes,error:votesError}=await client.from('poll_votes').select('option_index,user_id').eq('poll_id',poll.id);
+    if(votesError)return;
+    const counts=(poll.options||[]).map((_,index)=>(votes||[]).filter(vote=>vote.option_index===index).length);
+    const mine=(votes||[]).find(vote=>vote.user_id===currentUser.id);
+    const ended=Boolean(poll.ends_at&&new Date(poll.ends_at)<new Date());
+    $$('[data-poll-option]',article).forEach(button=>{
+      const index=Number(button.dataset.pollOption);
+      if(!Number.isInteger(index)||index<0||index>=poll.options.length)return;
+      button.textContent=`${poll.options[index]} · ${counts[index]||0}`;
+      button.classList.toggle('selected',mine?.option_index===index);
+      button.disabled=ended;
+    });
+  }
   async function refreshPollFromRealtime(payload) {
     if (!currentContext) return;
     const pollId = payload.new?.poll_id || payload.old?.poll_id;
     if (!pollId) return;
-    const {data:poll} = await client.from('polls').select('message_id').eq('id',pollId).maybeSingle();
+    const {data:poll} = await client.from('polls').select('id,message_id').eq('id',pollId).maybeSingle();
     if (!poll) return;
     const {data:message} = await client.from('messages').select('conversation_id,channel_id').eq('id',poll.message_id).maybeSingle();
     if (!message) return;
     const isCurrent = currentContext.type === 'conversation'
       ? message.conversation_id === currentContext.id
       : message.channel_id === currentContext.id;
-    if (isCurrent) await loadMessages();
+    if (isCurrent) await refreshPollCard(poll.message_id);
   }
 
   async function refreshPinsFromRealtime(payload) {
@@ -1337,33 +1778,65 @@
     if (message && message[field] === currentContext.id) await loadPinnedMessages();
   }
 
+  async function refreshSingleMessage(message) {
+    if(!message?.id||!currentContext)return;
+    cacheMessage(message);
+    const container=$('#messages-container');
+    const old=$(`[data-message-id="${message.id}"]`,container);
+    if(!old)return;
+    const nearBottom=container.scrollHeight-container.scrollTop-container.clientHeight<90;
+    old.remove();renderedMessageIds.delete(message.id);
+    const profiles=await fetchProfiles([message.sender_id]);
+    await appendMessage(message,profiles[message.sender_id]);
+    const nodes=[...container.querySelectorAll('.message')].sort((a,b)=>new Date(a.dataset.createdAt)-new Date(b.dataset.createdAt));
+    for(const node of nodes)container.append(node);
+    if(nearBottom)container.scrollTop=container.scrollHeight;
+  }
   function subscribeMessages() {
-    if (activeMessageChannel) client.removeChannel(activeMessageChannel);
-    if (!currentContext) return;
-    const field = currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id';
-    activeMessageChannel = client.channel(`nexus-${currentContext.type}-${currentContext.id}`, {config:{private:true}})
-      .on('postgres_changes', {event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async payload => {
-        const profiles = await fetchProfiles([payload.new.sender_id]);
-        await appendMessage(payload.new, profiles[payload.new.sender_id]);
-        if (currentContext?.type === 'conversation') {
+    if(activeMessageChannel)client.removeChannel(activeMessageChannel);
+    if(!currentContext)return;
+    const context={...currentContext};
+    const field=context.type==='conversation'?'conversation_id':'channel_id';
+    typingUsers.clear();localTypingActive=false;if(typingStopTimer)clearTimeout(typingStopTimer);typingStopTimer=null;
+    activeMessageChannel=client.channel(`nexus-${context.type}-${context.id}`,{config:{private:true,presence:{key:currentUser.id},broadcast:{self:false,ack:false}}})
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},async payload=>{
+        if(currentContext?.id!==context.id)return;
+        cacheMessage(payload.new);
+        // A live insert is a one-row batch too: this keeps reaction, identity,
+        // reply and media resolution on the same path as paginated history.
+        await renderMessageRows([payload.new]);
+        if(context.type==='conversation'){
           scheduleAccountListRefresh('conversations');
-          if (payload.new.sender_id !== currentUser.id) { await markConversationRead(payload.new.id); await renderConversationReadReceipts(); }
+          if(payload.new.sender_id!==currentUser.id){await markConversationRead(payload.new.id);await renderConversationReadReceipts();}
         }
       })
-      .on('postgres_changes', {event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${currentContext.id}`}, async () => loadMessages())
-      .on('postgres_changes', {event:'*',schema:'public',table:'message_reactions'}, async payload => {
-        const messageId = payload.new?.message_id || payload.old?.message_id;
-        if (!messageId) return;
-        const article = $(`[data-message-id="${messageId}"]`, $('#messages-container'));
-        if (article) await refreshMessageReactions(article,messageId);
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{if(currentContext?.id===context.id)refreshSingleMessage(payload.new);})
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{
+        if(currentContext?.id!==context.id)return;
+        const id=payload.old?.id;if(!id)return;
+        const key=messageContextKey(context);const state=messageCache.get(key);
+        if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==id),state.hasOlder);
+        $(`[data-message-id="${id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(id);
       })
-      .on('postgres_changes', {event:'*',schema:'public',table:'poll_votes'}, async payload => refreshPollFromRealtime(payload))
-      .on('postgres_changes', {event:'*',schema:'public',table:'pinned_messages'}, async payload => refreshPinsFromRealtime(payload))
-      .on('postgres_changes', {event:'*',schema:'public',table:'conversation_reads',filter:currentContext.type === 'conversation' ? `conversation_id=eq.${currentContext.id}` : 'conversation_id=eq.00000000-0000-0000-0000-000000000000'}, async () => renderConversationReadReceipts())
-      .subscribe(status => {
-        const node = $('#connection-status');
-        node.classList.toggle('online', status === 'SUBSCRIBED');
-        node.innerHTML = `<i></i> ${status === 'SUBSCRIBED' ? 'En directo' : status === 'CHANNEL_ERROR' ? 'Sin conexión' : 'Conectando'}`;
+      .on('postgres_changes',{event:'*',schema:'public',table:'message_reactions'},async payload=>{
+        const messageId=payload.new?.message_id||payload.old?.message_id;if(!messageId)return;
+        const article=$(`[data-message-id="${messageId}"]`,$('#messages-container'));
+        if(article)await refreshMessageReactions(article,messageId);
+      })
+      .on('postgres_changes',{event:'*',schema:'public',table:'poll_votes'},async payload=>refreshPollFromRealtime(payload))
+      .on('postgres_changes',{event:'*',schema:'public',table:'pinned_messages'},async payload=>refreshPinsFromRealtime(payload))
+      .on('postgres_changes',{event:'*',schema:'public',table:'conversation_reads',filter:context.type==='conversation'?`conversation_id=eq.${context.id}`:'conversation_id=eq.00000000-0000-0000-0000-000000000000'},async()=>renderConversationReadReceipts())
+      .on('presence',{event:'sync'},renderContextPresence)
+      .on('presence',{event:'join'},renderContextPresence)
+      .on('presence',{event:'leave'},renderContextPresence)
+      .on('broadcast',{event:'typing'},handleTypingBroadcast)
+      .subscribe(async status=>{
+        const node=$('#connection-status');
+        if(node){node.classList.toggle('online',status==='SUBSCRIBED');node.innerHTML=`<i></i> ${status==='SUBSCRIBED'?'En directo':status==='CHANNEL_ERROR'?'Sin conexión':'Conectando'}`;}
+        if(status==='SUBSCRIBED'&&currentContext?.id===context.id){
+          try{await activeMessageChannel.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});renderContextPresence();}
+          catch(error){console.warn('No se pudo publicar presencia:',error);}
+        }
       });
   }
 
@@ -1468,6 +1941,8 @@
     input.disabled = false;
     if (error) { showError(error, 'No se pudo enviar el mensaje.'); return; }
     input.value = '';
+    autoResizeComposer(input);
+    broadcastTypingState(false);
     clearReplyTarget();
     input.focus();
   }
@@ -1479,7 +1954,8 @@
     if(currentContext?.type==='channel'&&currentCommunity)scopes.push({scope:'community',id:currentCommunity.id});
     const rows=[];
     for(const entry of scopes){let query=client.from('custom_assets').select('id,owner_id,asset_type,scope,scope_id,name,asset_url,animated,archived_at').eq('asset_type',type).eq('scope',entry.scope).is('archived_at',null);query=entry.id?query.eq('scope_id',entry.id):query.is('scope_id',null);const {data,error}=await query.order('created_at',{ascending:false});if(error){console.warn('Assets:',error);continue;}rows.push(...(data||[]));}
-    return Promise.all(rows.map(async row=>{const {data}=await client.storage.from('nexus-assets').createSignedUrl(row.asset_url,3600);return {...row,signedUrl:data?.signedUrl||''};}));
+    const urls=await signedUrlLookup('nexus-assets',rows.map(row=>row.asset_url));
+    return rows.map(row=>({...row,signedUrl:urls.get(row.asset_url)||''}));
   }
   async function loadCustomEmojiCache(force=false){
     if(!currentContext)return;
@@ -1499,7 +1975,8 @@
     if(!ids.length)return;
     const {data,error}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',ids).eq('asset_type','emoji');
     if(error){console.warn('No se pudieron resolver los emojis de un mensaje:',error);return;}
-    for(const asset of data||[]){const {data:signed}=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);if(signed?.signedUrl)customEmojiCache.set(asset.name,{...asset,signedUrl:signed.signedUrl});}
+    const assets=data||[];const urls=await signedUrlLookup('nexus-assets',assets.map(asset=>asset.asset_url));
+    for(const asset of assets){const signedUrl=urls.get(asset.asset_url);if(signedUrl)customEmojiCache.set(asset.name,{...asset,signedUrl});}
   }
   function renderCustomEmojiTokens(container){
     if(!container||!customEmojiCache.size)return;
@@ -1734,6 +2211,7 @@
     $('#friend-list').innerHTML = friendsCache.length ? friendsCache.map(row => personRow(row.person, `<button class="button button-secondary" data-dm="${row.person.id}">Mensaje</button>`)).join('') : '<div class="empty-state compact">Todavía no has añadido a nadie.</div>';
     $('#friend-requests').innerHTML = incoming.length ? incoming.map(row => personRow(profiles[row.requester], `<button class="button button-primary" data-accept="${row.id}">Aceptar</button>`)).join('') : '<div class="empty-state compact">No hay solicitudes pendientes.</div>';
     if (outgoing.length) $('#friend-requests').insertAdjacentHTML('beforeend', outgoing.map(row => personRow(profiles[row.addressee], '<span class="tag">Enviada</span>')).join(''));
+    refreshFriendPresenceIndicators();
     $$('[data-dm]').forEach(button => button.addEventListener('click', () => startDirect(button.dataset.dm)));
     $$('[data-accept]').forEach(button => button.addEventListener('click', () => acceptFriend(button.dataset.accept)));
   }
@@ -1741,7 +2219,8 @@
     if (!person) return '';
     const plate=safeHttpsUrl(person.profile_plate_url);
     const plateStyle=plate?`style="--profile-plate-image:url('${escapeHtml(plate)}');--profile-plate-opacity:${profilePlateOpacity(person.settings)}"`:'';
-    return `<div class="person-row" ${plateStyle}>${avatarMarkup(person)}<div class="person-row-copy"><strong>${escapeHtml(person.nickname || person.username)}</strong><small>@${escapeHtml(person.username)}</small></div><div class="person-actions">${actions}</div></div>`;
+    const online=onlineUserIds.has(person.id);
+    return `<div class="person-row ${online?'is-online':''}" data-person-id="${escapeHtml(person.id)}" ${plateStyle}>${avatarMarkup(person)}<div class="person-row-copy"><strong>${escapeHtml(person.nickname || person.username)}</strong><small>@${escapeHtml(person.username)}</small><small class="person-presence">${online?'En línea':'Desconectado'}</small></div><div class="person-actions">${actions}</div></div>`;
   }
   $('#add-friend').addEventListener('click', addFriendFlow);
   async function addFriendFlow() {
@@ -1794,36 +2273,67 @@
   }
 
   function sanitizeCommunityCss(source) {
-    const css = String(source || '').trim();
-    if (!css) return '';
-    if (css.length > 6000 || /@import|@font-face|url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:|-moz-binding|<|>|\\/i.test(css)) {
-      throw new Error('El CSS contiene una regla no permitida. Solo se aceptan estilos visuales locales.');
+    const css=String(source||'').trim();
+    if(!css)return '';
+    if(css.length>8000||/@import|@font-face|url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:|-moz-binding|<|>|\\/i.test(css)){
+      throw new Error('El CSS contiene una regla no permitida. Usa únicamente estilos visuales locales.');
     }
-    const allowedSelectors = new Set(['.community-hero','.community-info-grid','.community-info-grid h2','#community-name','#community-description']);
-    const allowedProperties = new Set(['color','background-color','border-color','border-radius','box-shadow','font-family','font-size','font-weight','letter-spacing','text-align','padding','margin','opacity','text-decoration']);
-    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-    if (!rules.length || rules.map(rule => rule[0]).join('').replace(/\s/g,'') !== css.replace(/\s/g,'')) {
+    const allowedSelectors=new Set([
+      '#view-community','#sidebar-community','#conversation-panel',
+      '.active-conversation','.conversation-head','.conversation-head strong','.conversation-head small','.messages','.message','.message-body','.message-author','.message-meta',
+      '.message-reply-quote','.message-reactions','.message-attachment','.composer-wrap','.composer','.composer textarea','.composer-send','.pinned-messages','.poll-card','.poll-option',
+      '.context-online-members','.presence-member-chip',
+      '.community-hero','.community-hero-copy','.community-hero .eyebrow','.community-hero h1','.community-hero p','.community-hero .button','.community-hero .button:hover',
+      '.community-info-grid','.community-info-grid .surface','.community-info-grid .surface h2','.community-info-grid .surface p','.community-info-grid .eyebrow','.community-info-grid h2',
+      '#community-name','#community-description','.settings-surface','.settings-surface .surface-heading',
+      '#community-roles-area','#community-badges-area','.role-card','.role-card:hover','.role-card-head','.role-card-actions','.permission-grid','.member-role-card','.member-role-card:hover','.badge-create-form',
+      '.community-invite-result','.invite-tools',
+      '.channel-row','#sidebar-community .channel-item','#sidebar-community .channel-item.active','#sidebar-community .channel-item:hover','#sidebar-community .channel-item:focus-visible',
+      '#sidebar-community .channel-hash','#sidebar-community .channel-item-name','#sidebar-community .channel-type-mini',
+      '#sidebar-community .channel-admin-actions','#sidebar-community .section-label'
+    ]);
+    const allowedProperties=new Set([
+      'color','background','background-color','background-image','border','border-color','border-radius','border-width','border-style',
+      'border-top','border-right','border-bottom','border-left','box-shadow','text-shadow','outline','outline-color','outline-width','outline-style',
+      'font-family','font-size','font-weight','letter-spacing','line-height','text-align','text-transform','text-decoration',
+      'padding','margin','opacity','width','max-width','min-width','height','min-height','gap','row-gap','column-gap','grid-template-columns',
+      'display','align-items','justify-content','flex-direction','flex-wrap','overflow','white-space','text-overflow',
+      'filter','backdrop-filter','transform','transition','cursor','background-position','background-size','background-repeat',
+      'box-sizing','vertical-align','flex','flex-grow','flex-shrink','place-items','isolation',
+      '--community-accent','--community-accent-soft','--community-panel','--community-panel-alt','--community-text','--community-muted','--community-border','--community-glow','--community-radius'
+    ]);
+    const rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    if(!rules.length||rules.map(rule=>rule[0]).join('').replace(/\s/g,'')!==css.replace(/\s/g,'')){
       throw new Error('El CSS debe contener reglas sencillas con selector y llaves.');
     }
-    const output = [];
-    for (const match of rules) {
-      const selectors = match[1].split(',').map(value => value.trim());
-      if (!selectors.length || selectors.some(selector => !allowedSelectors.has(selector))) {
-        throw new Error('Solo puedes personalizar .community-hero, .community-info-grid, .community-info-grid h2, #community-name y #community-description.');
+    const output=[];
+    for(const match of rules){
+      const selectors=match[1].split(',').map(value=>value.trim());
+      if(!selectors.length||selectors.some(selector=>!allowedSelectors.has(selector))){
+        throw new Error('Selector no permitido. Consulta la guía de CSS de megagrupos para ver los selectores disponibles.');
       }
-      const declarations = [];
-      for (const declaration of match[2].split(';')) {
-        if (!declaration.trim()) continue;
-        const splitAt = declaration.indexOf(':');
-        if (splitAt < 1) throw new Error('Hay una declaración CSS no válida.');
-        const property = declaration.slice(0,splitAt).trim().toLowerCase();
-        const value = declaration.slice(splitAt+1).trim();
-        if (!allowedProperties.has(property) || !value || !/^[a-zA-Z0-9#(),.%+\s-]+$/.test(value)) {
+      const declarations=[];
+      for(const declaration of match[2].split(';')){
+        if(!declaration.trim())continue;
+        const splitAt=declaration.indexOf(':');
+        if(splitAt<1)throw new Error('Hay una declaración CSS no válida.');
+        const property=declaration.slice(0,splitAt).trim().toLowerCase();
+        const value=declaration.slice(splitAt+1).trim();
+        if(!allowedProperties.has(property)||!value||!/^[a-zA-Z0-9#(),.%+\s'"-]+$/.test(value)){
           throw new Error(`La propiedad CSS «${property}» o su valor no está permitido.`);
         }
         declarations.push(`${property}:${value}`);
       }
-      if (declarations.length) output.push(`${selectors.map(selector => `#view-community ${selector}`).join(',')} { ${declarations.join(';')} }`);
+      if(declarations.length){
+        const scoped=selectors.map(selector=>{
+          if(selector==='#view-community'||selector==='#sidebar-community'||selector.startsWith('#sidebar-community '))return selector;
+          if(selector==='#conversation-panel')return '#conversation-panel.community-chat-active';
+          if(selector.startsWith('.active-conversation')||selector.startsWith('.conversation-head')||selector==='.messages'||selector.startsWith('.message')||selector.startsWith('.composer')||selector==='.pinned-messages'||selector.startsWith('.poll-')||selector==='.context-online-members'||selector==='.presence-member-chip')return `#conversation-panel.community-chat-active ${selector}`;
+          if(selector==='.channel-row')return `#sidebar-community ${selector}`;
+          return `#view-community ${selector}`;
+        });
+        output.push(`${scoped.join(',')} { ${declarations.join(';')} }`);
+      }
     }
     return output.join('\n');
   }
@@ -2211,8 +2721,13 @@
   }
 
   async function openCommunityChannel(channel) {
-    replyTarget = null;
     if (voiceSession && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
+    switchView('chats');
+    if(currentContext?.type==='channel'&&currentContext.id===channel.id){
+      if(channel.type==='voice'&&$('#voice-status')){renderVoiceParticipants();return;}
+      if($('#messages-container')){await syncMessageDelta({...currentContext},{render:true});$$('.channel-item').forEach(button=>button.classList.toggle('active',button.dataset.channel===channel.id));return;}
+    }
+    replyTarget = null;
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
@@ -2543,6 +3058,7 @@
       name_effect_url: '#profile-name-effect-file',
       profile_effect_url: '#profile-avatar-effect-file',
       profile_plate_url: '#profile-plate-file',
+      profile_frame_url: '#profile-frame-file',
       avatar_url: '#profile-avatar-file',
       banner_url: '#profile-banner-file'
     };
@@ -2600,7 +3116,7 @@
       renderIdentityAssetLinks();
       if (currentContext) await loadMessages();
       await loadConversations();
-      toast(isFont ? 'Fuente personalizada actualizada.' : 'Efecto de perfil actualizado.', 'success');
+      toast(isFont ? 'Fuente personalizada actualizada.' : kind==='profile_frame_url' ? 'Marco de perfil actualizado.' : 'Efecto de perfil actualizado.', 'success');
     } catch (error) {
       showError(error, 'No se pudo subir el archivo.');
     } finally {
@@ -2629,11 +3145,12 @@
   $('#profile-name-effect-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'name_effect_url'));
   $('#profile-avatar-effect-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'profile_effect_url'));
   $('#profile-plate-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'profile_plate_url'));
+  $('#profile-frame-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'profile_frame_url'));
   $('#profile-font-file').addEventListener('change',event=>uploadProfileAsset(event.target.files?.[0],'name_font_url'));
 
   function renderIdentityAssetLinks() {
     const host=$('#identity-current-assets'); if(!host || !profile) return;
-    const labels={name_effect_url:'Efecto del nombre',profile_effect_url:'Efecto del avatar',profile_plate_url:'Efecto de placa',name_font_url:'Fuente personalizada'};
+    const labels={name_effect_url:'Efecto del nombre',profile_effect_url:'Efecto del avatar',profile_plate_url:'Efecto de placa',profile_frame_url:'Marco del avatar',name_font_url:'Fuente personalizada'};
     host.innerHTML=Object.entries(labels).map(([field,label])=>profile[field]?`<div class="identity-asset-row"><span>${escapeHtml(label)}</span><a href="${escapeHtml(safeHttpsUrl(profile[field]))}" target="_blank" rel="noopener">Ver archivo</a><button type="button" class="button button-secondary" data-remove-identity-asset="${field}">Quitar</button></div>`:'').join('') || '<p class="muted small-muted">Todavía no hay efectos personalizados.</p>';
     $$('[data-remove-identity-asset]').forEach(button=>button.addEventListener('click',async()=>{
       const field=button.dataset.removeIdentityAsset;
@@ -2662,15 +3179,18 @@
     $('#setting-background').value = settings.background || '';
     $('#setting-notify-sound').checked = settings.notifySound !== false;
     $('#setting-notify-while-open').checked = settings.notifyWhileOpen !== false;
+    $('#setting-composer-font').value = settings.composerFont || 'default';
+    $('#setting-custom-status').value = String(settings.customStatus || '').slice(0,60);
   }
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60)};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
-    if (error) showError(error); else { profile.settings = settings; renderIdentity(); toast('Apariencia guardada.','success'); }
+    if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyComposerFont($('#message-input')); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',status_text:settings.customStatus,joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); toast('Apariencia guardada.','success'); }
   });
   $('#change-password').addEventListener('click', async () => {
-    const {error} = await client.auth.resetPasswordForEmail(currentUser.email,{redirectTo:`${location.origin}${location.pathname}`});
+    const recoveryRedirect=new URL(location.href); recoveryRedirect.search=''; recoveryRedirect.hash=''; recoveryRedirect.searchParams.set('recovery','1');
+    const {error} = await client.auth.resetPasswordForEmail(currentUser.email,{redirectTo:recoveryRedirect.toString()});
     if (error) showError(error); else toast('Enlace de recuperación enviado a tu correo.','success');
   });
 
@@ -2695,7 +3215,7 @@
     $$('[data-apply-preset]').forEach(button=>button.addEventListener('click',async()=>{
       const row=rows.find(item=>item.id===button.dataset.applyPreset);if(!row)return;const cfg=row.config||{};
       if(row.preset_type==='profile'){
-        const allowed=['default_name_color','name_font_url','name_effect_url','profile_effect_url','profile_plate_url'];
+        const allowed=['default_name_color','name_font_url','name_effect_url','profile_effect_url','profile_plate_url','profile_frame_url'];
         const patch=Object.fromEntries(allowed.filter(key=>Object.prototype.hasOwnProperty.call(cfg,key)).map(key=>[key,cfg[key]]));
         if(patch.name_font_url&&!safeHttpsUrl(patch.name_font_url))delete patch.name_font_url;
         for(const key of ['name_effect_url','profile_effect_url','profile_plate_url'])if(patch[key]&&!safeHttpsUrl(patch[key]))delete patch[key];
@@ -2733,7 +3253,7 @@
     const name=await ask('Publicar preset','No se compartirán datos privados.','Nombre','Mi preset');if(!name||name.length<2||name.length>60)return;
     const description=await ask('Descripción','Explica brevemente qué incluye.','Descripción','Un estilo Nexus personalizado.');
     const config=presetType==='profile'
-      ?{default_name_color:profile.default_name_color||'#a99bff',name_font_url:safeHttpsUrl(profile.name_font_url)||null,name_effect_url:safeHttpsUrl(profile.name_effect_url)||null,profile_effect_url:safeHttpsUrl(profile.profile_effect_url)||null,profile_plate_url:safeHttpsUrl(profile.profile_plate_url)||null}
+      ?{default_name_color:profile.default_name_color||'#a99bff',name_font_url:safeHttpsUrl(profile.name_font_url)||null,name_effect_url:safeHttpsUrl(profile.name_effect_url)||null,profile_effect_url:safeHttpsUrl(profile.profile_effect_url)||null,profile_plate_url:safeHttpsUrl(profile.profile_plate_url)||null,profile_frame_url:safeHttpsUrl(profile.profile_frame_url)||null}
       :presetType==='community'
         ?{icon_url:safeHttpsUrl(currentCommunity.icon_url)||null,banner_url:safeHttpsUrl(currentCommunity.banner_url)||null,background_url:safeHttpsUrl(currentCommunity.background_url)||null,name_color:currentCommunity.name_color||'#a99bff'}
         :{accent:profile.settings?.accent||'#8d7cff',density:profile.settings?.density||'comfortable',background:safeHttpsUrl(profile.settings?.background)||''};
@@ -2788,7 +3308,12 @@
 
   // Additional actions and welcome shortcuts.
   $('#create-community-shortcut').title = 'Crear un megagrupo';
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && currentUser && currentContext) loadMessages(); });
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden||!currentUser||!currentContext)return;
+    const key=messageContextKey();
+    if(messageCache.has(key))syncMessageDelta({...currentContext},{render:true});
+    else loadMessages();
+  });
 
   // Replace the initial data loader after all module functions are defined.
   const originalLoadInitialData = loadInitialData;

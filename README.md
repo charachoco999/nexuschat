@@ -1,10 +1,10 @@
-> **Hotfix v0.7.1:** corrige la subida de fuentes WOFF/WOFF2/TTF. Ejecuta la migración `20261104_nexus_v071_font_mime.sql` y consulta `FONT-MIME-v0.7.1.md`.
+> **Nexus v0.8:** rendimiento del historial, presencia global y por contexto, marcos de perfil, recuperación de contraseña con formulario dedicado y CSS ampliado para megagrupos. Consulta `UPGRADE-v0.8.md` antes de actualizar.
 
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-> **Estado:** v0.7 añade stickers y emojis personalizados, búsqueda GIPHY, valoraciones de Workshop, Web Push mediante VAPID y salas de voz P2P con WebRTC. También conserva Quick-Alt, perfiles con efectos, menciones, invitaciones, canales y moderación de versiones anteriores. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
+> **Estado:** v0.8 añade paginación y caché acotada de mensajes, presencia, indicadores de escritura, marcos de perfil y personalización ampliada. Conserva stickers, emojis, GIFs GIPHY, valoraciones, Web Push, voz WebRTC, Quick-Alt, menciones, invitaciones y moderación. Sigue siendo un proyecto en desarrollo: revisa las limitaciones y configura los servicios externos descritos abajo.
 
 ## 1. Qué incluye esta versión
 
@@ -49,6 +49,19 @@ Consulta `UPGRADE-v0.6.md` para aplicar la migración y ejecutar las pruebas.
 - Canales Realtime privados para amigos, bandeja, notificaciones, conversaciones, megagrupos y voz, con políticas de pertenencia.
 
 Consulta `UPGRADE-v0.7.md` para añadir la clave GIPHY, activar push y desplegar los servicios del servidor.
+
+### Añadido en v0.8
+
+- Historial paginado: 50 mensajes al entrar y carga progresiva de mensajes anteriores.
+- Caché en memoria limitada por conversación, con sincronización incremental al volver a abrir el mismo chat.
+- Consultas agrupadas para perfiles, roles, reacciones, encuestas, votos, respuestas, stickers, emojis y adjuntos.
+- Presencia global y por conversación/canal mediante Realtime privado; indicadores de usuarios conectados y escritura sin sondeos periódicos.
+- Caja de escritura autoexpandible, fuentes de escritura configurables y estado personalizado.
+- Marcos de perfil con una máscara circular que deja visible el avatar por debajo.
+- Recuperación de contraseña mediante pantalla dedicada: después de establecer la nueva contraseña, la sesión temporal se cierra y el usuario vuelve al login.
+- Más selectores y propiedades CSS para personalizar los canales y paneles de un megagrupo sin afectar a MDs ni a otras comunidades.
+
+Consulta `UPGRADE-v0.8.md` y `MEGAGROUP-CSS-v0.8.md` para la migración, instalación y selectores admitidos.
 
 ### Funciona al configurar Supabase
 
@@ -256,3 +269,8 @@ La actualización v0.7 añade stickers/emojis privados, GIFs de GIPHY (clave bet
 ## Hotfix v0.7.2
 
 Las cargas de imágenes y fuentes validan la firma binaria y envían un MIME explícito, sin confiar en `File.type`. Ejecuta `supabase/migrations/20261101_nexus_v072_profile_asset_mime.sql` al actualizar.
+
+
+## Nexus v0.8
+
+Consulta `UPGRADE-v0.8.md` para actualizar una instalación v0.7.2, `MEGAGROUP-CSS-v0.8.md` para la personalización CSS de megagrupos y `PASSWORD-RECOVERY-v0.8.md` para el flujo de recuperación. La actualización usa una migración incremental; no vuelvas a ejecutar `schema.sql` sobre un proyecto existente.
