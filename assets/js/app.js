@@ -400,7 +400,16 @@
   $('#global-search').addEventListener('click', () => addFriendFlow());
   $('#mobile-menu-toggle')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.toggle('mobile-menu-open');$('#mobile-menu-scrim')?.classList.toggle('hidden',!app.classList.contains('mobile-menu-open'));});
   $('#mobile-menu-scrim')?.addEventListener('click',()=>{$('#app-screen').classList.remove('mobile-menu-open');$('#mobile-menu-scrim').classList.add('hidden');});
-
+  $('#voice-session-dock-mute')?.addEventListener('click',toggleVoiceMute);
+  $('#voice-session-dock-leave')?.addEventListener('click',()=>leaveVoiceRoom());
+  $('#close-image-viewer')?.addEventListener('click',()=>$('#image-viewer-dialog')?.close());
+  $('#image-viewer-dialog')?.addEventListener('click',event=>{if(event.target===$('#image-viewer-dialog'))$('#image-viewer-dialog').close();});
+  $('#conversation-panel')?.addEventListener('click',event=>{
+    const image=event.target.closest('.message-attachment img');
+    if(!image)return;
+    event.preventDefault();
+    openImageViewer(image);
+  });
 
   async function loadActiveAltProfile() {
     activeAltProfile=null;
@@ -840,6 +849,7 @@
       toggle.textContent = showArchivedConversations ? 'Volver' : `Archivadas${archivedCount ? ` (${archivedCount})` : ''}`;
       toggle.setAttribute('aria-pressed', String(showArchivedConversations));
     }
+    $('#conversation-list').removeAttribute('aria-busy');
     if (!visible.length) {
       $('#conversation-list').innerHTML = showArchivedConversations
         ? '<div class="empty-state compact">No tienes conversaciones archivadas.</div>'
@@ -952,7 +962,7 @@
         <div class="conversation-head"><button type="button" class="conversation-back" id="conversation-back" aria-label="Volver a conversaciones">‹</button>${avatarMarkup({avatar_url:c.icon,profile_frame_url:c.frame,nickname:c.title})}<div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small><div class="context-presence-controls"><button type="button" id="context-online-trigger" class="online-members-trigger" aria-haspopup="dialog" aria-controls="online-members-dialog"><span class="online-members-dot"></span><span id="context-online-count">0 en línea</span></button><span class="context-presence-status" id="context-presence-status"></span></div></div><div class="conversation-tools"><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
         <div id="pinned-messages" class="pinned-messages hidden"></div>
         ${voiceNotice ? '<div class="voice-placeholder voice-room"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Conéctate para hablar con los miembros presentes. El audio se transmite directamente entre navegadores cuando la red lo permite.</p><div id="voice-status" class="voice-status">Desconectado</div><div id="voice-participants" class="voice-participants"><span class="tag">Aún no hay participantes conectados</span></div><div class="voice-room-actions"><button type="button" class="button button-primary" id="join-voice-room">Conectar micrófono</button><button type="button" class="button button-secondary" id="voice-mute" disabled>Silenciar</button><button type="button" class="button button-secondary" id="leave-voice-room" disabled>Salir</button></div><div id="voice-audio-host" class="voice-audio-host"></div><small class="muted">La calidad de conexión depende de la red. Algunas redes necesitan un servidor TURN adicional.</small></div>' : `
-        <div class="messages" id="messages-container"><button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button><div class="empty-state compact">Cargando mensajes…</div></div>
+        <div class="messages" id="messages-container" aria-busy="true"><button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button><div class="message-loading" role="status" aria-label="Cargando mensajes"><div class="message-loading-heading"><span></span><span></span></div><div class="message-loading-line"></div><div class="message-loading-line short"></div><div class="message-loading-heading second"><span></span><span></span></div><div class="message-loading-line medium"></div><div class="message-loading-line short"></div></div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
@@ -968,6 +978,7 @@
       $('#cancel-reply').addEventListener('click', clearReplyTarget);
       $('#message-form').addEventListener('submit', sendMessage);
       $('#message-input').addEventListener('input', handleComposerInput);
+      $('#message-input').addEventListener('paste',handleComposerPaste);
       applyComposerFont($('#message-input'));
       autoResizeComposer($('#message-input'));
       $('#load-older-messages')?.addEventListener('click',loadOlderMessages);
@@ -996,6 +1007,16 @@
       if (isCommunityChannel && c.channelDescription) toast(c.channelDescription);
       else toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.');
     });
+  }
+
+  function openImageViewer(image) {
+    const dialog=$('#image-viewer-dialog'),preview=$('#image-viewer-image'),caption=$('#image-viewer-caption'),open=$('#image-viewer-open');
+    const source=image?.currentSrc||image?.src||'';
+    if(!dialog||!preview||!source)return;
+    preview.src=source;preview.alt=image.alt||'Imagen adjunta';
+    if(caption)caption.textContent=image.alt||'Imagen adjunta';
+    if(open)open.href=source;
+    if(!dialog.open)dialog.showModal();
   }
 
   function autoResizeComposer(input) {
@@ -1285,6 +1306,16 @@
       await appendMessage(message,profiles[message.sender_id],reactionsByMessage.get(message.id)||[],batchData);
     }
   }
+  function messageLoadingMarkup(){
+    return `<div class="message-loading" role="status" aria-label="Cargando mensajes"><div class="message-loading-heading"><span></span><span></span></div><div class="message-loading-line"></div><div class="message-loading-line short"></div><div class="message-loading-heading second"><span></span><span></span></div><div class="message-loading-line medium"></div><div class="message-loading-line short"></div><div class="message-loading-heading third"><span></span><span></span></div><div class="message-loading-line"></div></div>`;
+  }
+  function finishMessageLoading(container,{scrollBottom=true}={}){
+    if(!container)return;
+    container.querySelector('.message-loading')?.remove();
+    container.removeAttribute('aria-busy');
+    if(scrollBottom)requestAnimationFrame(()=>{if(container===$('#messages-container'))container.scrollTop=container.scrollHeight;});
+  }
+
   async function loadMessages() {
     if(!currentContext)return;
     const context={...currentContext};
@@ -1293,6 +1324,7 @@
     const container=$('#messages-container');
     if(!container)return;
     await loadCustomEmojiCache(false);
+    if(messageContextKey()!==key||container!==$('#messages-container'))return;
     renderedMessageIds.clear();renderingMessageIds.clear();
     typingUsers.clear();
     container.innerHTML='<button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button>';
@@ -1300,6 +1332,7 @@
     const cached=messageCache.get(key);
     if(cached){messageCache.delete(key);messageCache.set(key,cached);}
     let rows=cached?.rows||null;
+    if(!rows?.length){container.insertAdjacentHTML('beforeend',messageLoadingMarkup());container.setAttribute('aria-busy','true');}
     if(rows?.length){
       hasOlderMessages=Boolean(cached.hasOlder);
       oldestMessageTimestamp=rows[0].created_at;
@@ -1311,7 +1344,7 @@
       await syncMessageDelta(context,{render:true});
     } else {
       const {data,error}=await client.from('messages').select('*').eq(field,context.id).order('created_at',{ascending:false}).order('id',{ascending:false}).limit(MESSAGE_PAGE_SIZE);
-      if(error){showError(error,'No se pudieron cargar los mensajes.');return;}
+      if(error){finishMessageLoading(container,{scrollBottom:false});showError(error,'No se pudieron cargar los mensajes.');container.insertAdjacentHTML('beforeend','<div class="empty-state compact">No se pudieron cargar los mensajes. Comprueba tu conexión e inténtalo de nuevo.</div>');return;}
       rows=(data||[]).reverse();
       hasOlderMessages=(data||[]).length===MESSAGE_PAGE_SIZE;
       oldestMessageTimestamp=rows[0]?.created_at||null;
@@ -1321,6 +1354,7 @@
       await renderMessageRows(rows);
       container.scrollTop=container.scrollHeight;
     }
+    finishMessageLoading(container);
     updateLoadOlderButton();
     if(currentContext?.id!==context.id)return;
     const state=messageCache.get(key);
@@ -1635,8 +1669,8 @@
         const attachment = $('.message-attachment', article);
         const type = message.attachment.mimetype || '';
         const name = escapeHtml(message.attachment.name || 'archivo');
-        if (type.startsWith('image/')) attachment.innerHTML = `<a href="${signedUrl}" target="_blank" rel="noopener"><img src="${signedUrl}" alt="${name}" loading="lazy"></a>`;
-        else if (type.startsWith('video/')) attachment.innerHTML = `<video controls preload="metadata" src="${signedUrl}"></video><a href="${signedUrl}" download="${name}">Descargar vídeo</a>`;
+        if (type.startsWith('image/')) attachment.innerHTML = `<a class="message-image-link" href="${signedUrl}" target="_blank" rel="noopener noreferrer"><img class="message-media-image" src="${signedUrl}" alt="${name}" loading="lazy" decoding="async"></a>`;
+        else if (type.startsWith('video/')) attachment.innerHTML = `<video class="message-media-video" controls preload="metadata" src="${signedUrl}"></video><a href="${signedUrl}" download="${name}">Descargar vídeo</a>`;
         else attachment.innerHTML = `<a href="${signedUrl}" download="${name}">Descargar ${name}</a>`;
       }
     }
@@ -1646,6 +1680,13 @@
     const stickToBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
     container.append(template);
     renderedMessageIds.add(message.id);
+    const keepBottomIfNeeded=()=>{
+      if(container!==$('#messages-container'))return;
+      const distance=container.scrollHeight-container.scrollTop-container.clientHeight;
+      if(distance<160)container.scrollTop=container.scrollHeight;
+    };
+    article.querySelectorAll('.message-attachment img').forEach(media=>{media.addEventListener('load',keepBottomIfNeeded,{once:true});media.addEventListener('error',()=>media.classList.add('media-load-error'),{once:true});});
+    article.querySelectorAll('.message-attachment video').forEach(media=>media.addEventListener('loadedmetadata',keepBottomIfNeeded,{once:true}));
     await refreshMessageReactions(article, message.id, initialReactions);
     if(stickToBottom) container.scrollTop = container.scrollHeight;
   }
@@ -2168,58 +2209,83 @@
   }
 
   async function uploadAttachment(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file || !currentContext || !currentUser) return;
-    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
-    if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
-    const allowed = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm)|application\/(pdf|zip)|text\/plain)$/i;
-    if (file.type && !allowed.test(file.type)) { toast('Este tipo de archivo no está permitido.', 'error'); return; }
+    const file=event.target.files?.[0];
+    event.target.value='';
+    await uploadAttachmentFile(file);
+  }
 
-    const isConversation = currentContext.type === 'conversation';
+  async function handleComposerPaste(event) {
+    const items=[...(event.clipboardData?.items||[])];
+    const fromItems=items.filter(item=>item.kind==='file'&&(/^(image\/|video\/(mp4|webm)$)/i.test(item.type||'')))
+      .map(item=>item.getAsFile()).filter(Boolean);
+    const fromFiles=[...(event.clipboardData?.files||[])].filter(file=>/^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/i.test(file.type||''));
+    const files=fromItems.length?fromItems:fromFiles;
+    if(!files.length)return;
+    event.preventDefault();
+    for(let index=0;index<files.length;index++){
+      const source=files[index];
+      const ext=source.type==='image/jpeg'?'jpg':source.type==='image/webp'?'webp':source.type==='image/gif'?'gif':source.type==='video/webm'?'webm':source.type==='video/mp4'?'mp4':'png';
+      const file=new File([source],source.name||`pegado-${Date.now()}-${index+1}.${ext}`,{type:source.type||'image/png',lastModified:Date.now()});
+      await uploadAttachmentFile(file);
+    }
+  }
+
+  async function uploadAttachmentFile(file) {
+    if (!file || !currentContext || !currentUser) return;
+    const context={...currentContext};
+    const replySnapshot=replyTarget?{...replyTarget}:null;
+    const altSnapshot=activeAltProfile?{...activeAltProfile}:null;
+    if (context.type === 'channel' && context.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
+    if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
+    const extension=(file.name.split('.').pop()||'').toLowerCase();
+    let isZip=false;
+    if(extension==='zip'&&(!file.type||['application/zip','application/x-zip-compressed','application/octet-stream'].includes(file.type))){
+      const signature=new Uint8Array(await file.slice(0,4).arrayBuffer());
+      isZip=signature.length===4&&signature[0]===0x50&&signature[1]===0x4b&&(
+        (signature[2]===0x03&&signature[3]===0x04)||
+        (signature[2]===0x05&&signature[3]===0x06)||
+        (signature[2]===0x07&&signature[3]===0x08)
+      );
+      if(!isZip){toast('El archivo tiene extensión ZIP, pero su contenido no parece un ZIP válido.','error');return;}
+    }
+    const normalizedMime=isZip?'application/zip':(file.type||'application/octet-stream');
+    const allowed = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm)|application\/(pdf|zip)|text\/plain)$/i;
+    if (normalizedMime!=='application/octet-stream'&&!allowed.test(normalizedMime)) { toast('Este tipo de archivo no está permitido.', 'error'); return; }
+    if(normalizedMime==='application/octet-stream'&&!isZip){toast('No se pudo identificar el tipo de archivo.','error');return;}
+
+    const isConversation = context.type === 'conversation';
     const folder = isConversation ? 'dm' : 'community';
     const safeExtension = (file.name.split('.').pop() || 'bin').replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
-    const path = `${folder}/${currentContext.id}/${crypto.randomUUID()}.${safeExtension}`;
+    const path = `${folder}/${context.id}/${crypto.randomUUID()}.${safeExtension}`;
     const storage = client.storage.from('chat-media');
     toast('Subiendo archivo…');
 
-    let uploaded = false;
     try {
-      const {error: uploadError} = await storage.upload(path, file, {
-        contentType:file.type || 'application/octet-stream',
-        upsert:false
-      });
+      const {error: uploadError} = await storage.upload(path, file, {contentType:normalizedMime,upsert:false});
       if (uploadError) {
         if (/row-level security|security policy/i.test(uploadError.message || '')) {
           throw new Error('Supabase ha bloqueado la subida por sus políticas de Storage. Ejecuta el parche supabase/fix-chat-media-rls.sql en el SQL Editor y vuelve a intentarlo.');
         }
         throw uploadError;
       }
-      uploaded = true;
       const payload = {
         sender_id:currentUser.id,
         body:file.name || 'Archivo adjunto',
         message_type:'media',
-        ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}),
-        attachment:{path,name:file.name || 'archivo',mimetype:file.type || 'application/octet-stream'},
-        ...(replyTarget ? {reply_to:replyTarget.id} : {})
+        ...(altSnapshot ? {alt_profile_id:altSnapshot.id} : {}),
+        attachment:{path,name:file.name || 'archivo',mimetype:normalizedMime},
+        ...(replySnapshot ? {reply_to:replySnapshot.id} : {})
       };
-      payload[isConversation ? 'conversation_id' : 'channel_id'] = currentContext.id;
+      payload[isConversation ? 'conversation_id' : 'channel_id'] = context.id;
       const {error: messageError} = await client.from('messages').insert(payload);
       if (messageError) {
-        // Avoid leaving an inaccessible object behind when its message cannot be created.
         await storage.remove([path]);
-        uploaded = false;
         throw new Error(`El archivo se subió, pero no se pudo publicar el mensaje: ${messageError.message}`);
       }
-      clearReplyTarget();
+      if(currentContext?.id===context.id&&replyTarget?.id===replySnapshot?.id)clearReplyTarget();
       toast('Archivo enviado.', 'success');
     } catch (error) {
       showError(error, 'No se pudo subir el archivo.');
-    } finally {
-      if (uploaded) {
-        // Keep the object; its path is now referenced by the message row.
-      }
     }
   }
 
@@ -2727,7 +2793,18 @@
   });
 
   // ---------- Peer-to-peer voice rooms using private Supabase Realtime signalling ----------
-  function voiceStatus(text){const node=$('#voice-status');if(node)node.textContent=text;}
+  function voiceStatus(text){const node=$('#voice-status');if(node)node.textContent=text;const dock=$('#voice-session-dock-subtitle');if(dock&&voiceSession)dock.textContent=text;}
+  function renderVoiceDock(){
+    const dock=$('#voice-session-dock');if(!dock)return;
+    const session=voiceSession;
+    const show=Boolean(session&&currentContext?.type==='channel'&&currentContext?.id!==session.channelId);
+    dock.classList.toggle('hidden',!show);
+    if(!show)return;
+    const title=$('#voice-session-dock-title');if(title)title.textContent=`En llamada · ${session.channelName||'Canal de voz'}`;
+    const subtitle=$('#voice-session-dock-subtitle');if(subtitle)subtitle.textContent=session.localJoined?(session.muted?'Micrófono silenciado · la llamada sigue activa':'La llamada continúa mientras navegas por Nexus.'):'Conectando a la sala de voz…';
+    const mute=$('#voice-session-dock-mute');if(mute){mute.disabled=!session.localJoined;mute.textContent=session.muted?'Activar micrófono':'Silenciar';}
+    const leave=$('#voice-session-dock-leave');if(leave)leave.disabled=!session.localJoined;
+  }
   function renderVoiceParticipants(){
     const host=$('#voice-participants');if(!host||!voiceSession)return;
     const state=voiceSession.channel?.presenceState?.()||{};const participants=[];
@@ -2744,6 +2821,8 @@
       }).join('')||'<span class="tag">Aún no hay participantes conectados</span>';
     }
     const join=$('#join-voice-room'),mute=$('#voice-mute'),leave=$('#leave-voice-room');if(join)join.disabled=Boolean(voiceSession.localJoined);if(mute)mute.disabled=!voiceSession.localJoined;if(leave)leave.disabled=!voiceSession.localJoined;
+    if(mute)mute.textContent=voiceSession.muted?'Activar micrófono':'Silenciar';
+    renderVoiceDock();
   }
   function getVoicePeer(peerId){
     if(voiceSession.peers.has(peerId))return voiceSession.peers.get(peerId);
@@ -2752,7 +2831,7 @@
     const peer={pc,candidates:[],audio:null};voiceSession.peers.set(peerId,peer);
     voiceSession.stream.getAudioTracks().forEach(track=>pc.addTrack(track,voiceSession.stream));
     pc.onicecandidate=event=>{if(event.candidate)sendVoiceSignal(peerId,{candidate:event.candidate.toJSON()});};
-    pc.ontrack=event=>{const stream=event.streams?.[0];if(!stream)return;let audio=peer.audio;if(!audio){audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.dataset.voicePeer=peerId;$('#voice-audio-host')?.append(audio);peer.audio=audio;}audio.srcObject=stream;audio.play().catch(()=>voiceStatus('Toca la página para permitir la reproducción de audio.'));};
+    pc.ontrack=event=>{const stream=event.streams?.[0];if(!stream)return;let audio=peer.audio;if(!audio){audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.dataset.voicePeer=peerId;($('#global-voice-audio-host')||$('#voice-audio-host'))?.append(audio);peer.audio=audio;}audio.srcObject=stream;audio.play().catch(()=>voiceStatus('Toca la página para permitir la reproducción de audio.'));};
     pc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(pc.connectionState))console.warn('Conexión de voz:',peerId,pc.connectionState);};
     return peer;
   }
@@ -2782,22 +2861,23 @@
       const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
       const channelId=currentContext.id;const topic=`nexus-voice:${channelId}`;
       const realtime=client.channel(topic,{config:{private:true,presence:{key:currentUser.id},broadcast:{ack:true,self:false}}});
-      voiceSession={channelId,channel:realtime,stream,peers:new Map(),localJoined:false,muted:false};
+      voiceSession={channelId,channelName:String(currentContext.title||'Canal de voz').replace(/^◖\s*/,''),channel:realtime,stream,peers:new Map(),localJoined:false,muted:false};
+      renderVoiceDock();
       realtime.on('broadcast',{event:'signal'},handleVoiceSignal);
       realtime.on('presence',{event:'sync'},syncVoicePeers);
       realtime.on('presence',{event:'join'},syncVoicePeers);
       realtime.on('presence',{event:'leave'},event=>{const key=event?.key||event?.leftPresences?.[0]?.user_id;if(key&&voiceSession?.peers.has(key)){const peer=voiceSession.peers.get(key);peer.pc.close();peer.audio?.remove();voiceSession.peers.delete(key);}renderVoiceParticipants();renderContextPresence();});
       realtime.subscribe(async status=>{
         if(status==='SUBSCRIBED'){
-          try{await realtime.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});voiceSession.localJoined=true;voiceStatus('Conectado · micrófono activo');renderVoiceParticipants();renderContextPresence();await syncVoicePeers();}
+          try{await realtime.track({user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),status_text:String(profile?.settings?.customStatus||'').slice(0,60),joined_at:new Date().toISOString()});voiceSession.localJoined=true;voiceStatus('Conectado · micrófono activo');renderVoiceParticipants();renderVoiceDock();renderContextPresence();await syncVoicePeers();}
           catch(error){voiceStatus('No se pudo entrar en la sala.');showError(error,'No se pudo activar la señalización de voz.');}
         }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){voiceStatus('No se pudo conectar a la sala. Comprueba las políticas Realtime privadas.');}
       });
-    }catch(error){if(voiceSession?.stream)voiceSession.stream.getTracks().forEach(track=>track.stop());voiceSession=null;voiceStatus(error.name==='NotAllowedError'?'Permiso de micrófono denegado.':error.message||'No se pudo activar el micrófono.');showError(error,'No se pudo entrar en el canal de voz.');renderVoiceParticipants();}
+    }catch(error){if(voiceSession?.stream)voiceSession.stream.getTracks().forEach(track=>track.stop());voiceSession=null;renderVoiceDock();voiceStatus(error.name==='NotAllowedError'?'Permiso de micrófono denegado.':error.message||'No se pudo activar el micrófono.');showError(error,'No se pudo entrar en el canal de voz.');renderVoiceParticipants();}
   }
-  function toggleVoiceMute(){if(!voiceSession?.stream)return;voiceSession.muted=!voiceSession.muted;voiceSession.stream.getAudioTracks().forEach(track=>track.enabled=!voiceSession.muted);$('#voice-mute').textContent=voiceSession.muted?'Activar micrófono':'Silenciar';voiceStatus(voiceSession.muted?'Conectado · micrófono silenciado':'Conectado · micrófono activo');}
+  function toggleVoiceMute(){if(!voiceSession?.stream)return;voiceSession.muted=!voiceSession.muted;voiceSession.stream.getAudioTracks().forEach(track=>track.enabled=!voiceSession.muted);const button=$('#voice-mute');if(button)button.textContent=voiceSession.muted?'Activar micrófono':'Silenciar';voiceStatus(voiceSession.muted?'Conectado · micrófono silenciado':'Conectado · micrófono activo');renderVoiceDock();}
   async function leaveVoiceRoom(options={}){
-    const session=voiceSession;if(!session)return;voiceSession=null;
+    const session=voiceSession;if(!session)return;voiceSession=null;renderVoiceDock();
     // Stop local capture immediately; do not leave the microphone active while waiting for Realtime.
     session.stream?.getTracks().forEach(track=>track.stop());
     try{await session.channel?.untrack();}catch{};
@@ -2808,7 +2888,7 @@
   }
 
   async function openCommunityChannel(channel) {
-    if (voiceSession && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
+    if (voiceSession && channel.type==='voice' && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
     switchView('chats');
     if(currentContext?.type==='channel'&&currentContext.id===channel.id){
       $('#app-screen').classList.add('mobile-chat-open');
@@ -2819,12 +2899,14 @@
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
+      renderVoiceDock();
       switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
       await showMessagePanel();
       $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
       return;
     }
     currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || ''};
+    renderVoiceDock();
     switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
     await showMessagePanel();
     if (channel.type === 'media') $('#message-input').placeholder = 'Este canal solo admite archivos…';
