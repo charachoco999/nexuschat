@@ -32,7 +32,6 @@
   let showArchivedConversations = false;
   const renderingMessageIds = new Set();
   const renderedMessageIds = new Set();
-  const REACTION_OPTIONS = ['👍','❤️','😂','😮','🎉','🔥','👀','🥳'];
   let currentCommunity = null;
   let currentCommunityChannels = [];
   let friendsCache = [];
@@ -50,6 +49,9 @@
   const notificationSeenIds = new Set();
   const mentionCandidateCache = new Map();
   const customEmojiCache = new Map();
+  const customReactionCache = new Map();
+  let assetPickerMode = 'composer';
+  let reactionTargetMessageId = null;
   let customEmojiCacheKey = '';
   let assetPickerType = 'sticker';
   let voiceSession = null;
@@ -60,7 +62,7 @@
   const onlineDeviceTypes = new Map();
   const unreadCounts = new Map();
   let contextPresenceMembers = [];
-  const STANDARD_EMOJIS = ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','😊','😍','🥰','😘','😎','🤔','🫡','😭','😡','😴','🤯','🥳','🤩','🙃','😇','🙏','👏','👍','👎','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','🔥','✨','⭐','🌟','🎉','🎊','💯','🚀','💡','💻','🎮','🐱','🐶','🌈','☀️','🌙','🍀','🍕','🍪','☕'];
+  const STANDARD_EMOJIS = ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "🥲", "☺️", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥸", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🫣", "🤭", "🫢", "🫡", "🤫", "🫠", "🤥", "😶", "😐", "😑", "😬", "🫨", "🫥", "😮", "😯", "😲", "🥱", "😴", "🤤", "😪", "😵", "😵‍💫", "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "👹", "👺", "💀", "☠️", "👻", "👽", "👾", "🤖", "💩", "🙈", "🙉", "🙊", "🐵", "🐒", "🦍", "🦧", "🐶", "🐕", "🦮", "🐕‍🦺", "🐩", "🐺", "🦊", "🦝", "🐱", "🐈", "🐈‍⬛", "🦁", "🐯", "🐅", "🐆", "🐴", "🫎", "🫏", "🐎", "🦄", "🦓", "🦌", "🦬", "🐮", "🐂", "🐃", "🐄", "🐷", "🐖", "🐗", "🐽", "🐏", "🐑", "🐐", "🐪", "🐫", "🦙", "🦒", "🐘", "🦣", "🦏", "🦛", "🐭", "🐁", "🐀", "🐹", "🐰", "🐇", "🐿️", "🦫", "🦔", "🦇", "🐻", "🐻‍❄️", "🐨", "🐼", "🦥", "🦦", "🦨", "🦘", "🦡", "🐾", "🦃", "🐔", "🐓", "🐣", "🐤", "🐥", "🐦", "🐧", "🕊️", "🦅", "🦆", "🦢", "🦉", "🦤", "🪶", "🦩", "🦚", "🦜", "🪽", "🐸", "🐊", "🐢", "🦎", "🐍", "🐲", "🐉", "🦕", "🦖", "🐳", "🐋", "🐬", "🦭", "🐟", "🐠", "🐡", "🦈", "🐙", "🐚", "🪸", "🪼", "🦀", "🦞", "🦐", "🦑", "🦪", "🐌", "🦋", "🐛", "🐜", "🐝", "🪲", "🐞", "🦗", "🪳", "🕷️", "🕸️", "🦂", "🦟", "🪰", "🪱", "🦠", "💐", "🌸", "💮", "🪷", "🏵️", "🌹", "🥀", "🌺", "🌻", "🌼", "🌷", "🪻", "🌱", "🪴", "🌲", "🌳", "🌴", "🌵", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🪹", "🪺", "🍄", "🪨", "🌰", "🥑", "🍆", "🥔", "🥕", "🌽", "🌶️", "🫑", "🥒", "🥬", "🥦", "🧄", "🧅", "🥜", "🫘", "🍞", "🥐", "🥖", "🫓", "🥨", "🥯", "🥞", "🧇", "🧀", "🍖", "🍗", "🥩", "🥓", "🍔", "🍟", "🍕", "🌭", "🥪", "🌮", "🌯", "🫔", "🥙", "🧆", "🍳", "🥘", "🍲", "🫕", "🥣", "🥗", "🍿", "🧈", "🧂", "🥫", "🍱", "🍘", "🍙", "🍚", "🍛", "🍜", "🍝", "🍠", "🍢", "🍣", "🍤", "🍥", "🥮", "🍡", "🥟", "🥠", "🥡", "🍦", "🍧", "🍨", "🍩", "🍪", "🎂", "🍰", "🧁", "🥧", "🍫", "🍬", "🍭", "🍮", "🍯", "🍼", "🥛", "☕", "🫖", "🍵", "🍶", "🍾", "🥤", "🧋", "🧃", "🧉", "🧊", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🍴", "🥄", "🔪", "🫙", "🏺", "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳", "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🏋️", "🤼", "🤸", "⛹️", "🤺", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🎗️", "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🪈", "🎲", "♟️", "🎯", "🎳", "🎮", "🕹️", "🧩", "🧸", "🪅", "🪩", "🪆", "🖼️", "🎰", "🧮", "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🛵", "🏍️", "🚲", "🛴", "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚞", "🚝", "🚄", "🚅", "🚈", "🚂", "✈️", "🛫", "🛬", "🛩️", "💺", "🚁", "🚀", "🛸", "🚢", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "⚓", "🛟", "⛽", "🚧", "🚦", "🚥", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", "🎡", "🎢", "🎠", "⛲", "⛱️", "🏖️", "🏝️", "🏜️", "🌋", "⛰️", "🏔️", "🗻", "🏕️", "⛺", "🛖", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬", "🏣", "🏤", "🏥", "🏦", "🏨", "🏪", "🏫", "🏩", "💒", "🏛️", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋", "🌅", "🌄", "🌠", "🎇", "🎆", "🌇", "🌆", "🏙️", "🌃", "🌌", "🌉", "🌁", "🌈", "🌂", "☂️", "☔", "⛅", "☀️", "🌤️", "🌥️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "🌪️", "🌫️", "🌊", "💧", "💦", "☁️", "🔥", "🌟", "⭐", "✨", "⚡", "☄️", "💥", "🌀", "💤", "💢", "💬", "🗯️", "💭", "🕳️", "👋", "🤚", "🖐️", "✋", "🖖", "🫱", "🫲", "🫳", "🫴", "🫷", "🫸", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "🫵", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🫀", "🫁", "🦷", "🦴", "👀", "👁️", "👅", "👄", "🫦", "💋", "🩸", "🩹", "🩺", "🩻", "🧬", "🌡️", "🎈", "🎀", "💎", "💍", "🧿", "🪬", "🔮", "🪄", "🎁", "🎉", "🎊", "🧨", "💫", "💯", "💡", "💻", "📱", "🖥️", "⌨️", "🖱️", "🖨️", "💾", "💿", "📀", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️", "📟", "📠", "🔋", "🪫", "🔌", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙", "💰", "💳", "🧾", "💹", "📈", "📉", "📊", "🧳", "🌍", "🌎", "🌏", "🌐", "🧭", "🏳️", "🏴", "🏁", "🚩", "🎌", "🏳️‍🌈", "🏳️‍⚧️", "🇪🇸", "🇬🇧", "🇫🇷", "🇩🇪", "🇮🇹", "🇯🇵", "🇺🇸", "🇨🇦", "🇧🇷", "🇲🇽", "🇦🇷", "🇨🇳", "🇰🇷", "🇮🇳", "🇦🇺", "🇳🇿", "🇺🇦", "🇵🇹", "🇳🇱", "🇸🇪", "🇳🇴", "🇫🇮", "🇵🇱", "🇹🇷", "🇬🇷", "🇮🇪", "🇨🇭", "🇧🇪", "🇦🇹", "🇨🇿", "🇩🇰", "🇮🇸", "❤️", "🩷", "🧡", "💛", "💚", "💙", "🩵", "💜", "🤎", "🖤", "🩶", "🤍", "💔", "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉️", "☸️", "🪯", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "🉑", "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️", "🆚", "🉐", "㊙️", "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🅾️", "🆑", "🅿️", "🆘", "🆗", "🆙", "🆒", "🆕", "🆓", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "🟫", "⬛", "⬜", "◼️", "◻️", "▪️", "▫️", "🔶", "🔷", "🔸", "🔹", "🔺", "🔻", "💠", "🔘", "🔳", "🔲", "🏧", "🚮", "🚰", "♿", "🚹", "🚺", "🚻", "🚼", "🚾", "🛂", "🛃", "🛄", "🛅", "🚸", "⛔", "🚫", "🚳", "🚭", "🚯", "🚱", "🚷", "📵", "🔞", "⬆️", "↗️", "➡️", "↘️", "⬇️", "↙️", "⬅️", "↖️", "↕️", "↔️", "🔃", "🔄", "🔙", "🔚", "🔛", "🔜", "🔝", "⚠️", "🔰", "⭕", "✅", "☑️", "✔️", "❌", "❎", "➕", "➖", "➗", "✖️", "♾️", "‼️", "⁉️", "❓", "❔", "❕", "❗", "〰️", "💱", "💲", "⚕️", "♻️", "⚜️", "🔱", "📛", "➰", "➿", "✳️", "❇️", "©️", "®️", "™️", "🔠", "🔡", "🔢", "🔣", "🔤", "🆖", "🔟", "#️⃣", "*️⃣", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "⏏️", "⏩", "⏪", "⏫", "⏬", "⏭️", "⏮️", "⏯️", "⏸️", "⏹️", "⏺️", "🎦", "🔅", "🔆", "📶", "🛜"];
   const DEFAULT_MESSAGE_PAGE_SIZE = 50;
   const messagePageSize = () => Math.max(25, Math.min(100, Number(profile?.settings?.messagePageSize) || DEFAULT_MESSAGE_PAGE_SIZE));
   let audioRecorder = null;
@@ -502,8 +504,8 @@
     }
     const statusNode=$('#sidebar-custom-status');
     if(statusNode){statusNode.textContent=String(profile?.settings?.customStatus||'').slice(0,60);statusNode.title=statusNode.textContent;}
-    if (/^#[0-9a-f]{6}$/i.test(profile?.settings?.accent || '')) document.documentElement.style.setProperty('--accent', profile.settings.accent);
-    if (/^https:\/\//i.test(profile?.settings?.background || '')) document.body.style.backgroundImage = `url('${profile.settings.background}')`;
+    applyClientTheme(profile?.settings||{});
+    document.body.style.backgroundImage = /^https:\/\//i.test(profile?.settings?.background || '') ? `url('${profile.settings.background}')` : '';
     applyOwnProfileFont();
   }
 
@@ -1374,8 +1376,54 @@
     button.disabled=loadingOlderMessages;
     button.textContent=loadingOlderMessages?'Cargando…':'Cargar mensajes anteriores';
   }
+  function unwrapMessageGroups(container) {
+    if(!container)return;
+    for(const group of [...container.querySelectorAll(':scope > .message-group')]){
+      for(const message of group.querySelectorAll('.message'))message.classList.remove('message-group-continuation');
+      while(group.firstChild)container.insertBefore(group.firstChild,group);
+      group.remove();
+    }
+    for(const message of container.querySelectorAll(':scope > .message'))message.classList.remove('message-group-continuation');
+  }
+  function canGroupMessages(previous,next){
+    if(!previous||!next||previous.dataset.senderId!==next.dataset.senderId||previous.dataset.altProfileId!==next.dataset.altProfileId)return false;
+    const a=Date.parse(previous.dataset.createdAt||'');const b=Date.parse(next.dataset.createdAt||'');
+    return Number.isFinite(a)&&Number.isFinite(b)&&b>=a&&b-a<=5*60*1000;
+  }
+  function rebuildMessageGroups(container=$('#messages-container')){
+    if(!container)return;
+    unwrapMessageGroups(container);
+    const enabled=profile?.settings?.groupMessages!==false;
+    container.classList.toggle('message-grouping-enabled',enabled);
+    if(!enabled)return;
+    const children=[...container.childNodes];
+    const messages=children.filter(node=>node.nodeType===1&&node.classList.contains('message'));
+    if(messages.length<2)return;
+    const loadButton=children.find(node=>node.nodeType===1&&node.id==='load-older-messages')||null;
+    const otherNodes=children.filter(node=>node!==loadButton&&!(node.nodeType===1&&node.classList.contains('message')));
+    const fragment=document.createDocumentFragment();
+    if(loadButton)fragment.append(loadButton);
+    let index=0;
+    while(index<messages.length){
+      const groupMessages=[messages[index]];
+      let next=index+1;
+      while(next<messages.length&&canGroupMessages(groupMessages.at(-1),messages[next])){groupMessages.push(messages[next]);next++;}
+      if(groupMessages.length===1)fragment.append(groupMessages[0]);
+      else{
+        const group=document.createElement('div');group.className='message-group';
+        groupMessages.forEach((message,messageIndex)=>{message.classList.toggle('message-group-continuation',messageIndex>0);group.append(message);});
+        fragment.append(group);
+      }
+      index=next;
+    }
+    for(const node of otherNodes)fragment.append(node);
+    container.replaceChildren(fragment);
+  }
+  const customReactionId = value => typeof value==='string'&&/^custom:[0-9a-f-]{36}$/i.test(value)?value.slice(7):null;
   async function renderMessageRows(rows) {
     if(!rows?.length)return;
+    const renderContainer=$('#messages-container');
+    unwrapMessageGroups(renderContainer);
     const renderContextKey=messageContextKey();
     const messageIds=rows.map(row=>row.id);
     const replyIds=[...new Set(rows.map(row=>row.reply_to).filter(Boolean))];
@@ -1391,6 +1439,16 @@
       stickerAssetIds.length?client.from('custom_assets').select('id,name,asset_url').in('id',stickerAssetIds).eq('asset_type','sticker'):Promise.resolve({data:[],error:null}),
       emojiAssetIds.length?client.from('custom_assets').select('id,name,asset_url,animated').in('id',emojiAssetIds).eq('asset_type','emoji').is('archived_at',null):Promise.resolve({data:[],error:null})
     ]);
+    const reactionCustomIds=[...new Set((reactionsResponse.data||[]).map(row=>customReactionId(row.emoji)).filter(Boolean))];
+    if(reactionCustomIds.length){
+      const {data:reactionAssets,error:reactionAssetError}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',reactionCustomIds).eq('asset_type','emoji');
+      if(reactionAssetError)console.warn('No se pudieron resolver emojis personalizados de reacciones:',reactionAssetError);
+      else{
+        const reactionAssetRows=reactionAssets||[];
+        const reactionUrls=await signedUrlLookup('nexus-assets',reactionAssetRows.map(asset=>asset.asset_url));
+        for(const asset of reactionAssetRows){const signedUrl=reactionUrls.get(asset.asset_url);if(signedUrl)customReactionCache.set(asset.id,{...asset,signedUrl});}
+      }
+    }
     const profiles={...profilesResponse};
     const replyRows=repliesResponse.data||[];
     const replyProfiles=replyRows.length?await fetchProfiles(replyRows.map(row=>row.sender_id)):{};
@@ -1424,6 +1482,7 @@
       if(messageContextKey()!==renderContextKey) return;
       await appendMessage(message,profiles[message.sender_id],reactionsByMessage.get(message.id)||[],batchData);
     }
+    rebuildMessageGroups(renderContainer);
   }
   function messageLoadingMarkup(){
     return `<div class="message-loading" role="status" aria-label="Cargando mensajes"><div class="message-loading-heading"><span></span><span></span></div><div class="message-loading-line"></div><div class="message-loading-line short"></div><div class="message-loading-heading second"><span></span><span></span></div><div class="message-loading-line medium"></div><div class="message-loading-line short"></div><div class="message-loading-heading third"><span></span><span></span></div><div class="message-loading-line"></div></div>`;
@@ -1536,10 +1595,12 @@
         oldestMessageTimestamp=older[0]?.created_at||oldestMessageTimestamp;
         oldestMessageId=older[0]?.id||oldestMessageId;
         await renderMessageRows(older);
+        unwrapMessageGroups(container);
         const button=$('#load-older-messages');
         const messageNodes=older.map(row=>$(`[data-message-id="${row.id}"]`,container)).filter(Boolean);
         const firstExisting=[...container.querySelectorAll('.message')].find(node=>!messageNodes.includes(node));
         for(const node of messageNodes)container.insertBefore(node,firstExisting||null);
+        rebuildMessageGroups(container);
         container.scrollTop=previousTop+(container.scrollHeight-previousHeight);
       }else hasOlderMessages=false;
     }catch(error){showError(error,'No se pudieron cargar mensajes anteriores.');}
@@ -1630,6 +1691,8 @@
     const article = $('.message', template);
     article.dataset.messageId = message.id;
     article.dataset.createdAt = message.created_at || '';
+    article.dataset.senderId = message.sender_id || '';
+    article.dataset.altProfileId = message.alt_profile_id || '';
     article.__nexusMessage = message;
     const avatar = $('.avatar-message', article);
     const shownSender = message.alt_profile_id ? await resolveAltSender(message.alt_profile_id, sender) : (sender || {});
@@ -1717,7 +1780,7 @@
         if (!confirm('¿Eliminar este mensaje?')) return;
         const {error} = await client.from('messages').delete().eq('id',message.id);
         if (error) showError(error,'No tienes permiso para eliminar este mensaje.');
-        else { const key=messageContextKey(); const state=messageCache.get(key); if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==message.id),state.hasOlder); article.remove(); renderedMessageIds.delete(message.id); toast('Mensaje eliminado.','success'); }
+        else { const key=messageContextKey(); const state=messageCache.get(key); if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==message.id),state.hasOlder); article.remove(); renderedMessageIds.delete(message.id); rebuildMessageGroups(container); toast('Mensaje eliminado.','success'); }
       });
       messageActions.append(deleteButton);
     }
@@ -1834,6 +1897,11 @@
       if (error) { console.warn('No se pudieron cargar las reacciones:', error); return; }
       rows = data || [];
     }
+    const missingCustomIds=[...new Set((rows||[]).map(row=>customReactionId(row.emoji)).filter(id=>id&&!customReactionCache.has(id)))];
+    if(missingCustomIds.length){
+      const {data:assets,error:assetsError}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',missingCustomIds).eq('asset_type','emoji');
+      if(!assetsError&&assets?.length){const urls=await signedUrlLookup('nexus-assets',assets.map(asset=>asset.asset_url));for(const asset of assets){const signedUrl=urls.get(asset.asset_url);if(signedUrl)customReactionCache.set(asset.id,{...asset,signedUrl});}}
+    }
     const grouped = new Map();
     for (const row of rows || []) {
       if (!grouped.has(row.emoji)) grouped.set(row.emoji, []);
@@ -1844,7 +1912,13 @@
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = `reaction-chip ${users.includes(currentUser.id) ? 'selected' : ''}`;
-      chip.textContent = `${emoji} ${users.length}`;
+      const customId=customReactionId(emoji);
+      if(customId){
+        const asset=customReactionCache.get(customId);
+        if(asset?.signedUrl){const image=document.createElement('img');image.src=asset.signedUrl;image.alt=asset.name||'Emoji personalizado';image.title=`:${asset.name||'emoji'}:`;image.loading='lazy';chip.append(image);}
+        else{const fallback=document.createElement('span');fallback.textContent='◇';fallback.title='Emoji personalizado no disponible';chip.append(fallback);}
+      }else{const symbol=document.createElement('span');symbol.textContent=emoji;chip.append(symbol);}
+      const count=document.createElement('span');count.textContent=String(users.length);chip.append(count);
       chip.title = users.length === 1 ? '1 reacción' : `${users.length} reacciones`;
       chip.addEventListener('click', () => toggleMessageReaction(messageId, emoji));
       bar.append(chip);
@@ -1854,16 +1928,21 @@
     add.className = 'reaction-add';
     add.textContent = '＋';
     add.title = 'Añadir reacción';
-    add.addEventListener('click', async () => {
-      const selected = await ask('Añadir reacción', `Elige uno: ${REACTION_OPTIONS.join(' ')}`, 'Emoji', '👍');
-      if (!selected) return;
-      if (!REACTION_OPTIONS.includes(selected)) { toast('Elige uno de los emojis disponibles.'); return; }
-      await toggleMessageReaction(messageId, selected, true);
-    });
+    add.addEventListener('click', () => openReactionPicker(messageId));
     bar.append(add);
   }
 
   async function toggleMessageReaction(messageId, emoji, forceAdd = false) {
+    const customId=customReactionId(emoji);
+    if(customId){
+      if(!customReactionCache.has(customId)){
+        const {data:asset,error:assetError}=await client.from('custom_assets').select('id,name,asset_url,animated').eq('id',customId).eq('asset_type','emoji').maybeSingle();
+        if(assetError||!asset){toast('Ese emoji personalizado no está disponible en este chat.','error');return;}
+        const urls=await signedUrlLookup('nexus-assets',[asset.asset_url]);const signedUrl=urls.get(asset.asset_url);
+        if(!signedUrl){toast('No se pudo cargar ese emoji personalizado.','error');return;}
+        customReactionCache.set(customId,{...asset,signedUrl});
+      }
+    }else if(!STANDARD_EMOJIS.includes(emoji)){toast('Ese emoji no está disponible.','error');return;}
     const {data:existing, error:readError} = await client.from('message_reactions').select('message_id').eq('message_id',messageId).eq('user_id',currentUser.id).eq('emoji',emoji).maybeSingle();
     if (readError) { showError(readError, 'No se pudo consultar la reacción. Ejecuta la migración v0.4.'); return; }
     const response = existing && !forceAdd
@@ -2025,11 +2104,13 @@
     const old=$(`[data-message-id="${message.id}"]`,container);
     if(!old)return;
     const nearBottom=container.scrollHeight-container.scrollTop-container.clientHeight<90;
+    unwrapMessageGroups(container);
     old.remove();renderedMessageIds.delete(message.id);
     const profiles=await fetchProfiles([message.sender_id]);
     await appendMessage(message,profiles[message.sender_id]);
     const nodes=[...container.querySelectorAll('.message')].sort((a,b)=>new Date(a.dataset.createdAt)-new Date(b.dataset.createdAt));
     for(const node of nodes)container.append(node);
+    rebuildMessageGroups(container);
     if(nearBottom)container.scrollTop=container.scrollHeight;
   }
   function subscribeMessages() {
@@ -2057,7 +2138,7 @@
         const id=payload.old?.id;if(!id)return;
         const key=messageContextKey(context);const state=messageCache.get(key);
         if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==id),state.hasOlder);
-        $(`[data-message-id="${id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(id);
+        $(`[data-message-id="${id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(id);rebuildMessageGroups($('#messages-container'));
       })
       .on('postgres_changes',{event:'*',schema:'public',table:'message_reactions'},async payload=>{
         const messageId=payload.new?.message_id||payload.old?.message_id;if(!messageId)return;
@@ -2202,9 +2283,9 @@
     if(!currentContext)return;
     const key=`${currentContext.type}:${currentContext.id}:${currentCommunity?.id||''}`;
     if(!force&&customEmojiCacheKey===key)return;
-    customEmojiCache.clear();customEmojiCacheKey=key;
+    customEmojiCache.clear();customReactionCache.clear();customEmojiCacheKey=key;
     const rows=await listCustomAssets('emoji');
-    for(const row of rows)if(row.signedUrl)customEmojiCache.set(row.name,{...row});
+    for(const row of rows)if(row.signedUrl){customEmojiCache.set(row.name,{...row});customReactionCache.set(row.id,{...row});}
   }
   function collectCustomEmojiIds(body){
     const ids=[];const regex=/:([a-z0-9_-]{2,32}):/gi;let match;
@@ -2217,7 +2298,7 @@
     const {data,error}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',ids).eq('asset_type','emoji');
     if(error){console.warn('No se pudieron resolver los emojis de un mensaje:',error);return;}
     const assets=data||[];const urls=await signedUrlLookup('nexus-assets',assets.map(asset=>asset.asset_url));
-    for(const asset of assets){const signedUrl=urls.get(asset.asset_url);if(signedUrl)customEmojiCache.set(asset.name,{...asset,signedUrl});}
+    for(const asset of assets){const signedUrl=urls.get(asset.asset_url);if(signedUrl){customEmojiCache.set(asset.name,{...asset,signedUrl});customReactionCache.set(asset.id,{...asset,signedUrl});}}
   }
   function renderCustomEmojiTokens(container){
     if(!container||!customEmojiCache.size)return;
@@ -2230,28 +2311,38 @@
   }
   function openAssetPicker(type='sticker'){
     if(!currentContext){toast('Abre primero una conversación o canal.');return;}
+    assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);
     assetPickerType=type;if(type!=='standard')$('#custom-asset-type').value=type;
     const scope=$('#custom-asset-scope');scope.querySelector('[value="conversation"]').disabled=currentContext.type!=='conversation';scope.querySelector('[value="community"]').disabled=currentContext.type!=='channel'||!currentCommunity;
     scope.value='personal';$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab.dataset.assetTab===type));$('#asset-picker-dialog').showModal();loadAssetPicker();
+  }
+  function openReactionPicker(messageId){
+    if(!currentContext||!messageId)return;
+    assetPickerMode='reaction';reactionTargetMessageId=messageId;assetPickerType='standard';
+    $('#asset-upload-form')?.classList.add('hidden');$$('[data-asset-tab]').forEach(tab=>{tab.hidden=tab.dataset.assetTab==='sticker';tab.classList.toggle('active',tab.dataset.assetTab==='standard');});
+    $('#asset-picker-dialog').showModal();loadAssetPicker();
   }
   async function loadAssetPicker(){
     const host=$('#asset-picker-grid');if(!host)return;
     if(assetPickerType==='standard'){
       $('#asset-upload-form')?.classList.add('hidden');
       host.innerHTML=`<div class="standard-emoji-grid">${STANDARD_EMOJIS.map(emoji=>`<button type="button" class="standard-emoji" data-standard-emoji="${emoji}" aria-label="Insertar ${emoji}">${emoji}</button>`).join('')}</div>`;
-      $$('[data-standard-emoji]').forEach(button=>button.addEventListener('click',()=>{const input=$('#message-input');if(!input)return;input.setRangeText(button.dataset.standardEmoji,input.selectionStart,input.selectionEnd,'end');input.focus();autoResizeComposer(input);broadcastTypingState(true);}));
+      $$('[data-standard-emoji]').forEach(button=>button.addEventListener('click',async()=>{if(assetPickerMode==='reaction'){const target=reactionTargetMessageId;if(!target)return;await toggleMessageReaction(target,button.dataset.standardEmoji,true);$('#asset-picker-dialog').close();return;}const input=$('#message-input');if(!input)return;input.setRangeText(button.dataset.standardEmoji,input.selectionStart,input.selectionEnd,'end');input.focus();autoResizeComposer(input);broadcastTypingState(true);}));
       return;
     }
-    $('#asset-upload-form')?.classList.remove('hidden');
+    $('#asset-upload-form')?.classList.toggle('hidden',assetPickerMode==='reaction');
     $('#custom-asset-type').value=assetPickerType;
     host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';
     const rows=await listCustomAssets(assetPickerType);
+    if(assetPickerType==='emoji')for(const row of rows)if(row.signedUrl)customReactionCache.set(row.id,{...row});
     host.innerHTML=rows.length?rows.map(row=>`<article class="custom-asset-card"><img src="${escapeHtml(row.signedUrl)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${row.scope==='personal'?'Personal':row.scope==='conversation'?'Conversación':'Megagrupo'}${row.animated?' · GIF':''}</small><div><button type="button" class="button button-primary" data-use-custom-asset="${row.id}">${assetPickerType==='emoji'?'Insertar':'Enviar'}</button>${row.owner_id===currentUser.id?`<button type="button" class="button button-secondary" data-archive-custom-asset="${row.id}">Archivar</button>`:''}</div></article>`).join(''):'<p class="empty-state compact">No hay recursos en este ámbito. Sube el primero.</p>';
-    $$('[data-use-custom-asset]').forEach(button=>button.addEventListener('click',()=>{const item=rows.find(row=>row.id===button.dataset.useCustomAsset);if(!item)return;if(assetPickerType==='emoji'){const input=$('#message-input');const token=`:${item.name}: `;const start=input.selectionStart,end=input.selectionEnd;input.setRangeText(token,start,end,'end');input.focus();loadCustomEmojiCache(true);}else sendStickerMessage(item);}));
+    $$('[data-use-custom-asset]').forEach(button=>button.addEventListener('click',async()=>{const item=rows.find(row=>row.id===button.dataset.useCustomAsset);if(!item)return;if(assetPickerMode==='reaction'&&assetPickerType==='emoji'){const target=reactionTargetMessageId;if(target){customReactionCache.set(item.id,{...item});await toggleMessageReaction(target,`custom:${item.id}`,true);$('#asset-picker-dialog').close();}return;}if(assetPickerType==='emoji'){const input=$('#message-input');const token=`:${item.name}: `;const start=input.selectionStart,end=input.selectionEnd;input.setRangeText(token,start,end,'end');input.focus();loadCustomEmojiCache(true);}else sendStickerMessage(item);}));
     $$('[data-archive-custom-asset]').forEach(button=>button.addEventListener('click',()=>archiveCustomAsset(button.dataset.archiveCustomAsset)));
   }
-  $('#close-asset-picker').addEventListener('click',()=>$('#asset-picker-dialog').close());
-  $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{assetPickerType=button.dataset.assetTab;if(assetPickerType!=='standard')$('#custom-asset-type').value=assetPickerType;$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab===button));loadAssetPicker();}));
+  function closeAssetPicker(){assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);$('#asset-picker-dialog').close();}
+  $('#close-asset-picker').addEventListener('click',closeAssetPicker);
+  $('#asset-picker-dialog').addEventListener('close',()=>{assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);});
+  $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{if(assetPickerMode==='reaction'&&button.dataset.assetTab==='sticker')return;assetPickerType=button.dataset.assetTab;if(assetPickerType!=='standard')$('#custom-asset-type').value=assetPickerType;$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab===button));loadAssetPicker();}));
   $('#asset-upload-form').addEventListener('submit',uploadCustomAsset);
   async function uploadCustomAsset(event){
     event.preventDefault();if(!currentContext||!currentUser)return;
@@ -3522,6 +3613,7 @@
     $('#setting-accent').value = settings.accent || '#8d7cff';
     $('#setting-density').value = settings.density || 'comfortable';
     $('#setting-background').value = settings.background || '';
+    $('#setting-theme-bg').value=settings.themeBg||'#10131c';$('#setting-theme-panel').value=settings.themePanel||'#151a26';$('#setting-theme-surface').value=settings.themeSurface||'#20283a';$('#setting-theme-text').value=settings.themeText||'#edf0ff';$('#setting-theme-muted').value=settings.themeMuted||'#919bb4';$('#setting-theme-border').value=settings.themeBorder||'#8792aa';$('#setting-message-group-bg').value=settings.messageGroupBg||'#191f2d';
     $('#setting-notify-sound').checked = settings.notifySound !== false;
     $('#setting-notify-while-open').checked = settings.notifyWhileOpen !== false;
     $('#setting-notify-direct').checked=settings.notifyDirect!==false;$('#setting-notify-group').checked=settings.notifyGroup!==false;$('#setting-notify-community').checked=settings.notifyCommunity!==false;$('#setting-community-mentions-only').checked=Boolean(settings.communityMentionsOnly);
@@ -3532,12 +3624,27 @@
     $('#setting-custom-status').value = String(settings.customStatus || '').slice(0,60);
     $('#setting-compact-panels').checked=Boolean(settings.compactPanels);
     $('#setting-voice-compact').checked=Boolean(settings.voiceCompactMode);
+    $('#setting-group-messages').checked=settings.groupMessages!==false;
     applyClientPreferences();
     loadMyGlobalBadgeVisibility();
   }
   $('#setting-boxglow-intensity')?.addEventListener('input',event=>{const label=$('#setting-boxglow-intensity-label');if(label)label.textContent=`${event.target.value}%`;});
+  function applyClientTheme(settings=profile?.settings||{}){
+    const root=document.documentElement.style;
+    const color=(value,fallback)=>/^#[0-9a-f]{6}$/i.test(String(value||''))?String(value):fallback;
+    const bg=color(settings.themeBg,'#10131c');const panel=color(settings.themePanel,'#151a26');const surface=color(settings.themeSurface,'#20283a');
+    const textColor=color(settings.themeText,'#edf0ff');const muted=color(settings.themeMuted,'#919bb4');const border=color(settings.themeBorder,'#8792aa');
+    root.setProperty('--bg',bg);root.setProperty('--bg2',panel);root.setProperty('--panel',panel);root.setProperty('--panel2',surface);root.setProperty('--panel3',color(settings.themeRaised,'#252f43'));
+    root.setProperty('--text',textColor);root.setProperty('--muted',muted);root.setProperty('--muted2',`color-mix(in srgb, ${muted} 72%, ${bg})`);
+    root.setProperty('--theme-border',border);root.setProperty('--line',`color-mix(in srgb, ${border} 22%, transparent)`);
+    const accent=color(settings.accent,'#8d7cff');root.setProperty('--accent',accent);root.setProperty('--accent2',`color-mix(in srgb, ${accent} 58%, white)`);root.setProperty('--message-group-bg',color(settings.messageGroupBg,'#191f2d'));
+    root.setProperty('--message-group-border',`color-mix(in srgb, ${border} 45%, transparent)`);
+    document.body.style.backgroundColor=bg;
+  }
   function applyClientPreferences(){
     const settings=profile?.settings||{};
+    applyClientTheme(settings);
+    rebuildMessageGroups($('#messages-container'));
     $('#app-screen')?.classList.toggle('compact-panels',Boolean(settings.compactPanels));
     $('#app-screen')?.classList.toggle('community-focus',Boolean(settings.compactPanels&&currentCommunity&&(currentView==='community'||(currentView==='chats'&&currentContext?.type==='channel'))));
   }
@@ -3545,7 +3652,7 @@
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
     const previousMessagePageSize=messagePageSize();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
     if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
   });

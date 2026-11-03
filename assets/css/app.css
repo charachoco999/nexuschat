@@ -509,3 +509,28 @@
 .voice-screen-tile[hidden]{display:none!important}
 /* Universal platform badges also appear in conversation and friend lists. */
 .conversation-global-badges,.person-row-badges{display:inline-flex;align-items:center;gap:4px;vertical-align:middle;min-width:0}.conversation-global-badges img,.person-row-badges img{width:14px;height:14px;object-fit:contain;border-radius:3px;vertical-align:middle}.conversation-global-badges>span,.person-row-badges>span{font-size:11px;line-height:1;vertical-align:middle}.person-row-badges{margin:3px 0 2px}
+
+
+/* Nexus v0.10.0-alpha.2: grouped message boxes, expanded theme colors and emoji reactions. */
+.app-shell,.main-panel,.view,.active-conversation{background-color:var(--bg);color:var(--text)}
+.rail,.sidebar,.sidebar-bottom,.topbar,.chat-list-panel,.conversation-head{background-color:var(--bg2)}
+.conversation-panel{background-color:var(--bg);background-image:radial-gradient(ellipse at 50% 0,color-mix(in srgb,var(--accent) 12%,transparent) 0,transparent 48%)}
+.surface,.settings-surface,.poll-card,.voice-placeholder{background-color:var(--panel)}
+.composer,.conversation-item.active,.channel-item.active,.nav-item.active{background-color:var(--panel2)}
+.field,.message-body{color:var(--text)}
+.field input,.field textarea,.field select,.inline-form input{background-color:var(--bg)}
+.muted,.message-reply-quote,.message-meta time{color:var(--muted)}
+.theme-color-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}
+.theme-color-grid input[type=color]{height:42px;width:100%;padding:4px;border-radius:9px;border:1px solid var(--line);background:var(--panel2)}
+.message-group{display:flex;flex-direction:column;align-items:stretch;gap:5px;width:fit-content;max-width:100%;align-self:flex-start;padding:9px 12px;border:1px solid var(--message-group-border, var(--line));border-radius:14px;background:var(--message-group-bg,var(--panel));}
+.message-group .message{width:100%;max-width:100%;min-width:0;align-self:stretch;gap:9px}
+.message-group .message-main{width:auto;max-width:none;min-width:0;flex:1}
+.message-group .message-group-continuation .avatar-message{visibility:hidden}
+.message-group .message-group-continuation .message-meta{margin-top:0;margin-bottom:2px}
+.message-group .message-group-continuation .message-author,.message-group .message-group-continuation .message-identity-decorations{display:none}
+.message-group .message-group-continuation .message-meta time{margin-right:auto}
+.message-group .message-reactions{margin-top:6px}
+.reaction-chip img{width:18px;height:18px;object-fit:contain}
+.standard-emoji-grid{max-height:min(52vh,430px);overflow:auto;padding:3px;align-content:start}
+.standard-emoji{width:39px;height:39px;font-size:23px}
+@media(max-width:760px){.message-group{max-width:100%;padding:8px 9px;border-radius:12px}.message-group .message{gap:7px}.theme-color-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

@@ -1,12 +1,21 @@
-> **Nexus v0.10.0-alpha.1:** audio, compartir pantalla en voz, categorías de canales, notificaciones personalizadas, límite de historial, resaltado de código, vista previa de enlaces, tipografía de mensajes, Markdown ampliado, BoxGlow y medallas universales. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha1.md` antes de actualizar.
+> **Nexus v0.10.0-alpha.2:** incluye las funciones de la alpha.1 y añade cajas de mensajes agrupados, personalización ampliada de colores y un selector grande de emojis con reacciones personalizadas y acceso privado a esos recursos limitado por RLS a los miembros del chat. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha2.md` antes de actualizar.
 
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-## Nexus v0.10.0-alpha.1
+## Nexus v0.10.0-alpha.2
 
 Esta entrega se centra en la experiencia web y móvil. No es una versión 1.0 y debe probarse junto con las instalaciones anteriores antes de considerarla estable.
+
+### Añadido en alpha.2
+
+- Mensajes consecutivos de la misma persona e identidad alternativa agrupados en una caja visual adaptable, con reacciones dentro del mismo bloque y opción para desactivar el agrupado.
+- Personalización individual de los colores de fondo, paneles, superficies, texto, bordes y cajas de mensajes, además del color de acento existente.
+- Más de 1.000 emojis estándar en el selector y posibilidad de reaccionar con emojis estándar o personalizados de los ámbitos disponibles.
+- Migración para ampliar el campo de reacción y permitir identificadores de emojis personalizados.
+
+Consulta `UPGRADE-v0.10-alpha2.md` para aplicar la migración y desplegar el parche.
 
 - Mensajes de audio grabados desde el compositor y reproducidos desde el chat.
 - Compartir pantalla en canales de voz mediante WebRTC, cuando el navegador y el dispositivo lo permiten.
@@ -24,7 +33,7 @@ Esta entrega se centra en la experiencia web y móvil. No es una versión 1.0 y 
 
 Consulta `UPGRADE-v0.10-alpha1.md` para aplicar la migración y desplegar.
 
-> **Estado:** v0.10.0-alpha.1 amplía la versión web y móvil a partir de v0.9.1. Desktop se mantiene en su rama Alpha 2 y el actualizador automático queda aparcado. No se requiere dominio ni servicio externo de pago para estas funciones.
+> **Estado:** v0.10.0-alpha.2 amplía la versión web y móvil a partir de v0.9.1. Desktop se mantiene en su rama Alpha 2 y el actualizador automático queda aparcado. No se requiere dominio ni servicio externo de pago para estas funciones.
 
 ## 1. Qué incluye esta versión
 

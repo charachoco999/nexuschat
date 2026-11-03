@@ -160,6 +160,17 @@
           <label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label>
           <label class="field">Estado personalizado<input id="setting-custom-status" maxlength="60" placeholder="Ej. Construyendo Nexus ✦"></label>
           <label class="field full-field">Fondo personalizado (URL)<input id="setting-background" type="url" placeholder="https://…"></label>
+          <div class="full-field settings-subsection"><h3>Colores de interfaz</h3><p class="muted small-muted">Personaliza los fondos y la legibilidad de Nexus. Los cambios se aplican a la interfaz, sin modificar el tema de los demás usuarios.</p>
+            <div class="theme-color-grid">
+              <label class="field">Fondo principal<input type="color" id="setting-theme-bg" value="#10131c"></label>
+              <label class="field">Paneles laterales y superiores<input type="color" id="setting-theme-panel" value="#151a26"></label>
+              <label class="field">Superficies y elementos elevados<input type="color" id="setting-theme-surface" value="#20283a"></label>
+              <label class="field">Texto principal<input type="color" id="setting-theme-text" value="#edf0ff"></label>
+              <label class="field">Texto secundario<input type="color" id="setting-theme-muted" value="#919bb4"></label>
+              <label class="field">Bordes<input type="color" id="setting-theme-border" value="#8792aa"></label>
+              <label class="field">Fondo de cajas de mensajes agrupados<input type="color" id="setting-message-group-bg" value="#191f2d"></label>
+            </div>
+          </div>
           <div class="full-field settings-subsection"><h3>Notificaciones</h3>
             <label class="setting-check"><input type="checkbox" id="setting-notify-sound" checked> Reproducir sonido al recibir mensajes</label>
             <label class="setting-check"><input type="checkbox" id="setting-notify-while-open" checked> Avisar también cuando Nexus está visible</label>
@@ -174,6 +185,7 @@
           <div class="full-field settings-subsection"><h3>Optimizaciones</h3><p class="muted small-muted">Ajustes de rendimiento para equipos modestos y móviles.</p>
             <label class="field">Mensajes cargados inicialmente<select id="setting-message-page-size"><option value="25">25 · Muy ligero</option><option value="50">50 · Equilibrado</option><option value="75">75</option><option value="100">100 · Más historial</option></select></label>
             <label class="setting-check"><input type="checkbox" id="setting-voice-compact"> Desactivar tarjetas visuales en chats de voz</label>
+            <label class="setting-check"><input type="checkbox" id="setting-group-messages" checked> Agrupar mensajes consecutivos de la misma persona en una sola caja</label>
           </div>
           <div class="full-field settings-subsection"><h3>Identidad de mensajes</h3><p class="muted small-muted">Esta fuente es independiente de la fuente de tu nombre de usuario. Se mostrará también a quienes reciban tus mensajes.</p><label class="field">Fuente de los mensajes<select id="setting-message-font"><option value="default">Predeterminada</option><option value="profile">Mi fuente de mensajes</option></select></label><label class="field">Subir fuente de mensajes (.woff/.woff2/.ttf)<input id="setting-message-font-file" type="file" accept=".woff,.woff2,.ttf,font/woff,font/woff2,font/ttf"></label>
           </div>
@@ -284,7 +296,7 @@ const nexus = true;
   <dialog id="online-members-dialog" class="dialog-card online-members-dialog"><div class="dialog-heading"><div><h3>Miembros en línea</h3><p class="muted small-muted" id="online-members-subtitle">Personas conectadas a este chat.</p></div><button type="button" class="icon-button" id="close-online-members" aria-label="Cerrar">×</button></div><div id="online-members-grid" class="online-members-grid"></div></dialog>
 
   <dialog id="asset-picker-dialog" class="dialog-card wide-dialog">
-    <div class="dialog-heading"><div><h3>Emojis y stickers</h3><p class="muted small-muted">Emojis estándar, personalizados y stickers de tu cuenta, conversación o megagrupo.</p></div><button type="button" class="icon-button" id="close-asset-picker" aria-label="Cerrar">×</button></div>
+    <div class="dialog-heading"><div><h3>Emojis y stickers</h3><p class="muted small-muted">Amplia colección de emojis estándar, emojis personalizados y stickers de tu cuenta, conversación o megagrupo. Los emojis también pueden usarse como reacciones.</p></div><button type="button" class="icon-button" id="close-asset-picker" aria-label="Cerrar">×</button></div>
     <form id="asset-upload-form" class="asset-upload-form">
       <label class="field">Nombre<input id="custom-asset-name" maxlength="32" required pattern="[a-z0-9_-]{2,32}" placeholder="ej. happy_cat"></label>
       <label class="field">Tipo<select id="custom-asset-type"><option value="sticker">Sticker</option><option value="emoji">Emoji personalizado</option></select></label>
