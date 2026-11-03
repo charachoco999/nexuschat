@@ -55,6 +55,8 @@
   let reactionTargetMessageId = null;
   let customEmojiCacheKey = '';
   let assetPickerType = 'sticker';
+  let assetPickerRows = [];
+  let assetPickerRowsType = '';
   let voiceSession = null;
   let serviceWorkerRegistration = null;
   let pushEnabledLocal = false;
@@ -64,12 +66,26 @@
   const unreadCounts = new Map();
   let contextPresenceMembers = [];
   const STANDARD_EMOJIS = ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "🥲", "☺️", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥸", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🫣", "🤭", "🫢", "🫡", "🤫", "🫠", "🤥", "😶", "😐", "😑", "😬", "🫨", "🫥", "😮", "😯", "😲", "🥱", "😴", "🤤", "😪", "😵", "😵‍💫", "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "👹", "👺", "💀", "☠️", "👻", "👽", "👾", "🤖", "💩", "🙈", "🙉", "🙊", "🐵", "🐒", "🦍", "🦧", "🐶", "🐕", "🦮", "🐕‍🦺", "🐩", "🐺", "🦊", "🦝", "🐱", "🐈", "🐈‍⬛", "🦁", "🐯", "🐅", "🐆", "🐴", "🫎", "🫏", "🐎", "🦄", "🦓", "🦌", "🦬", "🐮", "🐂", "🐃", "🐄", "🐷", "🐖", "🐗", "🐽", "🐏", "🐑", "🐐", "🐪", "🐫", "🦙", "🦒", "🐘", "🦣", "🦏", "🦛", "🐭", "🐁", "🐀", "🐹", "🐰", "🐇", "🐿️", "🦫", "🦔", "🦇", "🐻", "🐻‍❄️", "🐨", "🐼", "🦥", "🦦", "🦨", "🦘", "🦡", "🐾", "🦃", "🐔", "🐓", "🐣", "🐤", "🐥", "🐦", "🐧", "🕊️", "🦅", "🦆", "🦢", "🦉", "🦤", "🪶", "🦩", "🦚", "🦜", "🪽", "🐸", "🐊", "🐢", "🦎", "🐍", "🐲", "🐉", "🦕", "🦖", "🐳", "🐋", "🐬", "🦭", "🐟", "🐠", "🐡", "🦈", "🐙", "🐚", "🪸", "🪼", "🦀", "🦞", "🦐", "🦑", "🦪", "🐌", "🦋", "🐛", "🐜", "🐝", "🪲", "🐞", "🦗", "🪳", "🕷️", "🕸️", "🦂", "🦟", "🪰", "🪱", "🦠", "💐", "🌸", "💮", "🪷", "🏵️", "🌹", "🥀", "🌺", "🌻", "🌼", "🌷", "🪻", "🌱", "🪴", "🌲", "🌳", "🌴", "🌵", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🪹", "🪺", "🍄", "🪨", "🌰", "🥑", "🍆", "🥔", "🥕", "🌽", "🌶️", "🫑", "🥒", "🥬", "🥦", "🧄", "🧅", "🥜", "🫘", "🍞", "🥐", "🥖", "🫓", "🥨", "🥯", "🥞", "🧇", "🧀", "🍖", "🍗", "🥩", "🥓", "🍔", "🍟", "🍕", "🌭", "🥪", "🌮", "🌯", "🫔", "🥙", "🧆", "🍳", "🥘", "🍲", "🫕", "🥣", "🥗", "🍿", "🧈", "🧂", "🥫", "🍱", "🍘", "🍙", "🍚", "🍛", "🍜", "🍝", "🍠", "🍢", "🍣", "🍤", "🍥", "🥮", "🍡", "🥟", "🥠", "🥡", "🍦", "🍧", "🍨", "🍩", "🍪", "🎂", "🍰", "🧁", "🥧", "🍫", "🍬", "🍭", "🍮", "🍯", "🍼", "🥛", "☕", "🫖", "🍵", "🍶", "🍾", "🥤", "🧋", "🧃", "🧉", "🧊", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🍴", "🥄", "🔪", "🫙", "🏺", "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳", "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🏋️", "🤼", "🤸", "⛹️", "🤺", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🎗️", "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🪈", "🎲", "♟️", "🎯", "🎳", "🎮", "🕹️", "🧩", "🧸", "🪅", "🪩", "🪆", "🖼️", "🎰", "🧮", "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🛵", "🏍️", "🚲", "🛴", "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚞", "🚝", "🚄", "🚅", "🚈", "🚂", "✈️", "🛫", "🛬", "🛩️", "💺", "🚁", "🚀", "🛸", "🚢", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "⚓", "🛟", "⛽", "🚧", "🚦", "🚥", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", "🎡", "🎢", "🎠", "⛲", "⛱️", "🏖️", "🏝️", "🏜️", "🌋", "⛰️", "🏔️", "🗻", "🏕️", "⛺", "🛖", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬", "🏣", "🏤", "🏥", "🏦", "🏨", "🏪", "🏫", "🏩", "💒", "🏛️", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋", "🌅", "🌄", "🌠", "🎇", "🎆", "🌇", "🌆", "🏙️", "🌃", "🌌", "🌉", "🌁", "🌈", "🌂", "☂️", "☔", "⛅", "☀️", "🌤️", "🌥️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "🌪️", "🌫️", "🌊", "💧", "💦", "☁️", "🔥", "🌟", "⭐", "✨", "⚡", "☄️", "💥", "🌀", "💤", "💢", "💬", "🗯️", "💭", "🕳️", "👋", "🤚", "🖐️", "✋", "🖖", "🫱", "🫲", "🫳", "🫴", "🫷", "🫸", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "🫵", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🫀", "🫁", "🦷", "🦴", "👀", "👁️", "👅", "👄", "🫦", "💋", "🩸", "🩹", "🩺", "🩻", "🧬", "🌡️", "🎈", "🎀", "💎", "💍", "🧿", "🪬", "🔮", "🪄", "🎁", "🎉", "🎊", "🧨", "💫", "💯", "💡", "💻", "📱", "🖥️", "⌨️", "🖱️", "🖨️", "💾", "💿", "📀", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️", "📟", "📠", "🔋", "🪫", "🔌", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙", "💰", "💳", "🧾", "💹", "📈", "📉", "📊", "🧳", "🌍", "🌎", "🌏", "🌐", "🧭", "🏳️", "🏴", "🏁", "🚩", "🎌", "🏳️‍🌈", "🏳️‍⚧️", "🇪🇸", "🇬🇧", "🇫🇷", "🇩🇪", "🇮🇹", "🇯🇵", "🇺🇸", "🇨🇦", "🇧🇷", "🇲🇽", "🇦🇷", "🇨🇳", "🇰🇷", "🇮🇳", "🇦🇺", "🇳🇿", "🇺🇦", "🇵🇹", "🇳🇱", "🇸🇪", "🇳🇴", "🇫🇮", "🇵🇱", "🇹🇷", "🇬🇷", "🇮🇪", "🇨🇭", "🇧🇪", "🇦🇹", "🇨🇿", "🇩🇰", "🇮🇸", "❤️", "🩷", "🧡", "💛", "💚", "💙", "🩵", "💜", "🤎", "🖤", "🩶", "🤍", "💔", "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉️", "☸️", "🪯", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "🉑", "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️", "🆚", "🉐", "㊙️", "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🅾️", "🆑", "🅿️", "🆘", "🆗", "🆙", "🆒", "🆕", "🆓", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "🟫", "⬛", "⬜", "◼️", "◻️", "▪️", "▫️", "🔶", "🔷", "🔸", "🔹", "🔺", "🔻", "💠", "🔘", "🔳", "🔲", "🏧", "🚮", "🚰", "♿", "🚹", "🚺", "🚻", "🚼", "🚾", "🛂", "🛃", "🛄", "🛅", "🚸", "⛔", "🚫", "🚳", "🚭", "🚯", "🚱", "🚷", "📵", "🔞", "⬆️", "↗️", "➡️", "↘️", "⬇️", "↙️", "⬅️", "↖️", "↕️", "↔️", "🔃", "🔄", "🔙", "🔚", "🔛", "🔜", "🔝", "⚠️", "🔰", "⭕", "✅", "☑️", "✔️", "❌", "❎", "➕", "➖", "➗", "✖️", "♾️", "‼️", "⁉️", "❓", "❔", "❕", "❗", "〰️", "💱", "💲", "⚕️", "♻️", "⚜️", "🔱", "📛", "➰", "➿", "✳️", "❇️", "©️", "®️", "™️", "🔠", "🔡", "🔢", "🔣", "🔤", "🆖", "🔟", "#️⃣", "*️⃣", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "⏏️", "⏩", "⏪", "⏫", "⏬", "⏭️", "⏮️", "⏯️", "⏸️", "⏹️", "⏺️", "🎦", "🔅", "🔆", "📶", "🛜"];
+  const STANDARD_EMOJI_ALIASES = Object.freeze({
+    grinning:'😀',smile:'😄',smiley:'😃',grin:'😁',joy:'😂',rofl:'🤣',sweat_smile:'😅',wink:'😉',blush:'😊',innocent:'😇',slight_smile:'🙂',upside_down:'🙃',heart_eyes:'😍',kissing_heart:'😘',thinking:'🤔',thinking_face:'🤔',neutral_face:'😐',expressionless:'😑',grimacing:'😬',rolling_eyes:'🙄',relieved:'😌',sunglasses:'😎',star_struck:'🤩',partying_face:'🥳',smirk:'😏',unamused:'😒',disappointed:'😞',worried:'😟',pleading:'🥺',cry:'😢',sob:'😭',angry:'😠',rage:'😡',cursing:'🤬',mind_blown:'🤯',flushed:'😳',scream:'😱',fearful:'😨',thinking_cloud:'💭',sleeping:'😴',mask:'😷',sick:'🤒',poop:'💩',skull:'💀',ghost:'👻',alien:'👽',robot:'🤖',cat:'🐱',dog:'🐶',fox:'🦊',unicorn:'🦄',bee:'🐝',butterfly:'🦋',frog:'🐸',turtle:'🐢',whale:'🐳',dolphin:'🐬',octopus:'🐙',rose:'🌹',sunflower:'🌻',clover:'🍀',mushroom:'🍄',apple:'🍎',avocado:'🥑',banana:'🍌',pizza:'🍕',hamburger:'🍔',fries:'🍟',taco:'🌮',sushi:'🍣',cake:'🎂',cookie:'🍪',coffee:'☕',tea:'🍵',beer:'🍺',soccer:'⚽',basketball:'🏀',football:'🏈',tennis:'🎾',trophy:'🏆',medal:'🏅',video_game:'🎮',music:'🎵',guitar:'🎸',car:'🚗',taxi:'🚕',bus:'🚌',train:'🚆',airplane:'✈️',rocket:'🚀',ship:'🚢',house:'🏠',earth_americas:'🌎',earth_africa:'🌍',moon:'🌙',sunny:'☀️',cloud:'☁️',rain:'🌧️',snowflake:'❄️',rainbow:'🌈',fire:'🔥',star:'⭐',sparkles:'✨',zap:'⚡',wave:'👋',raised_hand:'✋',ok_hand:'👌',victory:'✌️',love_you:'🤟',point_up:'☝️',point_right:'👉',thumbsup:'👍',thumbs_up:'👍','+1':'👍',thumbsdown:'👎',thumbs_down:'👎','-1':'👎',fist:'✊',clap:'👏',raised_hands:'🙌',pray:'🙏',handshake:'🤝',muscle:'💪',eyes:'👀',brain:'🧠',heart:'❤️',red_heart:'❤️',orange_heart:'🧡',yellow_heart:'💛',green_heart:'💚',blue_heart:'💙',purple_heart:'💜',black_heart:'🖤',broken_heart:'💔',two_hearts:'💕',gift_heart:'💝',check:'✅',white_check_mark:'✅',heavy_check_mark:'✔️',x:'❌',cross_mark:'❌',warning:'⚠️',question:'❓',grey_question:'❔',exclamation:'❗',100:'💯',fireworks:'🎆',tada:'🎉',confetti_ball:'🎊',balloon:'🎈',crown:'👑',gem:'💎',bulb:'💡',computer:'💻',phone:'📱',camera:'📷',moneybag:'💰',chart_up:'📈',recycle:'♻️',infinity:'♾️',gato:'🐱',perro:'🐶',zorro:'🦊',sonrisa:'😄',feliz:'😊',risa:'😂',carcajada:'🤣',guino:'😉',pensando:'🤔',llorar:'😭',triste:'😢',enfadado:'😠',enojado:'😡',sorprendido:'😮',fiesta:'🥳',corazon:'❤️',corazones:'💕',pulgar_arriba:'👍',pulgar_abajo:'👎',aplaudir:'👏',fuego:'🔥',estrella:'⭐',brillo:'✨',cohete:'🚀',cafe:'☕',pizza:'🍕',musica:'🎵',ojo:'👀',ojos:'👀',gracias:'🙏',ok:'👌',si:'✅',no:'❌'
+  });
+  const STANDARD_EMOJI_BY_ALIAS = new Map(Object.entries(STANDARD_EMOJI_ALIASES));
+  const STANDARD_EMOJI_ALIASES_BY_CHARACTER = new Map();
+  for(const [name,emoji] of Object.entries(STANDARD_EMOJI_ALIASES)){
+    if(!STANDARD_EMOJI_ALIASES_BY_CHARACTER.has(emoji))STANDARD_EMOJI_ALIASES_BY_CHARACTER.set(emoji,[]);
+    STANDARD_EMOJI_ALIASES_BY_CHARACTER.get(emoji).push(name);
+  }
   const DEFAULT_MESSAGE_PAGE_SIZE = 50;
   const messagePageSize = () => Math.max(25, Math.min(100, Number(profile?.settings?.messagePageSize) || DEFAULT_MESSAGE_PAGE_SIZE));
   let audioRecorder = null;
   let audioRecordStream = null;
   let audioRecordChunks = [];
   let audioRecordContext = null;
+  let audioRecordAudioContext = null;
+  let audioRecordSource = null;
+  let audioRecordProcessor = null;
+  let audioRecordSilentGain = null;
+  let audioRecordSampleCount = 0;
   let audioRecordAltProfile = null;
   let audioRecordReply = null;
   let audioRecordPostAnnouncementsAllowed = false;
@@ -1041,7 +1057,10 @@
       autoResizeComposer($('#message-input'));
       $('#load-older-messages')?.addEventListener('click',loadOlderMessages);
       $('#message-input').addEventListener('keydown', event => {
-        if (event.key === 'Escape') hideMentionSuggestions();
+        if (event.key === 'Escape') {hideMentionSuggestions();hideEmojiSuggestions();}
+        if(event.key==='Enter'&&!event.shiftKey&&!$('#emoji-suggestions')?.classList.contains('hidden')){
+          const first=$('#emoji-suggestions [data-emoji-option]');if(first){event.preventDefault();first.click();return;}
+        }
         if (event.key === 'Enter' && !event.shiftKey && !$('#mention-suggestions')?.querySelector('[data-mention-option].active')) { event.preventDefault(); $('#message-form').requestSubmit(); }
       });
       $('#attach-file').addEventListener('click', () => $('#chat-file').click());
@@ -1090,14 +1109,65 @@
     if(mode==='default')delete overrides[key];else overrides[key]=mode;settings.notificationOverrides=overrides;
     const {error}=await client.from('profiles').update({settings}).eq('id',currentUser.id);if(error){showError(error);return;}profile.settings=settings;$('#context-notification-dialog').close();toast('Preferencias de notificación guardadas.','success');
   });
+  function resampleAudioToPcm16(input,sourceRate,targetRate=16000){
+    const ratio=sourceRate/targetRate;const outputLength=Math.floor(input.length/ratio);const output=new Int16Array(outputLength);
+    for(let i=0;i<outputLength;i++){
+      const position=i*ratio;const left=Math.floor(position);const right=Math.min(left+1,input.length-1);const fraction=position-left;
+      const sample=Math.max(-1,Math.min(1,input[left]*(1-fraction)+input[right]*fraction));
+      output[i]=sample<0?Math.round(sample*0x8000):Math.round(sample*0x7fff);
+    }
+    return output;
+  }
+  function createPcmWavBlob(chunks,sampleCount,sampleRate=16000){
+    const header=new ArrayBuffer(44);const view=new DataView(header);const write=(offset,value)=>{for(let i=0;i<value.length;i++)view.setUint8(offset+i,value.charCodeAt(i));};
+    write(0,'RIFF');view.setUint32(4,36+sampleCount*2,true);write(8,'WAVE');write(12,'fmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,sampleRate,true);view.setUint32(28,sampleRate*2,true);view.setUint16(32,2,true);view.setUint16(34,16,true);write(36,'data');view.setUint32(40,sampleCount*2,true);
+    return new Blob([header,...chunks],{type:'audio/wav'});
+  }
+  async function finishAudioRecording(){
+    const recorder=audioRecorder;if(!recorder||recorder.state!=='recording')return;
+    recorder.state='inactive';
+    if(audioRecordProcessor)audioRecordProcessor.onaudioprocess=null;
+    try{audioRecordSource?.disconnect();}catch{}try{audioRecordProcessor?.disconnect();}catch{}try{audioRecordSilentGain?.disconnect();}catch{}
+    audioRecordStream?.getTracks().forEach(track=>track.stop());audioRecordStream=null;
+    const audioContext=audioRecordAudioContext;audioRecordAudioContext=null;
+    if(audioContext&&audioContext.state!=='closed'){try{await audioContext.close();}catch{}}
+    const chunks=audioRecordChunks;const sampleCount=audioRecordSampleCount;
+    const options={context:audioRecordContext,alt:audioRecordAltProfile,reply:audioRecordReply,postAnnouncementsAllowed:audioRecordPostAnnouncementsAllowed};
+    audioRecorder=null;audioRecordChunks=[];audioRecordSampleCount=0;audioRecordContext=null;audioRecordSource=null;audioRecordProcessor=null;audioRecordSilentGain=null;audioRecordAltProfile=null;audioRecordReply=null;audioRecordPostAnnouncementsAllowed=false;
+    const button=$('#record-audio');if(button){button.textContent='◉ Audio';button.classList.remove('recording');}
+    if(sampleCount>0){const blob=createPcmWavBlob(chunks,sampleCount);if(blob.size>50*1024*1024){toast('El audio supera el límite de 50 MB. Graba un mensaje más corto.','error');return;}const file=new File([blob],`nexus-audio-${Date.now()}.wav`,{type:'audio/wav'});await uploadAttachmentFile(file,options);}
+  }
   async function toggleAudioRecording(){
     const button=$('#record-audio');if(!button)return;
-    if(audioRecorder&&audioRecorder.state==='recording'){audioRecorder.stop();button.textContent='◉ Audio';button.classList.remove('recording');return;}
+    if(audioRecorder&&audioRecorder.state==='recording'){await audioRecorder.stop();return;}
     if(!currentContext){toast('Abre primero una conversación o un canal.','error');return;}
-    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast('Este navegador no admite grabación de audio.','error');return;}
+    const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+    if(!navigator.mediaDevices?.getUserMedia||!AudioContextClass){toast('Este navegador no admite la grabación de audio necesaria.','error');return;}
     const targetContext={...currentContext};const targetAltProfile=activeAltProfile?{...activeAltProfile}:null;const targetReply=replyTarget?{...replyTarget}:null;const targetCanPostAnnouncements=Boolean(communityPermissions.post_announcements);
-    try{audioRecordStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});audioRecordContext=targetContext;audioRecordAltProfile=targetAltProfile;audioRecordReply=targetReply;audioRecordPostAnnouncementsAllowed=targetCanPostAnnouncements;audioRecordChunks=[];let mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')?'audio/ogg;codecs=opus':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'';audioRecorder=new MediaRecorder(audioRecordStream,mime?{mimeType:mime}:undefined);audioRecorder.ondataavailable=event=>{if(event.data?.size)audioRecordChunks.push(event.data);};audioRecorder.onstop=async()=>{const type=audioRecorder?.mimeType||'audio/webm';const extension=type.includes('ogg')?'ogg':type.includes('mp4')?'m4a':'webm';const blob=new Blob(audioRecordChunks,{type});audioRecordStream?.getTracks().forEach(track=>track.stop());audioRecordStream=null;audioRecorder=null;audioRecordChunks=[];const options={context:audioRecordContext,alt:audioRecordAltProfile,reply:audioRecordReply,postAnnouncementsAllowed:audioRecordPostAnnouncementsAllowed};audioRecordContext=null;audioRecordAltProfile=null;audioRecordReply=null;audioRecordPostAnnouncementsAllowed=false;button.textContent='◉ Audio';button.classList.remove('recording');if(blob.size){const file=new File([blob],`nexus-audio-${Date.now()}.${extension}`,{type});await uploadAttachmentFile(file,options);}};audioRecorder.start(250);button.textContent='■ Detener y enviar';button.classList.add('recording');toast('Grabando audio… Pulsa otra vez para enviar.');}
-    catch(error){audioRecordStream?.getTracks().forEach(track=>track.stop());audioRecordStream=null;audioRecorder=null;audioRecordContext=null;audioRecordAltProfile=null;audioRecordReply=null;audioRecordPostAnnouncementsAllowed=false;showError(error,'No se pudo iniciar la grabación. Comprueba el permiso del micrófono.');}
+    try{
+      audioRecordStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:{ideal:1}},video:false});
+      audioRecordContext=targetContext;audioRecordAltProfile=targetAltProfile;audioRecordReply=targetReply;audioRecordPostAnnouncementsAllowed=targetCanPostAnnouncements;audioRecordChunks=[];audioRecordSampleCount=0;
+      audioRecordAudioContext=new AudioContextClass({latencyHint:'interactive'});await audioRecordAudioContext.resume();
+      audioRecordSource=audioRecordAudioContext.createMediaStreamSource(audioRecordStream);
+      audioRecordProcessor=audioRecordAudioContext.createScriptProcessor(4096,1,1);
+      audioRecordSilentGain=audioRecordAudioContext.createGain();audioRecordSilentGain.gain.value=0;
+      audioRecordProcessor.onaudioprocess=event=>{
+        if(audioRecorder?.state!=='recording')return;
+        const pcm=resampleAudioToPcm16(event.inputBuffer.getChannelData(0),audioRecordAudioContext.sampleRate,16000);
+        if(pcm.length){audioRecordChunks.push(pcm);audioRecordSampleCount+=pcm.length;}
+        // 15 minutes of mono 16 kHz WAV stays safely below the 50 MB upload cap.
+        if(audioRecordSampleCount>=16000*15*60){toast('Se alcanzó el máximo de 15 minutos. Preparando el audio…');finishAudioRecording();}
+      };
+      audioRecordSource.connect(audioRecordProcessor);audioRecordProcessor.connect(audioRecordSilentGain);audioRecordSilentGain.connect(audioRecordAudioContext.destination);
+      audioRecorder={state:'recording',stop:finishAudioRecording};
+      button.textContent='■ Detener y enviar';button.classList.add('recording');toast('Grabando audio universal WAV… Pulsa otra vez para enviar.');
+    }catch(error){
+      audioRecordStream?.getTracks().forEach(track=>track.stop());audioRecordStream=null;
+      try{audioRecordSource?.disconnect();}catch{}try{audioRecordProcessor?.disconnect();}catch{}try{audioRecordSilentGain?.disconnect();}catch{}
+      if(audioRecordAudioContext&&audioRecordAudioContext.state!=='closed'){try{await audioRecordAudioContext.close();}catch{}}
+      audioRecordAudioContext=null;audioRecordSource=null;audioRecordProcessor=null;audioRecordSilentGain=null;audioRecordChunks=[];audioRecordSampleCount=0;audioRecorder=null;audioRecordContext=null;audioRecordAltProfile=null;audioRecordReply=null;audioRecordPostAnnouncementsAllowed=false;
+      button.textContent='◉ Audio';button.classList.remove('recording');showError(error,'No se pudo iniciar la grabación. Comprueba el permiso del micrófono.');
+    }
   }
   function splitNexusParts(value, count){
     const parts=[];let rest=String(value||'');
@@ -1327,8 +1397,35 @@
       })[choice] || 'DM Sans, sans-serif';
     }
   }
+  function hideEmojiSuggestions(){const box=$('#emoji-suggestions');if(box){box.classList.add('hidden');box.innerHTML='';}}
+  function updateEmojiSuggestions(){
+    const input=$('#message-input'),box=$('#emoji-suggestions');
+    if(!input||!box)return;
+    const before=input.value.slice(0,input.selectionStart);
+    const match=before.match(/(?:^|[\s([{])(:([a-z0-9_+-]{1,24}))$/i);
+    if(!match){hideEmojiSuggestions();return;}
+    const token=match[1];const query=match[2].toLowerCase();const start=input.selectionStart-token.length;
+    const options=[];
+    for(const [name,emoji] of Object.entries(STANDARD_EMOJI_ALIASES)){
+      if(name.includes(query)&&!options.some(item=>item.value===emoji))options.push({name,value:emoji,kind:'standard'});
+      if(options.length>=6)break;
+    }
+    for(const item of customEmojiCache.values()){
+      if(item?.name?.toLowerCase().includes(query)&&item.signedUrl){options.push({name:item.name,value:`:${item.name}:`,kind:'custom',image:item.signedUrl});}
+      if(options.length>=8)break;
+    }
+    if(!options.length){hideEmojiSuggestions();return;}
+    box.innerHTML=options.map((item,index)=>`<button type="button" role="option" data-emoji-option="${index}"><span>${item.image?`<img src="${escapeHtml(item.image)}" alt="">`:escapeHtml(item.value)}</span><strong>:${escapeHtml(item.name)}:</strong></button>`).join('');
+    box.classList.remove('hidden');
+    $$('[data-emoji-option]',box).forEach(button=>button.addEventListener('click',()=>{
+      const item=options[Number(button.dataset.emojiOption)];if(!item)return;
+      const value=item.kind==='custom'?`${item.value} `:`${item.value} `;
+      input.setRangeText(value,start,input.selectionStart,'end');hideEmojiSuggestions();input.focus();autoResizeComposer(input);broadcastTypingState(true);
+    }));
+  }
   function handleComposerInput(event) {
     updateMentionSuggestions();
+    updateEmojiSuggestions();
     autoResizeComposer(event.currentTarget);
     broadcastTypingState(Boolean(event.currentTarget.value.trim()));
   }
@@ -1585,7 +1682,22 @@
   function unwrapMessageGroups(container) {
     if(!container)return;
     for(const group of [...container.querySelectorAll(':scope > .message-group')]){
-      for(const message of group.querySelectorAll('.message'))message.classList.remove('message-group-continuation');
+      const plateImage=group.style.getPropertyValue('--profile-plate-image');
+      const plateOpacity=group.style.getPropertyValue('--profile-plate-opacity');
+      const hasGlow=group.classList.contains('boxglow-active');
+      const glowProperties=['--boxglow-color','--boxglow-strength','--boxglow-image'];
+      const glowValues=Object.fromEntries(glowProperties.map(property=>[property,group.style.getPropertyValue(property)]));
+      for(const message of group.querySelectorAll('.message')){
+        message.classList.remove('message-group-continuation');
+        // Grouping moves these decorations to the parent. Restore them before
+        // unwrapping so edits, reactions and subsequent regrouping keep them.
+        if(plateImage)message.style.setProperty('--profile-plate-image',plateImage);
+        if(plateOpacity)message.style.setProperty('--profile-plate-opacity',plateOpacity);
+        if(hasGlow){
+          message.classList.add('boxglow-active');
+          for(const property of glowProperties){if(glowValues[property])message.style.setProperty(property,glowValues[property]);}
+        }
+      }
       while(group.firstChild)container.insertBefore(group.firstChild,group);
       group.remove();
     }
@@ -1622,7 +1734,10 @@
         if(plateSource){group.style.setProperty('--profile-plate-image',plateSource.style.getPropertyValue('--profile-plate-image'));group.style.setProperty('--profile-plate-opacity',plateSource.style.getPropertyValue('--profile-plate-opacity')||'.13');}
         const glowSource=groupMessages.find(message=>message.classList.contains('boxglow-active'))||null;
         if(glowSource){group.classList.add('boxglow-active');for(const property of ['--boxglow-color','--boxglow-strength','--boxglow-image']){const value=glowSource.style.getPropertyValue(property);if(value)group.style.setProperty(property,value);}}
-        groupMessages.forEach((message,messageIndex)=>{message.classList.toggle('message-group-continuation',messageIndex>0);message.style.removeProperty('--profile-plate-image');message.style.removeProperty('--profile-plate-opacity');message.classList.remove('boxglow-active');message.style.removeProperty('--boxglow-color');message.style.removeProperty('--boxglow-strength');message.style.removeProperty('--boxglow-image');group.append(message);});
+        // Keep the original per-message decoration metadata as a fallback.
+        // The group paints the shared plate/glow, while child styles survive any
+        // later detach, edit, reaction refresh or partial re-render.
+        groupMessages.forEach((message,messageIndex)=>{message.classList.toggle('message-group-continuation',messageIndex>0);group.append(message);});
         fragment.append(group);
       }
       index=next;
@@ -1631,11 +1746,51 @@
     container.replaceChildren(fragment);
   }
   const customReactionId = value => typeof value==='string'&&/^custom:[0-9a-f-]{36}$/i.test(value)?value.slice(7):null;
-  async function renderMessageRows(rows) {
-    if(!rows?.length)return;
+  const trackedMessageScrollContainers=new WeakSet();
+  function captureMessageScrollState(container){
+    if(!container)return null;
+    if(!trackedMessageScrollContainers.has(container)){
+      container.addEventListener('scroll',()=>{container.dataset.nexusScrollVersion=String((Number(container.dataset.nexusScrollVersion)||0)+1);},{passive:true});
+      trackedMessageScrollContainers.add(container);
+    }
+    const distance=container.scrollHeight-container.scrollTop-container.clientHeight;
+    const viewport=container.getBoundingClientRect();
+    const anchor=[...container.querySelectorAll('.message')].find(node=>{
+      const rect=node.getBoundingClientRect();
+      return rect.bottom>viewport.top+2&&rect.top<viewport.bottom;
+    })||null;
+    return {nearBottom:distance<150,anchor,anchorTop:anchor?anchor.getBoundingClientRect().top:null,scrollVersion:Number(container.dataset.nexusScrollVersion)||0};
+  }
+  function restoreMessageScrollState(container,state){
+    if(!container||!state)return;
+    requestAnimationFrame(()=>{
+      if(container!==$('#messages-container'))return;
+      // Never override a deliberate user scroll made while messages were loading.
+      if((Number(container.dataset.nexusScrollVersion)||0)!==state.scrollVersion)return;
+      if(state.nearBottom){container.scrollTop=container.scrollHeight;return;}
+      if(state.anchor?.isConnected&&Number.isFinite(state.anchorTop)){
+        const delta=state.anchor.getBoundingClientRect().top-state.anchorTop;
+        if(Math.abs(delta)>.5)container.scrollTop+=delta;
+      }
+    });
+  }
+  // Serialize DOM reconstruction. Realtime INSERT/UPDATE events can arrive while
+  // another batch is still resolving profiles, replies or media URLs. Running
+  // two unwrap/append/regroup passes at once can detach decorations or disturb scroll.
+  let messageRenderQueue=Promise.resolve();
+  function renderMessageRows(rows){
+    if(!rows?.length)return Promise.resolve();
+    const expectedContextKey=messageContextKey();
+    const task=messageRenderQueue.then(()=>renderMessageRowsNow(rows,expectedContextKey));
+    messageRenderQueue=task.catch(error=>{console.error('No se pudo reconstruir el bloque de mensajes:',error);});
+    return task;
+  }
+  async function renderMessageRowsNow(rows,expectedContextKey) {
+    if(!rows?.length||messageContextKey()!==expectedContextKey)return;
     const renderContainer=$('#messages-container');
+    const scrollState=captureMessageScrollState(renderContainer);
     unwrapMessageGroups(renderContainer);
-    const renderContextKey=messageContextKey();
+    const renderContextKey=expectedContextKey;
     const messageIds=rows.map(row=>row.id);
     const replyIds=[...new Set(rows.map(row=>row.reply_to).filter(Boolean))];
     const pollMessageIds=rows.filter(row=>row.message_type==='poll').map(row=>row.id);
@@ -1697,6 +1852,7 @@
       await appendMessage(message,profiles[message.sender_id],reactionsByMessage.get(message.id)||[],batchData);
     }
     rebuildMessageGroups(renderContainer);
+    restoreMessageScrollState(renderContainer,scrollState);
   }
   function messageLoadingMarkup(){
     return `<div class="message-loading" role="status" aria-label="Cargando mensajes"><div class="message-loading-heading"><span></span><span></span></div><div class="message-loading-line"></div><div class="message-loading-line short"></div><div class="message-loading-heading second"><span></span><span></span></div><div class="message-loading-line medium"></div><div class="message-loading-line short"></div><div class="message-loading-heading third"><span></span><span></span></div><div class="message-loading-line"></div></div>`;
@@ -1779,10 +1935,11 @@
     if(render&&collected.length&&currentContext?.id===context.id&&currentContext?.type===context.type){
       const container=$('#messages-container');
       const wasNearBottom=container ? container.scrollHeight-container.scrollTop-container.clientHeight<120 : true;
+      const scrollVersionBefore=Number(container?.dataset.nexusScrollVersion)||0;
       // Reuse the same batched renderer as the initial page. Reopening a busy
       // chat should not turn into one profile/role/reaction query per message.
       await renderMessageRows(collected);
-      if(wasNearBottom&&container)container.scrollTop=container.scrollHeight;
+      if(wasNearBottom&&container&&(Number(container.dataset.nexusScrollVersion)||0)===scrollVersionBefore)container.scrollTop=container.scrollHeight;
       if(context.type==='conversation'){
         await markConversationRead(collected.at(-1).id);
         await renderConversationReadReceipts();
@@ -2039,6 +2196,7 @@
         if(!batchData?.customEmojiReady)await ensureCustomEmojiAssetsForMessage(message);
         renderCustomEmojiTokens(body);
       }
+      renderStandardEmojiShortcodes(body);
     } catch { body.textContent = source; }
     if (message.message_type === 'poll') {
       let poll=batchData?.polls?.get(message.id)||null;
@@ -2097,6 +2255,7 @@
     reactionBar.dataset.reactionMessage = message.id;
     if (container !== $('#messages-container') || currentContext?.id !== contextIdAtStart) return;
     const stickToBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
+    const scrollVersionAtAppend=Number(container.dataset.nexusScrollVersion)||0;
     container.append(template);
     renderedMessageIds.add(message.id);
     const keepBottomIfNeeded=()=>{
@@ -2107,7 +2266,7 @@
     article.querySelectorAll('.message-attachment img').forEach(media=>{media.addEventListener('load',keepBottomIfNeeded,{once:true});media.addEventListener('error',()=>media.classList.add('media-load-error'),{once:true});});
     article.querySelectorAll('.message-attachment video').forEach(media=>media.addEventListener('loadedmetadata',keepBottomIfNeeded,{once:true}));
     await refreshMessageReactions(article, message.id, initialReactions);
-    if(stickToBottom) container.scrollTop = container.scrollHeight;
+    if(stickToBottom&&(Number(container.dataset.nexusScrollVersion)||0)===scrollVersionAtAppend) container.scrollTop = container.scrollHeight;
   }
 
   async function refreshMessageReactions(article, messageId, initialRows = null) {
@@ -2319,13 +2478,21 @@
     if (message && message[field] === currentContext.id) await loadPinnedMessages();
   }
 
-  async function refreshSingleMessage(message) {
-    if(!message?.id||!currentContext)return;
+  function refreshSingleMessage(message){
+    if(!message?.id||!currentContext)return Promise.resolve();
+    const expectedContextKey=messageContextKey();
+    const task=messageRenderQueue.then(()=>refreshSingleMessageNow(message,expectedContextKey));
+    messageRenderQueue=task.catch(error=>{console.error('No se pudo actualizar un mensaje:',error);});
+    return task;
+  }
+  async function refreshSingleMessageNow(message,expectedContextKey) {
+    if(!message?.id||!currentContext||messageContextKey()!==expectedContextKey)return;
     cacheMessage(message);
     const container=$('#messages-container');
     const old=$(`[data-message-id="${message.id}"]`,container);
     if(!old)return;
     const nearBottom=container.scrollHeight-container.scrollTop-container.clientHeight<90;
+    const scrollVersionBefore=Number(container.dataset.nexusScrollVersion)||0;
     unwrapMessageGroups(container);
     old.remove();renderedMessageIds.delete(message.id);
     const profiles=await fetchProfiles([message.sender_id]);
@@ -2333,7 +2500,7 @@
     const nodes=[...container.querySelectorAll('.message')].sort((a,b)=>new Date(a.dataset.createdAt)-new Date(b.dataset.createdAt));
     for(const node of nodes)container.append(node);
     rebuildMessageGroups(container);
-    if(nearBottom)container.scrollTop=container.scrollHeight;
+    if(nearBottom&&(Number(container.dataset.nexusScrollVersion)||0)===scrollVersionBefore)container.scrollTop=container.scrollHeight;
   }
   function subscribeMessages() {
     if(activeMessageChannel)client.removeChannel(activeMessageChannel);
@@ -2345,9 +2512,18 @@
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},async payload=>{
         if(currentContext?.id!==context.id)return;
         cacheMessage(payload.new);
+        const activeBefore=$('#messages-container');
+        const wasNearBottom=activeBefore?activeBefore.scrollHeight-activeBefore.scrollTop-activeBefore.clientHeight<150:false;
+        const scrollVersionBefore=Number(activeBefore?.dataset.nexusScrollVersion)||0;
         // A live insert is a one-row batch too: this keeps reaction, identity,
         // reply and media resolution on the same path as paginated history.
         await renderMessageRows([payload.new]);
+        if(payload.new.sender_id===currentUser.id&&wasNearBottom){
+          requestAnimationFrame(()=>{
+            const active=$('#messages-container');
+            if(active&&currentContext?.id===context.id&&(Number(active.dataset.nexusScrollVersion)||0)===scrollVersionBefore)active.scrollTop=active.scrollHeight;
+          });
+        }
         if(context.type==='conversation'){
           scheduleAccountListRefresh('conversations');
           if(payload.new.sender_id!==currentUser.id){await markConversationRead(payload.new.id);await renderConversationReadReceipts();}
@@ -2495,6 +2671,7 @@
     autoResizeComposer(input);
     broadcastTypingState(false);
     clearReplyTarget();
+    hideEmojiSuggestions();hideMentionSuggestions();
     input.focus();
   }
 
@@ -2529,6 +2706,18 @@
     const assets=data||[];const urls=await signedUrlLookup('nexus-assets',assets.map(asset=>asset.asset_url));
     for(const asset of assets){const signedUrl=urls.get(asset.asset_url);if(signedUrl){customEmojiCache.set(asset.name,{...asset,signedUrl});customReactionCache.set(asset.id,{...asset,signedUrl});}}
   }
+  function renderStandardEmojiShortcodes(container){
+    if(!container)return;
+    const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement?.closest('code,pre,a,button,input,textarea,select')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});
+    const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+    const regex=/:([a-z0-9_+-]{1,24}):/gi;
+    for(const node of nodes){
+      const value=node.nodeValue||'';const matches=[...value.matchAll(regex)];if(!matches.length)continue;
+      const fragment=document.createDocumentFragment();let offset=0;
+      for(const match of matches){const emoji=STANDARD_EMOJI_BY_ALIAS.get(match[1].toLowerCase());if(!emoji)continue;fragment.append(document.createTextNode(value.slice(offset,match.index)));fragment.append(document.createTextNode(emoji));offset=match.index+match[0].length;}
+      if(offset){fragment.append(document.createTextNode(value.slice(offset)));node.parentNode?.replaceChild(fragment,node);}
+    }
+  }
   function renderCustomEmojiTokens(container){
     if(!container||!customEmojiCache.size)return;
     const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement?.closest('code,pre,a')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});
@@ -2541,35 +2730,40 @@
   function openAssetPicker(type='sticker'){
     if(!currentContext){toast('Abre primero una conversación o canal.');return;}
     assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);
-    assetPickerType=type;if(type!=='standard')$('#custom-asset-type').value=type;
+    assetPickerType=type;assetPickerRowsType='';$('#emoji-picker-search').value='';if(type!=='standard')$('#custom-asset-type').value=type;
     const scope=$('#custom-asset-scope');scope.querySelector('[value="conversation"]').disabled=currentContext.type!=='conversation';scope.querySelector('[value="community"]').disabled=currentContext.type!=='channel'||!currentCommunity;
     scope.value='personal';$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab.dataset.assetTab===type));$('#asset-picker-dialog').showModal();loadAssetPicker();
   }
   function openReactionPicker(messageId){
     if(!currentContext||!messageId)return;
-    assetPickerMode='reaction';reactionTargetMessageId=messageId;assetPickerType='standard';
+    assetPickerMode='reaction';reactionTargetMessageId=messageId;assetPickerType='standard';assetPickerRowsType='';$('#emoji-picker-search').value='';
     $('#asset-upload-form')?.classList.add('hidden');$$('[data-asset-tab]').forEach(tab=>{tab.hidden=tab.dataset.assetTab==='sticker';tab.classList.toggle('active',tab.dataset.assetTab==='standard');});
     $('#asset-picker-dialog').showModal();loadAssetPicker();
   }
   async function loadAssetPicker(){
     const host=$('#asset-picker-grid');if(!host)return;
+    const search=String($('#emoji-picker-search')?.value||'').trim().toLowerCase();
     if(assetPickerType==='standard'){
       $('#asset-upload-form')?.classList.add('hidden');
-      host.innerHTML=`<div class="standard-emoji-grid">${STANDARD_EMOJIS.map(emoji=>`<button type="button" class="standard-emoji" data-standard-emoji="${emoji}" aria-label="Insertar ${emoji}">${emoji}</button>`).join('')}</div>`;
+      const aliasMatches=Object.entries(STANDARD_EMOJI_ALIASES).filter(([name,emoji])=>name.includes(search)||emoji.includes(search));
+      const emojiMatches=search?STANDARD_EMOJIS.filter(emoji=>emoji.includes(search)):STANDARD_EMOJIS;
+      const visible=[...new Set([...aliasMatches.map(([,emoji])=>emoji),...emojiMatches])];
+      host.innerHTML=visible.length?`<div class="standard-emoji-grid">${visible.map(emoji=>`<button type="button" class="standard-emoji" data-standard-emoji="${emoji}" aria-label="Insertar ${emoji}" title="${(STANDARD_EMOJI_ALIASES_BY_CHARACTER.get(emoji)||[]).slice(0,3).join(', ')}">${emoji}</button>`).join('')}</div>`:'<p class="empty-state compact">No se encontraron emojis.</p>';
       $$('[data-standard-emoji]').forEach(button=>button.addEventListener('click',async()=>{if(assetPickerMode==='reaction'){const target=reactionTargetMessageId;if(!target)return;await toggleMessageReaction(target,button.dataset.standardEmoji,true);$('#asset-picker-dialog').close();return;}const input=$('#message-input');if(!input)return;input.setRangeText(button.dataset.standardEmoji,input.selectionStart,input.selectionEnd,'end');input.focus();autoResizeComposer(input);broadcastTypingState(true);}));
       return;
     }
     $('#asset-upload-form')?.classList.toggle('hidden',assetPickerMode==='reaction');
     $('#custom-asset-type').value=assetPickerType;
-    host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';
-    const rows=await listCustomAssets(assetPickerType);
-    if(assetPickerType==='emoji')for(const row of rows)if(row.signedUrl)customReactionCache.set(row.id,{...row});
-    host.innerHTML=rows.length?rows.map(row=>`<article class="custom-asset-card"><img src="${escapeHtml(row.signedUrl)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${row.scope==='personal'?'Personal':row.scope==='conversation'?'Conversación':'Megagrupo'}${row.animated?' · GIF':''}</small><div><button type="button" class="button button-primary" data-use-custom-asset="${row.id}">${assetPickerType==='emoji'?'Insertar':'Enviar'}</button>${row.owner_id===currentUser.id?`<button type="button" class="button button-secondary" data-archive-custom-asset="${row.id}">Archivar</button>`:''}</div></article>`).join(''):'<p class="empty-state compact">No hay recursos en este ámbito. Sube el primero.</p>';
+    if(assetPickerRowsType!==assetPickerType){host.innerHTML='<p class="empty-state compact">Cargando recursos…</p>';assetPickerRows=await listCustomAssets(assetPickerType);assetPickerRowsType=assetPickerType;}
+    const rows=assetPickerRows.filter(row=>!search||row.name.toLowerCase().includes(search));
+    if(assetPickerType==='emoji')for(const row of assetPickerRows)if(row.signedUrl)customReactionCache.set(row.id,{...row});
+    host.innerHTML=rows.length?rows.map(row=>`<article class="custom-asset-card"><img src="${escapeHtml(row.signedUrl)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${row.scope==='personal'?'Personal':row.scope==='conversation'?'Conversación':'Megagrupo'}${row.animated?' · GIF':''}</small><div><button type="button" class="button button-primary" data-use-custom-asset="${row.id}">${assetPickerType==='emoji'?'Insertar':'Enviar'}</button>${row.owner_id===currentUser.id?`<button type="button" class="button button-secondary" data-archive-custom-asset="${row.id}">Archivar</button>`:''}</div></article>`).join(''):`<p class="empty-state compact">${assetPickerRows.length?'No hay coincidencias.':'No hay recursos en este ámbito. Sube el primero.'}</p>`;
     $$('[data-use-custom-asset]').forEach(button=>button.addEventListener('click',async()=>{const item=rows.find(row=>row.id===button.dataset.useCustomAsset);if(!item)return;if(assetPickerMode==='reaction'&&assetPickerType==='emoji'){const target=reactionTargetMessageId;if(target){customReactionCache.set(item.id,{...item});await toggleMessageReaction(target,`custom:${item.id}`,true);$('#asset-picker-dialog').close();}return;}if(assetPickerType==='emoji'){const input=$('#message-input');const token=`:${item.name}: `;const start=input.selectionStart,end=input.selectionEnd;input.setRangeText(token,start,end,'end');input.focus();loadCustomEmojiCache(true);}else sendStickerMessage(item);}));
     $$('[data-archive-custom-asset]').forEach(button=>button.addEventListener('click',()=>archiveCustomAsset(button.dataset.archiveCustomAsset)));
   }
   function closeAssetPicker(){assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);$('#asset-picker-dialog').close();}
   $('#close-asset-picker').addEventListener('click',closeAssetPicker);
+  $('#emoji-picker-search')?.addEventListener('input',()=>loadAssetPicker());
   $('#asset-picker-dialog').addEventListener('close',()=>{assetPickerMode='composer';reactionTargetMessageId=null;$$('[data-asset-tab]').forEach(tab=>tab.hidden=false);});
   $$('[data-asset-tab]').forEach(button=>button.addEventListener('click',()=>{if(assetPickerMode==='reaction'&&button.dataset.assetTab==='sticker')return;assetPickerType=button.dataset.assetTab;if(assetPickerType!=='standard')$('#custom-asset-type').value=assetPickerType;$$('[data-asset-tab]').forEach(tab=>tab.classList.toggle('active',tab===button));loadAssetPicker();}));
   $('#asset-upload-form').addEventListener('submit',uploadCustomAsset);
@@ -2587,13 +2781,13 @@
       const {error:upError}=await client.storage.from('nexus-assets').upload(path,file,{contentType:file.type,upsert:false});if(upError)throw upError;
       const {error:rowError}=await client.from('custom_assets').insert({owner_id:currentUser.id,asset_type:type,scope,scope_id:scopeId,name,asset_url:path,animated:file.type==='image/gif'});
       if(rowError){await client.storage.from('nexus-assets').remove([path]);throw rowError;}
-      $('#custom-asset-name').value='';$('#custom-asset-file').value='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso subido.','success');
+      $('#custom-asset-name').value='';$('#custom-asset-file').value='';assetPickerRowsType='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso subido.','success');
     }catch(error){showError(error,'No se pudo subir el recurso. Comprueba la migración v0.7 y las políticas de Storage.');}
     finally{button.disabled=false;}
   }
   async function archiveCustomAsset(id){
     const {error}=await client.from('custom_assets').update({archived_at:new Date().toISOString()}).eq('id',id).eq('owner_id',currentUser.id);
-    if(error)showError(error,'No se pudo archivar el recurso.');else{await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso archivado. Los mensajes anteriores lo conservan.','success');}
+    if(error)showError(error,'No se pudo archivar el recurso.');else{assetPickerRowsType='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso archivado. Los mensajes anteriores lo conservan.','success');}
   }
   async function sendStickerMessage(asset){
     if(!currentContext)return;
@@ -3353,10 +3547,11 @@
     const button=$('#join-voice-room');if(button)button.disabled=true;voiceStatus('Solicitando acceso al micrófono…');
     try{
       if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)throw new Error('Este navegador no admite WebRTC o no está usando HTTPS.');
-      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+      const voiceProcessing=profile?.settings?.voiceNoiseCancellation!==false;
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:voiceProcessing,noiseSuppression:voiceProcessing,autoGainControl:voiceProcessing},video:false});
       const channelId=currentContext.id;const topic=`nexus-voice:${channelId}`;
       const realtime=client.channel(topic,{config:{private:true,presence:{key:currentUser.id},broadcast:{ack:true,self:false}}});
-      voiceSession={channelId,channelName:String(currentContext.title||'Canal de voz').replace(/^◖\s*/,''),channel:realtime,stream,peers:new Map(),localJoined:false,muted:false};
+      voiceSession={channelId,channelName:String(currentContext.title||'Canal de voz').replace(/^◖\s*/,''),channel:realtime,stream,peers:new Map(),localJoined:false,muted:false,voiceProcessing};
       renderVoiceDock();
       realtime.on('broadcast',{event:'signal'},handleVoiceSignal);
       realtime.on('presence',{event:'sync'},syncVoicePeers);
@@ -3871,6 +4066,7 @@
     $('#setting-custom-status').value = String(settings.customStatus || '').slice(0,60);
     $('#setting-compact-panels').checked=Boolean(settings.compactPanels);
     $('#setting-voice-compact').checked=Boolean(settings.voiceCompactMode);
+    $('#setting-voice-noise-cancellation').checked=settings.voiceNoiseCancellation!==false;
     $('#setting-group-messages').checked=settings.groupMessages!==false;$('#setting-disable-message-group-width-fix').checked=Boolean(settings.disableMessageGroupWidthFix);$('#setting-disable-markdown-delay').checked=Boolean(settings.disableMarkdownDelay);
     applyClientPreferences();
     loadMyGlobalBadgeVisibility();
@@ -3899,7 +4095,7 @@
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
     const previousMessagePageSize=messagePageSize();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
     if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
   });

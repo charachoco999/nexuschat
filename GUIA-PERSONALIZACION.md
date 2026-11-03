@@ -47,3 +47,22 @@ En Workshop puedes explorar presets compartidos y publicar los tuyos. Comprueba 
 ---
 
 **Consejo:** si no encuentras una opción, abre Configuración y busca la sección correspondiente. La guía se ampliará cuando Nexus incorpore nuevas herramientas de personalización.
+
+
+## Voz y calidad de audio
+
+- **Cancelación básica de eco y ruido en VC:** Configuración → Optimizaciones. Usa las opciones integradas del navegador cuando estén disponibles. Se aplica al volver a entrar en el canal de voz.
+
+
+## Audio y voz (hotfix v0.10.1-alpha3 hotfix3)
+
+- **Notas de voz:** Nexus graba en WAV PCM mono a 16 kHz para no depender del formato de grabación preferido por cada móvil. Android, iOS y escritorio reciben el mismo tipo de archivo; el límite de grabación es de 15 minutos y el archivo debe respetar el límite de subida de 50 MB.
+- **VC:** Configuración → Optimizaciones → Cancelación básica de eco y ruido. Activa las opciones de procesamiento del micrófono del navegador cuando estén disponibles. El ajuste se aplica al volver a conectar al canal de voz.
+
+## Emojis (recordatorio)
+
+En el selector puedes buscar por nombre, alias o emoji. En el compositor escribe `:smile:`, `:heart:` o `:thumbsup:` para insertar un emoji estándar; al escribir `:` seguido de un nombre aparecen sugerencias. Los emojis personalizados disponibles en el chat también se muestran en esas sugerencias. También puedes usar nombres en español como `:gato:`, `:perro:`, `:corazon:`, `:fuego:` y `:pulgar_arriba:`.
+
+## Mensajes agrupados (recordatorio)
+
+Los mensajes consecutivos de una misma persona se presentan en un único bloque. La placa y BoxGlow se aplican al bloque sin borrar la configuración decorativa original de cada mensaje, para que las ediciones y reacciones no hagan desaparecer esos efectos. En móvil vertical, el modo compacto conserva la navegación normal de una sola columna.

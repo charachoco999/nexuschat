@@ -41,7 +41,7 @@ Consulta `UPGRADE-v0.10-alpha2.md` para aplicar la migración y desplegar el par
 - Medallas universales gestionadas exclusivamente por administradores de plataforma; cada usuario puede ocultar las suyas.
 - Indicadores de dispositivo móvil/escritorio en presencia.
 
-**Limitaciones de esta alpha:** la vista previa de enlaces muestra favicon, texto y dominio, no una tarjeta Open Graph completa con imagen y descripción. El sonido personalizado es local al dispositivo. Compartir pantalla depende de `getDisplayMedia`, HTTPS y compatibilidad del navegador; algunos navegadores móviles no lo ofrecen. La voz sigue utilizando P2P y STUN como en versiones anteriores, por lo que algunas redes pueden requerir TURN. La grabación depende de `MediaRecorder` y de los formatos aceptados por el navegador.
+**Limitaciones de esta alpha:** la vista previa de enlaces muestra favicon, texto y dominio, no una tarjeta Open Graph completa con imagen y descripción. El sonido personalizado es local al dispositivo. Compartir pantalla depende de `getDisplayMedia`, HTTPS y compatibilidad del navegador; algunos navegadores móviles no lo ofrecen. La voz sigue utilizando P2P y STUN como en versiones anteriores, por lo que algunas redes pueden requerir TURN. Las notas de voz grabadas desde el compositor se generan como WAV PCM mono a 16 kHz mediante Web Audio, evitando diferencias de contenedor WebM/MP4 entre móviles. Los audios que el usuario adjunte como archivos conservan su formato original.
 
 Consulta `UPGRADE-v0.10-alpha1.md` para aplicar la migración y desplegar.
 
@@ -348,3 +348,12 @@ Antes de desplegar, sigue `UPGRADE-v0.10-alpha1.md`. Ejecuta `supabase/migration
 Este hotfix restaura los fondos de megagrupo en los canales de conversación e incorpora una guía completa de personalización accesible desde la barra superior y desde Configuración. La guía también está disponible como [`GUIA-PERSONALIZACION.md`](GUIA-PERSONALIZACION.md).
 
 Consulta [`UPGRADE-v0.10.1-alpha3.md`](UPGRADE-v0.10.1-alpha3.md) para aplicar el parche desde v0.10.0-alpha3. No requiere migración SQL. Conserva tu `assets/js/config.js`.
+
+
+## Nexus v0.10.1-alpha3 hotfix 2
+
+Este segundo hotfix de la beta refuerza la reconstrucción de mensajes para evitar saltos de scroll cuando llegan eventos Realtime a la vez, conserva la placa y BoxGlow originales dentro de los bloques agrupados y evita animaciones de scroll inesperadas. En móvil vertical, la preferencia Compactar paneles vuelve a usar una sola columna y la navegación lateral habitual.
+
+Se mantienen la búsqueda de emojis, las sugerencias `:alias:`, la cancelación básica de eco/ruido en VC y las notas de voz WAV PCM mono a 16 kHz, con aliases de emojis en español añadidos al selector y al compositor. No requiere migración SQL.
+
+Consulta `UPGRADE-v0.10.1-alpha3-hotfix2.md` para actualizar desde el hotfix anterior. Conserva `assets/js/config.js`.
