@@ -1,12 +1,24 @@
-> **Nexus v0.10.0-alpha.2:** incluye las funciones de la alpha.1 y añade cajas de mensajes agrupados, personalización ampliada de colores y un selector grande de emojis con reacciones personalizadas y acceso privado a esos recursos limitado por RLS a los miembros del chat. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha2.md` antes de actualizar.
+> **Nexus v0.10.0-alpha.3:** amplía el Markdown personalizado con bloques interactivos, NexCSS Beta, InputSync, tablas Beta y vistas previas de hojas de cálculo. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha3.md` antes de actualizar.
 
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-## Nexus v0.10.0-alpha.2
+## Nexus v0.10.0-alpha.3
 
-Esta entrega se centra en la experiencia web y móvil. No es una versión 1.0 y debe probarse junto con las instalaciones anteriores antes de considerarla estable.
+Esta entrega continúa la rama 0.10 para web y móvil. No es una versión 1.0 ni abre la rama 0.11. Nexus Desktop permanece sin cambios. Debe probarse junto con Supabase real antes de considerarla estable.
+
+### Añadido en alpha.3
+
+- Markdown con atributos combinables y anidables (hasta 256 niveles por seguridad), separadores, hover y spoilers locales o para todo el mensaje.
+- Citas web/libro con formato APA 7 básico, botones externos, iconos HTTPS e invitaciones en forma de tarjeta.
+- InputSync compartido entre miembros autorizados de un mensaje, con estados guardados por clave y actualización en tiempo real.
+- NexCSS Beta: el usuario escribe CSS y Nexus muestra una página HTML de prueba automática en un iframe aislado, sin scripts, imports ni recursos externos.
+- Tablas HTML simplificadas en texto, con soporte acotado para cabeceras/pie y colspan/rowspan; cada tabla advierte que la sintaxis sigue en beta.
+- Bloques de código con botones para copiar y descargar, menciones clicables y bloques de canal globales o del megagrupo actual.
+- Vistas previas para adjuntos CSV, TSV, XLS, XLSX y ODS, manteniendo el archivo original descargable.
+- Mejoras de rendimiento al cargar InputSync en lote y exclusión de controles/enlaces interactivos del procesador automático de menciones.
+- Ajustes de presentación para iconos de medallas globales y cajas agrupadas, con opción de compatibilidad para desactivar el ajuste de ancho/efectos.
 
 ### Añadido en alpha.2
 
@@ -15,7 +27,7 @@ Esta entrega se centra en la experiencia web y móvil. No es una versión 1.0 y 
 - Más de 1.000 emojis estándar en el selector y posibilidad de reaccionar con emojis estándar o personalizados de los ámbitos disponibles.
 - Migración para ampliar el campo de reacción y permitir identificadores de emojis personalizados.
 
-Consulta `UPGRADE-v0.10-alpha2.md` para aplicar la migración y desplegar el parche.
+Consulta `UPGRADE-v0.10-alpha2.md` para aplicar la migración y desplegar el parche de alpha2.
 
 - Mensajes de audio grabados desde el compositor y reproducidos desde el chat.
 - Compartir pantalla en canales de voz mediante WebRTC, cuando el navegador y el dispositivo lo permiten.
@@ -33,7 +45,7 @@ Consulta `UPGRADE-v0.10-alpha2.md` para aplicar la migración y desplegar el par
 
 Consulta `UPGRADE-v0.10-alpha1.md` para aplicar la migración y desplegar.
 
-> **Estado:** v0.10.0-alpha.2 amplía la versión web y móvil a partir de v0.9.1. Desktop se mantiene en su rama Alpha 2 y el actualizador automático queda aparcado. No se requiere dominio ni servicio externo de pago para estas funciones.
+> **Estado:** v0.10.0-alpha.3 continúa la versión web y móvil a partir de alpha.2. Desktop se mantiene sin cambios en su rama 0.9. No se requiere dominio ni servicio externo de pago para las funciones Markdown descritas.
 
 ## 1. Qué incluye esta versión
 

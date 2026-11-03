@@ -10,14 +10,15 @@
   <meta name="theme-color" content="#141925">
   <link rel="icon" href="./nexus-icon.svg" type="image/svg+xml">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M27 72V28h10l26 27V28h10v44H63L37 45v27z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="assets/css/app.css?v=0.10.0-alpha.1">
+  <link rel="stylesheet" href="assets/css/app.css?v=0.10.0-alpha.3">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
   <script defer src="assets/js/config.js"></script>
-  <script defer src="assets/js/app.js?v=0.10.0-alpha.1"></script>
+  <script defer src="assets/js/app.js?v=0.10.0-alpha.3"></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
@@ -186,6 +187,8 @@
             <label class="field">Mensajes cargados inicialmente<select id="setting-message-page-size"><option value="25">25 · Muy ligero</option><option value="50">50 · Equilibrado</option><option value="75">75</option><option value="100">100 · Más historial</option></select></label>
             <label class="setting-check"><input type="checkbox" id="setting-voice-compact"> Desactivar tarjetas visuales en chats de voz</label>
             <label class="setting-check"><input type="checkbox" id="setting-group-messages" checked> Agrupar mensajes consecutivos de la misma persona en una sola caja</label>
+            <label class="setting-check"><input type="checkbox" id="setting-disable-message-group-width-fix"> Desactivar el ajuste de ancho y efectos de las cajas agrupadas (compatibilidad)</label>
+            <label class="setting-check"><input type="checkbox" id="setting-disable-markdown-delay"> Desactivar retrasos Markdown (mostrar directamente)</label>
           </div>
           <div class="full-field settings-subsection"><h3>Identidad de mensajes</h3><p class="muted small-muted">Esta fuente es independiente de la fuente de tu nombre de usuario. Se mostrará también a quienes reciban tus mensajes.</p><label class="field">Fuente de los mensajes<select id="setting-message-font"><option value="default">Predeterminada</option><option value="profile">Mi fuente de mensajes</option></select></label><label class="field">Subir fuente de mensajes (.woff/.woff2/.ttf)<input id="setting-message-font-file" type="file" accept=".woff,.woff2,.ttf,font/woff,font/woff2,font/ttf"></label>
           </div>
@@ -237,12 +240,19 @@
 
 
   <dialog id="markdown-guide-dialog" class="dialog-card wide-dialog"><div class="dialog-heading"><h3>Guía de Markdown de Nexus</h3><button type="button" class="icon-button" id="close-markdown-guide">×</button></div><div class="markdown-guide-content">
-    <h4>Formato básico</h4><p><code>**negrita**</code> · <code>*cursiva*</code> · <code>~~tachado~~</code> · <code>`código`</code></p><p><code>&gt; cita</code> · <code>[texto](https://ejemplo.com)</code></p>
-    <h4>Bloques de código</h4><pre><code>```js
+    <h4>Formato básico</h4><p><code>**negrita**</code> · <code>*cursiva*</code> · <code>~~tachado~~</code> · <code>`código`</code> · <code>||spoiler||</code></p><p><code>&gt; cita</code> · <code>[texto](https://ejemplo.com)</code> · <code>{dinbreak}</code> · <code>{SPOILER=true}</code></p>
+    <h4>Atributos apilables</h4><p>Combina color, tamaño, fuente y brillo anidando bloques. Admite hasta 256 niveles por seguridad: <code>{red:{size:24:{glow:blue:Texto}}}</code> · <code>{color:#ff8800:{font:serif:Texto}}</code>.</p><p><code>{red:Texto}</code> · <code>{color:#ff8800:Texto}</code> · <code>{size:24:Texto}</code> · <code>{font:serif:Texto}</code> · <code>{glow:blue:Texto}</code> · <code>{hover:Texto}</code></p>
+    <h4>Botones, iconos, invitaciones y citas APA</h4><p><code>{button:purple:Abrir:https://ejemplo.com}</code> · <code>{button:#267c55:Solo texto}</code> · <code>{icon:https://ejemplo.com/icon.png}</code></p><p><code>{invite:Título:Descripción:"#7865d8":"https://ejemplo.com/invite"}</code></p><p><code>{src:web:Nombre de la fuente:https://ejemplo.com/pagina}</code> · <code>{src:book:Autor o título:https://ejemplo.com/libro#page=12}</code></p><p class="muted small-muted">Las citas crean una referencia APA 7 básica con la información facilitada y fecha no disponible (s. f.). Nexus no consulta ni inventa autor o fecha editorial. Revisa los datos de la referencia antes de usarla en un trabajo académico.</p>
+    <h4>Canales y menciones</h4><p><code>#general</code> abre un canal del megagrupo actual. <code>{00000000-0000-0000-0000-000000000000:General:anuncios}</code> enlaza un canal global de otro megagrupo. Las menciones <code>@usuario</code> son clicables cuando se reconocen al enviar.</p>
+    <h4>InputSync compartido</h4><p><code>{InSync:checkbox:false:He leído las normas}</code> · <code>{InSync:radio:azul:Color:preferencia-color}</code> · <code>{InSync:text:Mi texto:Respuesta:campo-respuesta}</code> · <code>{InSync:email::Correo:correo}</code></p><p>Los controles comparten estado entre miembros que pueden ver el mensaje. Usa la misma clave para controles que deban compartir estado; los radios con la misma clave son mutuamente excluyentes. Necesita la migración de InputSync.</p>
+    <h4>NexCSS Beta</h4><p><code>{nexcss:.nexus-demo-card{background:#eef2ff;color:#24315b;border-radius:12px;padding:14px}.nexus-demo button{background:#624bd6;color:white}}</code></p><p class="muted small-muted">Escribe CSS; Nexus genera una página de prueba HTML con muchas etiquetas. Las pestañas alternan entre la vista previa y el CSS. Se ejecuta en un iframe aislado sin scripts, imports, URLs ni recursos externos.</p>
+    <h4>Tablas Beta</h4><p><code>{table:head={&lt;tr&gt;&lt;th colspan="2"&gt;Nombre&lt;/th&gt;&lt;/tr&gt;}:body={&lt;tr&gt;&lt;td rowspan="2"&gt;A&lt;/td&gt;&lt;td&gt;B&lt;/td&gt;&lt;/tr&gt;}:footer={&lt;tr&gt;&lt;td colspan="2"&gt;Total&lt;/td&gt;&lt;/tr&gt;}}</code></p><p class="muted small-muted">Se admite estructura limitada de filas/celdas con colspan y rowspan. Cada tabla muestra un aviso rojo de sintaxis beta.</p>
+    <h4>Bloques especiales</h4><p><code>{delay:Texto}</code> · <code>{delay:2500:Texto}</code> · <code>{spoiler:contenido}</code> · <code>||contenido||</code></p><p>Delay usa 1.200 ms por defecto, admite hasta 30.000 ms y se desactiva en Configuración → Optimizaciones. Hover aplica un efecto básico. Los spoilers se revelan al pulsarlos.</p>
+    <h4>Código con botones</h4><pre><code>```js&&buttons=true
 const nexus = true;
-```</code></pre><p class="muted small-muted">Escribe el identificador del lenguaje después de las tres comillas invertidas para activar el coloreado.</p>
-    <h4>Markdown personalizado</h4><p><code>{red:Texto rojo}</code></p><p><code>{color:#ff8800:Texto naranja}</code></p><p><code>{size:24:Texto de 24 píxeles}</code></p><p><code>{font:serif:Texto serif}</code></p><p><code>{glow:blue:Texto azul brillante}</code></p>
-    <p class="muted small-muted">Los colores, tamaños y fuentes están limitados a valores seguros. No se admite HTML arbitrario ni CSS libre.</p></div></dialog>
+```</code></pre><p>Añade botones para copiar y descargar el bloque de código.</p>
+    <h4>Hojas de cálculo</h4><p>Al adjuntar CSV, TSV, XLS, XLSX u ODS, Nexus intenta mostrar una vista previa de la primera hoja (máximo 16 filas y 12 columnas). El archivo original siempre queda disponible para descargar.</p>
+  </div></dialog>
   <dialog id="context-notification-dialog" class="dialog-card"><form method="dialog" id="context-notification-form"><div class="dialog-heading"><h3>Notificaciones de este espacio</h3><button type="button" class="icon-button" id="close-context-notifications">×</button></div><p id="context-notification-name" class="muted small-muted">Configuración individual</p><label class="field">Modo<select id="context-notification-mode"><option value="default">Usar configuración general</option><option value="all">Todos los mensajes</option><option value="mentions">Solo menciones</option><option value="mute">Silenciar</option></select></label><div class="dialog-actions"><button type="button" class="button button-secondary" id="cancel-context-notifications">Cancelar</button><button type="submit" class="button button-primary">Guardar</button></div></form></dialog>
 
   <dialog id="prompt-dialog" class="dialog-card"><form method="dialog" id="prompt-form"><div class="dialog-heading"><h3 id="prompt-title">Crear</h3><button class="icon-button" value="cancel" aria-label="Cerrar">×</button></div><p id="prompt-description" class="muted"></p><label class="field" id="prompt-field-label"><span id="prompt-label">Nombre</span><input id="prompt-input" autocomplete="off"></label><div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancelar</button><button class="button button-primary" id="prompt-confirm" value="default">Continuar</button></div></form></dialog>
