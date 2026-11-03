@@ -342,3 +342,9 @@ Consulta `CHANGELOG-v0.9.md` para las funciones nuevas y `UPGRADE-v0.9.md` para 
 ## Actualizar a Nexus v0.10.0-alpha.1
 
 Antes de desplegar, sigue `UPGRADE-v0.10-alpha1.md`. Ejecuta `supabase/migrations/20261102_nexus_v010_features.sql` en Supabase SQL Editor y después publica los archivos del proyecto, conservando `assets/js/config.js`.
+
+## Nexus v0.10.1-alpha3 (beta hotfix)
+
+Este hotfix restaura los fondos de megagrupo en los canales de conversación e incorpora una guía completa de personalización accesible desde la barra superior y desde Configuración. La guía también está disponible como [`GUIA-PERSONALIZACION.md`](GUIA-PERSONALIZACION.md).
+
+Consulta [`UPGRADE-v0.10.1-alpha3.md`](UPGRADE-v0.10.1-alpha3.md) para aplicar el parche desde v0.10.0-alpha3. No requiere migración SQL. Conserva tu `assets/js/config.js`.

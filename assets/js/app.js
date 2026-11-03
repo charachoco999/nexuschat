@@ -20,6 +20,7 @@
   let currentUser = null;
   let profile = null;
   let currentView = 'chats';
+  let customizationGuideReturnView = 'chats';
   let currentContext = null; // {type:'conversation'|'channel', id, title, subtitle, icon}
   let activeMessageChannel = null;
   let friendsRealtimeChannel = null;
@@ -395,6 +396,7 @@
       workshop:['Workshop','Presets creados por la comunidad.','✧'],
       profile:['Tu perfil','Tu identidad en Nexus.','●'],
       settings:['Configuración','Preferencias y administración.','⚙'],
+      'customization-guide':['Guía de personalización','Aprende a ajustar Nexus paso a paso.','ⓘ'],
       community:[currentCommunity?.name || 'Megagrupo','Canales y comunidad.','▦']
     };
     const [title, subtitle, icon] = labels[view] || labels.chats;
@@ -412,6 +414,30 @@
   $('#open-profile').addEventListener('click', () => switchView('profile'));
   $('#top-profile').addEventListener('click', () => switchView('profile'));
   $('#open-settings').addEventListener('click', () => switchView('settings'));
+  function openCustomizationGuide() {
+    customizationGuideReturnView = currentView === 'customization-guide' ? 'chats' : currentView;
+    switchView('customization-guide');
+  }
+  function returnFromCustomizationGuide() {
+    const target = customizationGuideReturnView && customizationGuideReturnView !== 'customization-guide'
+      ? customizationGuideReturnView
+      : 'chats';
+    switchView(target);
+  }
+  $('#open-customization-guide')?.addEventListener('click', openCustomizationGuide);
+  $('#open-customization-guide-settings')?.addEventListener('click', openCustomizationGuide);
+  $('#guide-return-to-nexus')?.addEventListener('click', returnFromCustomizationGuide);
+  $('#guide-footer-return')?.addEventListener('click', returnFromCustomizationGuide);
+  $('#guide-open-settings')?.addEventListener('click', () => switchView('settings'));
+  $('#guide-footer-settings')?.addEventListener('click', () => switchView('settings'));
+  $$('.guide-open-settings').forEach(button => button.addEventListener('click', () => switchView('settings')));
+  $('#guide-open-profile')?.addEventListener('click', () => switchView('profile'));
+  $('#guide-open-community')?.addEventListener('click', () => {
+    if (!currentCommunity) { toast('Primero selecciona un megagrupo.','error'); return; }
+    switchView('community');
+    $('#community-settings')?.click();
+  });
+  $('#guide-open-markdown')?.addEventListener('click', openMarkdownGuide);
   $('#logout-button').addEventListener('click', signOut);
   $('#global-search').addEventListener('click', () => addFriendFlow());
   $('#mobile-menu-toggle')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.toggle('mobile-menu-open');$('#mobile-menu-scrim')?.classList.toggle('hidden',!app.classList.contains('mobile-menu-open'));});
@@ -2939,18 +2965,35 @@
   function applyChatCommunityBackground() {
     const pane = $('#conversation-panel');
     if (!pane) return;
-    const background = currentContext?.type === 'channel' ? safeHttpsUrl(currentCommunity?.background_url) : '';
-    if (background) {
-      const safe = background.replace(/["\\]/g,'');
-      pane.style.backgroundImage = `linear-gradient(rgba(12,16,25,.55),rgba(12,16,25,.70)),url("${safe}")`;
-      pane.style.backgroundSize = 'cover';
-      pane.style.backgroundPosition = 'center';
-      pane.style.backgroundAttachment = 'fixed';
+    const conversation = pane.querySelector('.active-conversation');
+    const background = currentContext?.type === 'channel' && currentCommunity
+      ? safeHttpsUrl(currentCommunity.background_url)
+      : '';
+
+    // Alpha2 introduced an opaque background on .active-conversation. Painting
+    // only the outer pane therefore left the community wallpaper hidden behind it.
+    // Put the wallpaper on the actual conversation surface and make that surface
+    // transparent only for community channels; DMs keep the regular theme.
+    pane.style.backgroundImage = '';
+    if (conversation && background) {
+      const safe = background.replace(/["\\]/g, '');
+      conversation.style.backgroundImage = `linear-gradient(rgba(12,16,25,.58),rgba(12,16,25,.68)),url("${safe}")`;
+      conversation.style.backgroundSize = 'cover';
+      conversation.style.backgroundPosition = 'center';
+      conversation.style.backgroundRepeat = 'no-repeat';
+      conversation.style.backgroundAttachment = 'scroll';
+      conversation.style.backgroundColor = 'transparent';
+      pane.classList.add('community-wallpaper-active');
     } else {
-      pane.style.backgroundImage = '';
-      pane.style.backgroundSize = '';
-      pane.style.backgroundPosition = '';
-      pane.style.backgroundAttachment = '';
+      if (conversation) {
+        conversation.style.backgroundImage = '';
+        conversation.style.backgroundSize = '';
+        conversation.style.backgroundPosition = '';
+        conversation.style.backgroundRepeat = '';
+        conversation.style.backgroundAttachment = '';
+        conversation.style.backgroundColor = '';
+      }
+      pane.classList.remove('community-wallpaper-active');
     }
   }
 

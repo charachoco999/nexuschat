@@ -594,3 +594,25 @@
 
 /* Fix global badges in every member-list density and preserve their intended icon box. */
 .online-member-badges img,.person-row-badges img,.conversation-global-badges img,.global-badge-tray img{display:block;width:14px!important;height:14px!important;min-width:14px;max-width:14px;min-height:14px;max-height:14px;object-fit:contain;flex:none;}
+
+
+/* Nexus v0.10.1-alpha3 hotfix: restore community channel wallpapers and add a responsive help guide. */
+#conversation-panel.community-wallpaper-active .active-conversation{background-color:transparent!important;background-repeat:no-repeat;background-size:cover;background-position:center;}
+#conversation-panel.community-wallpaper-active .messages{background:transparent;}
+.customization-guide-trigger{padding:7px 10px;font-size:11px;white-space:nowrap;}
+.customization-guide-page{max-width:1050px;}
+.customization-guide-heading{align-items:flex-start;}
+.customization-guide-index{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);}
+.customization-guide-index a{display:inline-flex;padding:7px 10px;border-radius:8px;background:var(--panel2);color:var(--text);font-size:11px;text-decoration:none;}
+.customization-guide-index a:hover{background:var(--accent);color:#fff;}
+.guide-section{margin:0 0 13px;scroll-margin-top:18px;}
+.guide-section h2{font:600 17px 'Space Grotesk';margin:0 0 9px;}
+.guide-section p,.guide-section li,.guide-footer p{font-size:12px;line-height:1.65;color:var(--muted);}
+.guide-section ul{padding-left:20px;margin:9px 0 12px;}
+.guide-section li{margin:5px 0;}
+.guide-section li strong{color:var(--text);}
+.guide-actions{display:flex;flex-wrap:wrap;gap:7px;}
+.guide-footer{margin:16px 0 5px;}
+.guide-footer>strong{font:600 15px 'Space Grotesk';}
+.guide-footer p{margin:7px 0 12px;}
+@media(max-width:760px){.topbar-actions{gap:5px}.customization-guide-trigger{padding:7px 8px;font-size:10px}.customization-guide-heading{gap:10px}.customization-guide-heading .button{width:100%;}.customization-guide-index{gap:5px;padding:9px}.customization-guide-index a{font-size:10px;padding:7px 8px}.guide-section{padding:15px}}
