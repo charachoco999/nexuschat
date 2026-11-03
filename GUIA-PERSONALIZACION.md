@@ -1,6 +1,6 @@
 # Guía de personalización de Nexus
 
-Esta guía explica las opciones visuales y de comodidad disponibles en Nexus v0.10.1-alpha3. Se actualizará junto con las siguientes versiones cuando se añadan nuevas opciones.
+Esta guía explica las opciones visuales y de comodidad disponibles en Nexus v0.10.2-alpha1. Se actualizará junto con las siguientes versiones cuando se añadan nuevas opciones.
 
 ## Abrir la guía dentro de Nexus
 
@@ -66,3 +66,18 @@ En el selector puedes buscar por nombre, alias o emoji. En el compositor escribe
 ## Mensajes agrupados (recordatorio)
 
 Los mensajes consecutivos de una misma persona se presentan en un único bloque. La placa y BoxGlow se aplican al bloque sin borrar la configuración decorativa original de cada mensaje, para que las ediciones y reacciones no hagan desaparecer esos efectos. En móvil vertical, el modo compacto conserva la navegación normal de una sola columna.
+
+
+## Novedades de Nexus v0.10.2
+
+- **Perfiles por megagrupo:** abre Tu perfil → Perfil por megagrupo, escoge un megagrupo y personaliza nickname, pronombres, aliases, biografía, avatar, banner, color, fuentes, efectos, placa, marco, estado y widgets. Quick-Alt sigue siendo global.
+- **Fuentes separadas:** la fuente del nickname y la fuente del texto de los mensajes se configuran por separado. En perfiles por megagrupo también pueden sobrescribirse.
+- **BetterEmojis:** los mensajes compuestos únicamente por emojis se ven más grandes. En la configuración del emoji personal puedes elegir si lo ven solo tú, tus amigos, miembros de megagrupos compartidos o cualquiera.
+- **Sticker Workshop:** entra en Sticker Workshop desde la navegación, busca publicaciones, añade stickers a tu colección o publica los tuyos. Publicar no hace público el archivo de Storage por sí solo: la lectura se valida mediante las políticas de Nexus.
+- **Megacompactación BETA:** activa primero Configuración → Optimizaciones → Compactar paneles; después activa Megacompactación. El selector rápido permite saltar entre Chats, Amigos, Workshop y Stickers. Puede consumir más recursos en dispositivos de gama baja.
+- **Administración de plataforma:** el botón de la barra superior solo aparece para cuentas con el rol de administrador de plataforma. Desde allí se buscan usuarios, se revisan sugerencias/bugs y se gestionan sanciones.
+- **Sugerencias y bugs:** cualquier usuario puede enviar comentarios al equipo con los botones superiores. El estado y la posible medalla de recompensa solo los decide el equipo.
+- **Reenvío y archivos:** usa Reenviar en el menú del mensaje. Para adjuntar varios archivos, selecciónalos juntos; el texto del compositor se aplica como descripción al primer archivo del lote.
+- **Separadores de fecha:** los mensajes de días diferentes se separan por fecha aunque desactives la agrupación.
+- **Ayuda de Markdown:** Configuración → Guías de Nexus → Markdown ofrece ejemplos recomendados y ejemplos que conviene evitar.
+

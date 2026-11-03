@@ -1,10 +1,10 @@
-> **Nexus v0.10.0-alpha.3:** amplía el Markdown personalizado con bloques interactivos, NexCSS Beta, InputSync, tablas Beta y vistas previas de hojas de cálculo. Continúa en fase de pruebas. Consulta `UPGRADE-v0.10-alpha3.md` antes de actualizar.
+> **Nexus v0.10.2-alpha1:** añade reenvío, archivos con descripción, panel de administración, perfiles por megagrupo, Sticker Workshop y mejoras de personalización. Continúa en fase alpha. Consulta `UPGRADE-v0.10.2-alpha1.md` antes de actualizar.
 
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
-## Nexus v0.10.0-alpha.3
+## Nexus v0.10.2-alpha1
 
 Esta entrega continúa la rama 0.10 para web y móvil. No es una versión 1.0 ni abre la rama 0.11. Nexus Desktop permanece sin cambios. Debe probarse junto con Supabase real antes de considerarla estable.
 
@@ -357,3 +357,8 @@ Este segundo hotfix de la beta refuerza la reconstrucción de mensajes para evit
 Se mantienen la búsqueda de emojis, las sugerencias `:alias:`, la cancelación básica de eco/ruido en VC y las notas de voz WAV PCM mono a 16 kHz, con aliases de emojis en español añadidos al selector y al compositor. No requiere migración SQL.
 
 Consulta `UPGRADE-v0.10.1-alpha3-hotfix2.md` para actualizar desde el hotfix anterior. Conserva `assets/js/config.js`.
+
+
+## Estado de versión
+
+La versión web más reciente de esta rama es **Nexus v0.10.2-alpha1**. Consulta `CHANGELOG-v0.10.2-alpha1.md` y `UPGRADE-v0.10.2-alpha1.md` antes de actualizar. Nexus Desktop permanece en una rama separada y no se modifica con esta entrega.

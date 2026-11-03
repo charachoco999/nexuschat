@@ -21,6 +21,15 @@
   let profile = null;
   let currentView = 'chats';
   let customizationGuideReturnView = 'chats';
+  let markdownGuideReturnView = 'chats';
+  let forwardingMessage = null;
+  let activeFeedbackType = 'suggestion';
+  let stickerWorkshopRows = [];
+  let activeCommunityProfile = null;
+  let activeProfileMode = 'main';
+  let communityProfileWidgets = [];
+  let pendingForwardMessage = null;
+  let platformFeedbackFilter = 'open';
   let currentContext = null; // {type:'conversation'|'channel', id, title, subtitle, icon}
   let activeMessageChannel = null;
   let friendsRealtimeChannel = null;
@@ -340,6 +349,10 @@
       const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
       if (error) throw error;
       profile = data;
+      await loadSystemInboxMessages();
+      // Store a privacy-conscious last-seen timestamp for platform moderation/search.
+      // This is updated at sign-in and when the tab returns to the foreground.
+      client.from('profiles').update({last_seen_at:new Date().toISOString()}).eq('id',user.id).then(({error:lastSeenError})=>{if(lastSeenError)console.debug('No se pudo actualizar la última actividad:',lastSeenError.message);});
       applyClientPreferences();
       await loadActiveAltProfile();
       renderIdentity();
@@ -399,6 +412,7 @@
 
   // ---------- Navigation and identity ----------
   function switchView(view) {
+    if(view==='admin'&&!platformAdmin){toast('Este panel está reservado a administradores de plataforma.','error');return;}
     if(view!=='chats'&&voiceSession)leaveVoiceRoom({refresh:false});
     currentView = view;
     $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels && currentCommunity && (view==='community' || (view==='chats' && currentContext?.type==='channel'))));
@@ -410,6 +424,9 @@
       chats:['Mensajes','Tus conversaciones, en un mismo lugar.','◫'],
       friends:['Amigos','Tu círculo de Nexus.','♧'],
       workshop:['Workshop','Presets creados por la comunidad.','✧'],
+      'sticker-workshop':['Sticker Workshop','Stickers publicados por la comunidad.','▧'],
+      'markdown-guide':['Guía de Markdown','Sintaxis, ejemplos y buenas prácticas.','ⓜ'],
+      admin:['Panel de administración','Herramientas del equipo de Nexus.','✦'],
       profile:['Tu perfil','Tu identidad en Nexus.','●'],
       settings:['Configuración','Preferencias y administración.','⚙'],
       'customization-guide':['Guía de personalización','Aprende a ajustar Nexus paso a paso.','ⓘ'],
@@ -420,8 +437,10 @@
     $('#context-subtitle').textContent = subtitle;
     $('#context-icon').textContent = icon;
     $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
-    if (view === 'profile') { fillProfileForm(); renderProfileWidgets(); fillCommunityNickname(); renderIdentityAssetLinks(); loadAltProfiles(); $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings)); $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`; }
+    if (view === 'profile') { fillProfileForm(); switchProfileMode('main'); renderProfileWidgets(); fillCommunityNickname(); loadCommunityProfileEditor(); renderIdentityAssetLinks(); loadAltProfiles(); $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings)); $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`; }
     if (view === 'settings') fillSettingsForm();
+    if (view === 'admin' && platformAdmin) { loadPlatformAdminUsers(); loadPlatformFeedback(); loadPlatformBadges(); }
+    if (view === 'sticker-workshop') loadStickerWorkshopPage();
   }
   $$('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
   function returnToPersonalInbox(){if(currentContext?.type==='channel'){if(voiceSession)leaveVoiceRoom({refresh:false});resetConversationPanel();}$('#app-screen').classList.remove('community-focus');}
@@ -453,7 +472,8 @@
     switchView('community');
     $('#community-settings')?.click();
   });
-  $('#guide-open-markdown')?.addEventListener('click', openMarkdownGuide);
+  $('#guide-open-markdown')?.addEventListener('click', openMarkdownGuidePage);
+  $('#markdown-guide-return')?.addEventListener('click', returnFromMarkdownGuide);
   $('#logout-button').addEventListener('click', signOut);
   $('#global-search').addEventListener('click', () => addFriendFlow());
   $('#mobile-menu-toggle')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.toggle('mobile-menu-open');$('#mobile-menu-scrim')?.classList.toggle('hidden',!app.classList.contains('mobile-menu-open'));});
@@ -1040,7 +1060,7 @@
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
-          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Emojis / Stickers</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button><button type="button" id="record-audio" ${readOnly ? 'disabled' : ''}>◉ Audio</button><button type="button" id="composer-markdown-guide">Markdown</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" accept="image/*,video/*,.pdf,.txt,.zip,.zipx,.csv,.tsv,.xls,.xlsx,.ods"></div>
+          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Emojis / Stickers</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button><button type="button" id="record-audio" ${readOnly ? 'disabled' : ''}>◉ Audio</button><button type="button" id="composer-markdown-guide">Markdown</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" multiple accept="image/*,video/*,.pdf,.txt,.zip,.zipx,.csv,.tsv,.xls,.xlsx,.ods"></div>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
@@ -1091,7 +1111,49 @@
   }
 
   function openMarkdownGuide(){const dialog=$('#markdown-guide-dialog');if(dialog&&!dialog.open)dialog.showModal();}
-  $('#open-markdown-guide')?.addEventListener('click',openMarkdownGuide);
+  function openMarkdownGuidePage(){
+    markdownGuideReturnView=currentView==='markdown-guide'?'chats':currentView;
+    const host=$('#markdown-guide-page-content');
+    const source=$('#markdown-guide-dialog .markdown-guide-content');
+    if (host && source) {
+      const guideClone=source.cloneNode(true);
+      guideClone.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
+      host.replaceChildren(guideClone);
+      const extra = document.createElement('section');
+      extra.className = 'surface markdown-guide-deep-dive';
+      extra.innerHTML = String.raw`<h2>Buenas prácticas y errores habituales</h2>
+        <div class="markdown-guide-columns">
+          <article><h3>Haz esto</h3><ul>
+            <li>Comprueba que todos los enlaces usan HTTPS.</li>
+            <li>Usa bloques cortos y anida atributos de forma clara.</li>
+            <li>Comprueba la vista previa antes de enviar contenido complejo.</li>
+            <li>Usa tablas simples y encabezados cortos.</li>
+            <li>En InputSync utiliza claves únicas por control compartido y evita guardar información sensible.</li>
+          </ul></article>
+          <article><h3>Evita esto</h3><ul>
+            <li>No pegues HTML con scripts ni intentes importar CSS externo.</li>
+            <li>No anides bloques sin cerrar sus llaves.</li>
+            <li>No uses botones para pedir contraseñas, datos privados o información sensible.</li>
+            <li>No confíes en una cita APA generada sin verificar autor, fecha y fuente.</li>
+            <li>No uses retrasos para simular avisos urgentes.</li>
+          </ul></article>
+        </div>
+        <h3>Ejemplo completo</h3><pre><code>## Actualización
+
+{color:#9b8cff:{size:22:Notas de versión}}
+
+{src:web:Documentación oficial:https://example.com/docs}
+
+{button:#6956d8:Leer documentación:https://example.com/docs}
+
+||Contenido que debe revelarse al pulsar||</code></pre>
+        <p class="muted small-muted">El contenido se sanea antes de mostrarse. Las funciones Beta pueden cambiar entre versiones de Nexus.</p>`;
+      host.append(extra);
+    }
+    switchView('markdown-guide');
+  }
+  function returnFromMarkdownGuide(){switchView(markdownGuideReturnView&&markdownGuideReturnView!=='markdown-guide'?markdownGuideReturnView:'chats');}
+  $('#open-markdown-guide')?.addEventListener('click',openMarkdownGuidePage);
   $('#composer-markdown-guide')?.addEventListener('click',openMarkdownGuide);
   $('#close-markdown-guide')?.addEventListener('click',()=>$('#markdown-guide-dialog')?.close());
   $('#markdown-guide-dialog')?.addEventListener('click',event=>{if(event.target===event.currentTarget)event.currentTarget.close();});
@@ -1533,9 +1595,12 @@
     if (error || !person) { showError(error || new Error('No se pudo encontrar el perfil.')); return; }
     let communityNickname = '';
     if (currentContext?.type === 'channel' && currentCommunity) {
-      const {data:member} = await client.from('community_members').select('nickname')
-        .eq('community_id',currentCommunity.id).eq('user_id',userId).maybeSingle();
+      const [{data:member},{data:communityProfile}] = await Promise.all([
+        client.from('community_members').select('nickname').eq('community_id',currentCommunity.id).eq('user_id',userId).maybeSingle(),
+        client.from('community_profiles').select('nickname,pronouns,bio,avatar_url,banner_url,default_name_color,name_font_url,message_font_url,name_effect_url,profile_effect_url,profile_plate_url,profile_frame_url,aliases,widgets,settings').eq('community_id',currentCommunity.id).eq('user_id',userId).maybeSingle()
+      ]);
       communityNickname = member?.nickname || '';
+      if(communityProfile){for(const key of ['nickname','pronouns','bio','avatar_url','banner_url','default_name_color','name_font_url','message_font_url','name_effect_url','profile_effect_url','profile_plate_url','profile_frame_url','aliases','widgets'])if(communityProfile[key]!==null&&communityProfile[key]!==undefined&&communityProfile[key]!=='')person[key]=communityProfile[key];person.settings={...(person.settings||{}),...(communityProfile.settings||{})};}
     }
     const {data:globalAssignments}=await client.from('global_badge_assignments').select('badge_id').eq('user_id',userId);
     const globalIds=(globalAssignments||[]).map(row=>row.badge_id);
@@ -1610,7 +1675,13 @@
     if (!unique.length) return {};
     const {data, error} = await client.from('profiles').select('id,username,nickname,avatar_url,default_name_color,name_font_url,message_font_url,name_effect_url,profile_effect_url,profile_plate_url,profile_frame_url,settings').in('id', unique);
     if (error) { console.warn(error); return {}; }
-    return Object.fromEntries((data || []).map(row => [row.id,row]));
+    const result=Object.fromEntries((data || []).map(row => [row.id,row]));
+    if(currentContext?.type==='channel'&&currentCommunity?.id){
+      const {data:communityRows, error:communityError}=await client.from('community_profiles').select('user_id,nickname,pronouns,bio,avatar_url,banner_url,default_name_color,name_font_url,message_font_url,name_effect_url,profile_effect_url,profile_plate_url,profile_frame_url,aliases,widgets,settings').eq('community_id',currentCommunity.id).in('user_id',unique);
+      if(communityError)console.debug('Perfiles de megagrupo:',communityError.message);
+      for(const row of communityRows||[]){const target=result[row.user_id];if(!target)continue;for(const key of ['nickname','pronouns','bio','avatar_url','banner_url','default_name_color','name_font_url','message_font_url','name_effect_url','profile_effect_url','profile_plate_url','profile_frame_url','aliases','widgets'])if(row[key]!==null&&row[key]!==undefined&&row[key]!=='' )target[key]=row[key];target.settings={...(target.settings||{}),...(row.settings||{})};target.communityProfileActive=true;}
+    }
+    return result;
   }
   async function fetchGlobalBadgesByUser(userIds) {
     const ids=[...new Set((userIds||[]).filter(Boolean))];
@@ -1706,11 +1777,15 @@
   function canGroupMessages(previous,next){
     if(!previous||!next||previous.dataset.senderId!==next.dataset.senderId||previous.dataset.altProfileId!==next.dataset.altProfileId)return false;
     const a=Date.parse(previous.dataset.createdAt||'');const b=Date.parse(next.dataset.createdAt||'');
-    return Number.isFinite(a)&&Number.isFinite(b)&&b>=a&&b-a<=5*60*1000;
+    const dateA=new Date(a).toLocaleDateString('sv-SE');const dateB=new Date(b).toLocaleDateString('sv-SE');
+    return Number.isFinite(a)&&Number.isFinite(b)&&dateA===dateB&&b>=a&&b-a<=5*60*1000;
   }
+  function chatDayKey(iso){const date=new Date(iso);return Number.isFinite(date.getTime())?date.toLocaleDateString('sv-SE'):'';}
+  function chatDayLabel(iso){const date=new Date(iso);if(!Number.isFinite(date.getTime()))return 'Fecha desconocida';const today=new Date();const yesterday=new Date();yesterday.setDate(today.getDate()-1);if(date.toLocaleDateString('sv-SE')===today.toLocaleDateString('sv-SE'))return 'Hoy';if(date.toLocaleDateString('sv-SE')===yesterday.toLocaleDateString('sv-SE'))return 'Ayer';return new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date);}
   function rebuildMessageGroups(container=$('#messages-container')){
     if(!container)return;
     unwrapMessageGroups(container);
+    container.querySelectorAll(':scope > .message-date-separator').forEach(node=>node.remove());
     const enabled=profile?.settings?.groupMessages!==false;
     container.classList.toggle('message-grouping-enabled',enabled);
     container.classList.toggle('message-group-width-fix-disabled',Boolean(profile?.settings?.disableMessageGroupWidthFix));
@@ -1722,11 +1797,13 @@
     const otherNodes=children.filter(node=>node!==loadButton&&!(node.nodeType===1&&node.classList.contains('message')));
     const fragment=document.createDocumentFragment();
     if(loadButton)fragment.append(loadButton);
-    let index=0;
+    let index=0;let previousDay='';
     while(index<messages.length){
+      const dayKey=chatDayKey(messages[index].dataset.createdAt||'');
+      if(dayKey&&dayKey!==previousDay){const separator=document.createElement('div');separator.className='message-date-separator';separator.dataset.day=dayKey;separator.innerHTML=`<span>${escapeHtml(chatDayLabel(messages[index].dataset.createdAt))}</span>`;fragment.append(separator);previousDay=dayKey;}
       const groupMessages=[messages[index]];
       let next=index+1;
-      while(next<messages.length&&canGroupMessages(groupMessages.at(-1),messages[next])){groupMessages.push(messages[next]);next++;}
+      while(enabled&&next<messages.length&&canGroupMessages(groupMessages.at(-1),messages[next])){groupMessages.push(messages[next]);next++;}
       if(groupMessages.length===1)fragment.append(groupMessages[0]);
       else{
         const group=document.createElement('div');group.className='message-group';
@@ -2127,6 +2204,7 @@
     replyButton.textContent = 'Responder';
     replyButton.addEventListener('click', () => setReplyTarget(message, sender));
     messageActions.append(replyButton);
+    const forwardButton=document.createElement('button');forwardButton.type='button';forwardButton.className='message-action-button';forwardButton.textContent='Reenviar';forwardButton.addEventListener('click',()=>openForwardMessageDialog(message,sender));messageActions.append(forwardButton);
     const pinButton = document.createElement('button');
     pinButton.type = 'button'; pinButton.className = 'message-action-button'; pinButton.textContent = 'Fijar';
     pinButton.dataset.pinMessageId = message.id;
@@ -2177,8 +2255,14 @@
     }
 
     const body = $('.message-body', article);
+    if(message.formatting?.forwarded_from){
+      const forwarded=document.createElement('div');
+      forwarded.className='message-forwarded-label';
+      forwarded.textContent='↪ Reenviado';
+      $('.message-main',article)?.insertBefore(forwarded,body);
+    }
     const source = String(message.body || '');
-    if(sender?.settings?.messageFont==='profile'&&safeHttpsUrl(sender?.message_font_url))applyProfileFontToNode(body,sender.id,sender.message_font_url);
+    if((sender?.communityProfileActive||sender?.settings?.messageFont==='profile')&&safeHttpsUrl(sender?.message_font_url))applyProfileFontToNode(body,sender.id,sender.message_font_url);
     applyBoxGlow(article,sender);
     try {
       const parsedMarkdown=parseNexusMarkdown(source);
@@ -2197,6 +2281,8 @@
         renderCustomEmojiTokens(body);
       }
       renderStandardEmojiShortcodes(body);
+      const emojiOnlyText=source.trim().replace(/:([a-z0-9_+-]{1,32}):/gi,'🙂');
+      if(emojiOnlyText&&emojiOnlyText.length<=96&&!/[\p{L}\p{N}]/u.test(emojiOnlyText)&&/[\p{Extended_Pictographic}]/u.test(emojiOnlyText))article.classList.add('message-emoji-only');
     } catch { body.textContent = source; }
     if (message.message_type === 'poll') {
       let poll=batchData?.polls?.get(message.id)||null;
@@ -2246,7 +2332,7 @@
         const name = escapeHtml(rawName);
         if(type==='text/csv'||type==='text/tab-separated-values'||/^application\/(vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|vnd\.oasis\.opendocument\.spreadsheet)$/i.test(type)||/\.(csv|tsv|xls|xlsx|ods)$/i.test(rawName))renderSpreadsheetPreview(attachment,signedUrl,rawName,type);
         else if (type.startsWith('image/')) attachment.innerHTML = `<a class="message-image-link" href="${signedUrl}" target="_blank" rel="noopener noreferrer"><img class="message-media-image" src="${signedUrl}" alt="${name}" loading="lazy" decoding="async"></a>`;
-        else if (type.startsWith('video/')) attachment.innerHTML = `<video class="message-media-video" controls preload="metadata" src="${signedUrl}"></video><a href="${signedUrl}" download="${name}">Descargar vídeo</a>`;
+        else if (type.startsWith('video/')) { attachment.innerHTML = `<div class="nexus-video-card"><video class="message-media-video" controls playsinline preload="metadata" src="${signedUrl}"></video><div class="nexus-video-toolbar"><strong>${name}</strong><div><button type="button" class="button button-secondary" data-video-fullscreen>Ampliar</button><a class="button button-secondary" href="${signedUrl}" download="${name}">Descargar</a></div></div></div>`; const video=attachment.querySelector('video');attachment.querySelector('[data-video-fullscreen]')?.addEventListener('click',()=>{if(video?.requestFullscreen)video.requestFullscreen().catch(()=>{});else video?.webkitEnterFullscreen?.();}); }
         else if (type.startsWith('audio/')) attachment.innerHTML = `<div class="message-audio-card"><span>♫</span><div><strong>${name}</strong><audio controls preload="metadata" src="${signedUrl}"></audio></div><a href="${signedUrl}" download="${name}" aria-label="Descargar audio">↓</a></div>`;
         else attachment.innerHTML = `<a href="${signedUrl}" download="${name}">Descargar ${name}</a>`;
       }
@@ -2681,7 +2767,12 @@
     if(currentContext?.type==='conversation')scopes.push({scope:'conversation',id:currentContext.id});
     if(currentContext?.type==='channel'&&currentCommunity)scopes.push({scope:'community',id:currentCommunity.id});
     const rows=[];
-    for(const entry of scopes){let query=client.from('custom_assets').select('id,owner_id,asset_type,scope,scope_id,name,asset_url,animated,archived_at').eq('asset_type',type).eq('scope',entry.scope).is('archived_at',null);query=entry.id?query.eq('scope_id',entry.id):query.is('scope_id',null);const {data,error}=await query.order('created_at',{ascending:false});if(error){console.warn('Assets:',error);continue;}rows.push(...(data||[]));}
+    for(const entry of scopes){let query=client.from('custom_assets').select('id,owner_id,asset_type,scope,scope_id,name,asset_url,animated,archived_at,visibility').eq('asset_type',type).eq('scope',entry.scope).is('archived_at',null);query=entry.id?query.eq('scope_id',entry.id):query.is('scope_id',null);const {data,error}=await query.order('created_at',{ascending:false});if(error){console.warn('Assets:',error);continue;}rows.push(...(data||[]));}
+    if(type==='sticker'&&currentUser){
+      const {data:saves}=await client.from('sticker_workshop_saves').select('sticker_id').eq('user_id',currentUser.id);
+      const ids=(saves||[]).map(row=>row.sticker_id);
+      if(ids.length){const {data:published}=await client.from('sticker_workshop').select('id,asset_id,publisher_id,name').in('id',ids);const assetIds=(published||[]).map(row=>row.asset_id);if(assetIds.length){const {data:installed}=await client.from('custom_assets').select('id,owner_id,asset_type,scope,scope_id,name,asset_url,animated,archived_at,visibility').in('id',assetIds);for(const item of installed||[])if(!rows.some(row=>row.id===item.id))rows.push({...item,workshopInstalled:true});}}
+    }
     const urls=await signedUrlLookup('nexus-assets',rows.map(row=>row.asset_url));
     return rows.map(row=>({...row,signedUrl:urls.get(row.asset_url)||''}));
   }
@@ -2779,7 +2870,8 @@
     const button=$('#upload-custom-asset');button.disabled=true;
     try{
       const {error:upError}=await client.storage.from('nexus-assets').upload(path,file,{contentType:file.type,upsert:false});if(upError)throw upError;
-      const {error:rowError}=await client.from('custom_assets').insert({owner_id:currentUser.id,asset_type:type,scope,scope_id:scopeId,name,asset_url:path,animated:file.type==='image/gif'});
+      const visibility=scope==='personal'?($('#custom-asset-visibility')?.value||'private'):'private';
+      const {error:rowError}=await client.from('custom_assets').insert({owner_id:currentUser.id,asset_type:type,scope,scope_id:scopeId,name,asset_url:path,animated:file.type==='image/gif',visibility});
       if(rowError){await client.storage.from('nexus-assets').remove([path]);throw rowError;}
       $('#custom-asset-name').value='';$('#custom-asset-file').value='';assetPickerRowsType='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso subido.','success');
     }catch(error){showError(error,'No se pudo subir el recurso. Comprueba la migración v0.7 y las políticas de Storage.');}
@@ -2857,9 +2949,18 @@
   }
 
   async function uploadAttachment(event) {
-    const file=event.target.files?.[0];
+    const files=[...(event.target.files||[])];
     event.target.value='';
-    await uploadAttachmentFile(file);
+    if(!files.length)return;
+    const context=currentContext?{...currentContext}:null;
+    const reply=replyTarget?{...replyTarget}:null;
+    const alt=activeAltProfile?{...activeAltProfile}:null;
+    const caption=String($('#message-input')?.value||'').trim().slice(0,12000);
+    for(let index=0;index<files.length;index++){
+      await uploadAttachmentFile(files[index],{context,reply,alt,caption:index===0?caption:'',keepComposerCaption:true});
+    }
+    const input=$('#message-input');
+    if(input&&context&&currentContext?.id===context.id&&input.value.trim()===caption){input.value='';autoResizeComposer(input);clearReplyTarget();}
   }
 
   async function handleComposerPaste(event) {
@@ -2870,12 +2971,14 @@
     const files=fromItems.length?fromItems:fromFiles;
     if(!files.length)return;
     event.preventDefault();
+    const context=currentContext?{...currentContext}:null;const reply=replyTarget?{...replyTarget}:null;const alt=activeAltProfile?{...activeAltProfile}:null;const caption=String($('#message-input')?.value||'').trim().slice(0,12000);
     for(let index=0;index<files.length;index++){
       const source=files[index];
       const ext=source.type==='image/jpeg'?'jpg':source.type==='image/webp'?'webp':source.type==='image/gif'?'gif':source.type==='video/webm'?'webm':source.type==='video/mp4'?'mp4':'png';
       const file=new File([source],source.name||`pegado-${Date.now()}-${index+1}.${ext}`,{type:source.type||'image/png',lastModified:Date.now()});
-      await uploadAttachmentFile(file);
+      await uploadAttachmentFile(file,{context,reply,alt,caption:index===0?caption:'',keepComposerCaption:true});
     }
+    const input=$('#message-input');if(input&&context&&currentContext?.id===context.id&&input.value.trim()===caption){input.value='';autoResizeComposer(input);clearReplyTarget();}
   }
 
   async function uploadAttachmentFile(file, options={}) {
@@ -2918,12 +3021,13 @@
         }
         throw uploadError;
       }
+      const caption=Object.prototype.hasOwnProperty.call(options,'caption')?String(options.caption||'').trim().slice(0,12000):String($('#message-input')?.value||'').trim().slice(0,12000);
       const payload = {
         sender_id:currentUser.id,
-        body:file.name || 'Archivo adjunto',
+        body:caption || file.name || 'Archivo adjunto',
         message_type:'media',
         ...(altSnapshot ? {alt_profile_id:altSnapshot.id} : {}),
-        attachment:{path,name:file.name || 'archivo',mimetype:normalizedMime},
+        attachment:{path,name:file.name || 'archivo',mimetype:normalizedMime,...(caption?{caption}:{})},
         ...(replySnapshot ? {reply_to:replySnapshot.id} : {})
       };
       payload[isConversation ? 'conversation_id' : 'channel_id'] = context.id;
@@ -2933,6 +3037,7 @@
         throw new Error(`El archivo se subió, pero no se pudo publicar el mensaje: ${messageError.message}`);
       }
       if(currentContext?.id===context.id&&replyTarget?.id===replySnapshot?.id)clearReplyTarget();
+      if(!options.keepComposerCaption&&currentContext?.id===context.id&&$('#message-input')?.value.trim()===caption){$('#message-input').value='';autoResizeComposer($('#message-input'));}
       toast('Archivo enviado.', 'success');
     } catch (error) {
       showError(error, 'No se pudo subir el archivo.');
@@ -3781,7 +3886,7 @@
   function renderProfileWidgets() {
     const list = $('#profile-widgets-list');
     if (!list) return;
-    const widgets = Array.isArray(profile?.widgets) ? profile.widgets.slice(0,32) : [];
+    const widgets = profileWidgetsForMode().slice(0,32);
     list.innerHTML = '';
     if (!widgets.length) {
       const empty = document.createElement('p'); empty.className = 'muted small-muted';
@@ -3803,9 +3908,8 @@
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button button-danger'; remove.textContent = 'Eliminar';
       remove.addEventListener('click', async () => {
         const next = widgets.filter((_,i) => i !== index);
-        const {error} = await client.from('profiles').update({widgets:next}).eq('id',currentUser.id);
-        if (error) showError(error,'No se pudo eliminar el widget.');
-        else { profile.widgets=next; renderProfileWidgets(); toast('Widget eliminado.','success'); }
+        try { await saveProfileWidgetsForMode(next); renderProfileWidgets(); toast('Widget eliminado.','success'); }
+        catch(error) { showError(error,'No se pudo eliminar el widget.'); }
       });
       if(widget.type==='link' && safeHttpsUrl(widget.url)){
         card.classList.add('profile-widget-link-card');
@@ -3817,11 +3921,12 @@
       list.append(card);
     });
     const count = $('#profile-widget-count'); if (count) count.textContent = `${widgets.length}/32`;
+    const heading=$('#profile-widgets-section h3');if(heading)heading.textContent=activeProfileMode==='community'?'Widgets del megagrupo':'Widgets del perfil';
   }
 
   $('#profile-widget-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const widgets = Array.isArray(profile?.widgets) ? [...profile.widgets] : [];
+    const widgets = [...profileWidgetsForMode()];
     if (widgets.length >= 32) { toast('Tu perfil ya tiene el máximo de 32 widgets.','error'); return; }
     let title = $('#widget-title').value.trim();
     const description = $('#widget-description').value.trim();
@@ -3840,10 +3945,9 @@
       if (!/^#[0-9a-f]{6}$/i.test(banner) && !safeHttpsUrl(banner)) { toast('El banner debe ser un color HEX o una URL HTTPS.','error'); return; }
       widgets.push({id:crypto.randomUUID(),type:'card',title,description,icon,banner});
     }
-    const {error} = await client.from('profiles').update({widgets}).eq('id',currentUser.id);
-    if (error) { showError(error,'No se pudo guardar el widget.'); return; }
-    profile.widgets = widgets; $('#profile-widget-form').reset(); $('#widget-banner').value='#34304f'; $('#widget-url-field')?.classList.add('hidden'); $('#widget-banner-field')?.classList.remove('hidden'); renderProfileWidgets();
-    toast('Widget añadido a tu perfil.','success');
+    try { await saveProfileWidgetsForMode(widgets); } catch(error) { showError(error,'No se pudo guardar el widget.'); return; }
+    $('#profile-widget-form').reset(); $('#widget-banner').value='#34304f'; $('#widget-url-field')?.classList.add('hidden'); $('#widget-banner-field')?.classList.remove('hidden'); renderProfileWidgets();
+    toast(activeProfileMode==='community'?'Widget añadido al perfil del megagrupo.':'Widget añadido a tu perfil.','success');
   });
 
   async function fillCommunityNickname() {
@@ -4065,6 +4169,9 @@
     $('#setting-composer-font').value = settings.composerFont || 'default';
     $('#setting-custom-status').value = String(settings.customStatus || '').slice(0,60);
     $('#setting-compact-panels').checked=Boolean(settings.compactPanels);
+    $('#setting-megacompact').checked=Boolean(settings.megacompact);
+    $('#setting-megacompact').disabled=!settings.compactPanels;
+    $('#setting-compact-panels').addEventListener('change',()=>{const mega=$('#setting-megacompact');if(mega)mega.disabled=!$('#setting-compact-panels').checked;},{once:true});
     $('#setting-voice-compact').checked=Boolean(settings.voiceCompactMode);
     $('#setting-voice-noise-cancellation').checked=settings.voiceNoiseCancellation!==false;
     $('#setting-group-messages').checked=settings.groupMessages!==false;$('#setting-disable-message-group-width-fix').checked=Boolean(settings.disableMessageGroupWidthFix);$('#setting-disable-markdown-delay').checked=Boolean(settings.disableMarkdownDelay);
@@ -4089,13 +4196,15 @@
     applyClientTheme(settings);
     rebuildMessageGroups($('#messages-container'));
     $('#app-screen')?.classList.toggle('compact-panels',Boolean(settings.compactPanels));
+    $('#app-screen')?.classList.toggle('megacompact-mode',Boolean(settings.compactPanels&&settings.megacompact));
+    $('#megacompact-view-switcher')?.classList.toggle('hidden',!(settings.compactPanels&&settings.megacompact));
     $('#app-screen')?.classList.toggle('community-focus',Boolean(settings.compactPanels&&currentCommunity&&(currentView==='community'||(currentView==='chats'&&currentContext?.type==='channel'))));
   }
   $('#widget-type')?.addEventListener('change',()=>{const link=$('#widget-type').value==='link';$('#widget-url-field')?.classList.toggle('hidden',!link);$('#widget-banner-field')?.classList.toggle('hidden',link);$('#widget-icon')?.closest('.field')?.classList.toggle('hidden',link);});
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
     const previousMessagePageSize=messagePageSize();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,megacompact:$('#setting-compact-panels').checked&&$('#setting-megacompact').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
     if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
   });
@@ -4173,14 +4282,170 @@
   }
 
 
+  // ---------- Per-megagroup profile mode ----------
+  function profileWidgetsForMode(){return activeProfileMode==='community'?communityProfileWidgets:(Array.isArray(profile?.widgets)?profile.widgets:[]);}
+  async function saveProfileWidgetsForMode(next){
+    if(activeProfileMode==='community'){
+      const communityId=$('#community-profile-community')?.value;if(!communityId)throw new Error('Selecciona un megagrupo.');
+      const {error}=await client.from('community_profiles').upsert({community_id:communityId,user_id:currentUser.id,widgets:next},{onConflict:'community_id,user_id'});if(error)throw error;communityProfileWidgets=next;
+    }else{const {error}=await client.from('profiles').update({widgets:next}).eq('id',currentUser.id);if(error)throw error;profile.widgets=next;}
+  }
+  function switchProfileMode(mode){
+    activeProfileMode=mode==='community'?'community':'main';
+    $$('[data-profile-mode]').forEach(button=>{const active=button.dataset.profileMode===activeProfileMode;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
+    const root=$('#view-profile .content-page');
+    if(root)for(const child of root.children){const keep=child.classList.contains('page-heading')||child.classList.contains('profile-mode-tabs')||child.id==='profile-form'||child.id==='community-profile-editor'||child.id==='profile-widgets-section';child.classList.toggle('hidden',activeProfileMode==='community'&&!keep);}
+    $('#profile-form')?.classList.toggle('hidden',activeProfileMode!=='main');
+    $('#community-profile-editor')?.classList.toggle('hidden',activeProfileMode!=='community');
+    if(activeProfileMode==='community')loadCommunityProfileEditor();
+    renderProfileWidgets();
+  }
+  $$('[data-profile-mode]').forEach(button=>button.addEventListener('click',()=>switchProfileMode(button.dataset.profileMode)));
+  async function loadCommunityProfileEditor(){
+    const select=$('#community-profile-community');if(!select||!currentUser)return;
+    const {data:members,error}=await client.from('community_members').select('community_id').eq('user_id',currentUser.id);
+    if(error){select.innerHTML='<option value="">No se pudieron cargar los megagrupos</option>';console.warn(error);return;}
+    const ids=[...new Set((members||[]).map(row=>row.community_id))];
+    if(!ids.length){select.innerHTML='<option value="">No perteneces a ningún megagrupo</option>';$('#community-profile-form')?.classList.add('hidden');return;}
+    const {data:communities,error:communityError}=await client.from('communities').select('id,name').in('id',ids).order('name');
+    if(communityError){showError(communityError);return;}
+    select.innerHTML=(communities||[]).map(row=>`<option value="${row.id}">${escapeHtml(row.name)}</option>`).join('');
+    select.value=currentCommunity?.id&&ids.includes(currentCommunity.id)?currentCommunity.id:(select.options[0]?.value||'');
+    select.onchange=loadCommunityProfileRow;
+    await loadCommunityProfileRow();
+  }
+  async function loadCommunityProfileRow(){
+    const communityId=$('#community-profile-community')?.value;if(!communityId)return;
+    const {data,error}=await client.from('community_profiles').select('*').eq('community_id',communityId).eq('user_id',currentUser.id).maybeSingle();
+    if(error){showError(error,'No se pudo cargar el perfil del megagrupo.');return;}
+    const row=data||{};activeCommunityProfile=row;communityProfileWidgets=Array.isArray(row.widgets)?row.widgets.slice(0,32):[];
+    const values={nickname:row.nickname,pronouns:row.pronouns,aliases:Array.isArray(row.aliases)?row.aliases.join(', '):'',bio:row.bio,color:row.default_name_color,avatar:row.avatar_url,banner:row.banner_url,'name-font':row.name_font_url,'message-font':row.message_font_url,'name-effect':row.name_effect_url,'avatar-effect':row.profile_effect_url,plate:row.profile_plate_url,frame:row.profile_frame_url,status:row.settings?.customStatus};
+    for(const [key,value] of Object.entries(values)){const el=$(`#community-profile-${key}`);if(el)el.value=value||'';}
+    $('#community-profile-color').value=/^#[0-9a-f]{6}$/i.test(row.default_name_color||'')?row.default_name_color:'#a99bff';
+    $('#community-profile-form')?.classList.remove('hidden');renderProfileWidgets();
+  }
+  $('#community-profile-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();const communityId=$('#community-profile-community')?.value;if(!communityId)return;
+    const urlIds=['avatar','banner','name-font','message-font','name-effect','avatar-effect','plate','frame'];
+    for(const key of urlIds){const value=$(`#community-profile-${key}`).value.trim();if(value&&!safeHttpsUrl(value)){toast('Los recursos de perfil deben utilizar URLs HTTPS válidas.','error');return;}}
+    const aliases=[...new Set($('#community-profile-aliases').value.split(',').map(x=>x.trim()).filter(Boolean))].slice(0,10);if(aliases.some(x=>x.length>24)){toast('Cada alias admite hasta 24 caracteres.','error');return;}
+    const payload={community_id:communityId,user_id:currentUser.id,nickname:$('#community-profile-nickname').value.trim(),pronouns:$('#community-profile-pronouns').value.trim(),aliases,bio:$('#community-profile-bio').value.trim(),default_name_color:$('#community-profile-color').value,avatar_url:$('#community-profile-avatar').value.trim()||null,banner_url:$('#community-profile-banner').value.trim()||null,name_font_url:$('#community-profile-name-font').value.trim()||null,message_font_url:$('#community-profile-message-font').value.trim()||null,name_effect_url:$('#community-profile-name-effect').value.trim()||null,profile_effect_url:$('#community-profile-avatar-effect').value.trim()||null,profile_plate_url:$('#community-profile-plate').value.trim()||null,profile_frame_url:$('#community-profile-frame').value.trim()||null,widgets:communityProfileWidgets,settings:{customStatus:$('#community-profile-status').value.trim().slice(0,60)}};
+    const {error}=await client.from('community_profiles').upsert(payload,{onConflict:'community_id,user_id'});if(error){showError(error,'No se pudo guardar el perfil. Comprueba las migraciones v0.10.');return;}
+    activeCommunityProfile=payload;messageIdentityCache.clear();if(currentContext?.type==='channel'&&currentCommunity?.id===communityId)await loadMessages();toast('Perfil de megagrupo guardado.','success');
+  });
+
+  // ---------- Message forwarding ----------
+  async function openForwardMessageDialog(message,sender){
+    if(!message?.id||!currentUser)return;pendingForwardMessage=message;
+    const select=$('#forward-message-target');if(!select)return;
+    $('#forward-message-preview').textContent=`${sender?.nickname||sender?.username||'Usuario'}: ${String(message.body||message.attachment?.name||'Mensaje multimedia').slice(0,170)}`;
+    select.innerHTML='<option value="">Cargando destinos…</option>';$('#forward-message-dialog').showModal();
+    try{
+      const [{data:members,error:memberError},{data:communityMembersRows,error:communityError}]=await Promise.all([
+        client.from('conversation_members').select('conversation_id').eq('user_id',currentUser.id),
+        client.from('community_members').select('community_id').eq('user_id',currentUser.id)
+      ]);
+      if(memberError)throw memberError;if(communityError)throw communityError;
+      const conversationIds=[...new Set((members||[]).map(row=>row.conversation_id))];const communityIds=[...new Set((communityMembersRows||[]).map(row=>row.community_id))];
+      const [convs,channels]=await Promise.all([
+        conversationIds.length?client.from('conversations').select('id,title,kind').in('id',conversationIds):Promise.resolve({data:[],error:null}),
+        communityIds.length?client.from('channels').select('id,name,community_id,category').in('community_id',communityIds).eq('type','text'):Promise.resolve({data:[],error:null})
+      ]);
+      if(convs.error)throw convs.error;if(channels.error)throw channels.error;
+      const a=(convs.data||[]).map(row=>`<option value="conversation:${row.id}">${escapeHtml(row.title||'Conversación')}</option>`).join('');
+      const b=(channels.data||[]).map(row=>`<option value="channel:${row.id}">#${escapeHtml(row.name)} · ${escapeHtml(row.category||'Megagrupo')}</option>`).join('');
+      select.innerHTML=`<option value="">Selecciona un destino</option>${a?`<optgroup label="Conversaciones">${a}</optgroup>`:''}${b?`<optgroup label="Canales de texto">${b}</optgroup>`:''}`;
+      if(!a&&!b)select.innerHTML='<option value="">No hay destinos disponibles</option>';
+    }catch(error){select.innerHTML='<option value="">No se pudieron cargar destinos</option>';showError(error,'No se pudieron cargar las conversaciones.');}
+  }
+  $('#forward-message-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();if(!pendingForwardMessage||!currentUser)return;const [kind,id]=String($('#forward-message-target').value||'').split(':');
+    if(!id||!['conversation','channel'].includes(kind)){toast('Selecciona un destino.','error');return;}
+    const original=pendingForwardMessage;const payload={sender_id:currentUser.id,body:String(original.body||'').slice(0,12000),message_type:original.message_type||'text',formatting:{forwarded_from:{message_id:original.id,original_sender_id:original.sender_id}}};
+    payload[kind==='conversation'?'conversation_id':'channel_id']=id;
+    if(original.attachment){const attachment={...original.attachment};if(attachment.path){
+      const {data:blob,error:downloadError}=await client.storage.from('chat-media').download(attachment.path);if(downloadError||!blob){showError(downloadError||new Error('No se pudo leer el archivo original.'));return;}
+      if(blob.size>50*1024*1024){toast('El adjunto supera el límite de 50 MB.','error');return;}
+      const ext=(String(attachment.name||'archivo').split('.').pop()||'bin').replace(/[^a-z0-9]/gi,'').slice(0,8)||'bin';const path=`${kind==='conversation'?'dm':'community'}/${id}/${crypto.randomUUID()}.${ext}`;
+      const {error:uploadError}=await client.storage.from('chat-media').upload(path,blob,{contentType:attachment.mimetype||blob.type||'application/octet-stream',upsert:false});if(uploadError){showError(uploadError,'No se pudo copiar el adjunto al destino.');return;}attachment.path=path;
+    }payload.attachment=attachment;}
+    const button=$('#forward-message-form button[type="submit"]');button.disabled=true;
+    try{const {error}=await client.from('messages').insert(payload);if(error)throw error;$('#forward-message-dialog').close();pendingForwardMessage=null;toast('Mensaje reenviado.','success');}
+    catch(error){showError(error,'No se pudo reenviar el mensaje.');}finally{button.disabled=false;}
+  });
+  ['close-forward-message','cancel-forward-message'].forEach(id=>$('#'+id)?.addEventListener('click',()=>{$('#forward-message-dialog')?.close();pendingForwardMessage=null;}));
+
+  // ---------- Nexus (App) inbox and user feedback ----------
+  async function loadSystemInboxMessages(){
+    if(!currentUser)return;try{const {data,error}=await client.from('nexus_system_messages').select('id,title,body,message_type,created_at').eq('user_id',currentUser.id).is('read_at',null).order('created_at',{ascending:true}).limit(8);if(error)throw error;
+      const host=$('#nexus-system-inbox');for(const row of data||[]){const message=document.createElement('p');message.textContent=`${row.title||'Nexus (App)'}: ${row.body}`;host?.append(message);toast(message.textContent,row.message_type==='warning'?'error':'');await client.from('nexus_system_messages').update({read_at:new Date().toISOString()}).eq('id',row.id).eq('user_id',currentUser.id);}
+    }catch(error){console.debug('Buzón de Nexus no disponible:',error.message||error);}
+  }
+  function openPlatformFeedback(type){activeFeedbackType=type==='bug'?'bug':'suggestion';$('#platform-feedback-type').value=activeFeedbackType;$('#platform-feedback-title').textContent=activeFeedbackType==='bug'?'Reportar un error':'Enviar una sugerencia';$('#platform-feedback-subject').value='';$('#platform-feedback-body').value='';$('#platform-feedback-dialog').showModal();$('#platform-feedback-subject').focus();}
+  $('#open-suggestion')?.addEventListener('click',()=>openPlatformFeedback('suggestion'));
+  $('#open-bug-report')?.addEventListener('click',()=>openPlatformFeedback('bug'));
+  $('#settings-open-suggestion')?.addEventListener('click',()=>openPlatformFeedback('suggestion'));
+  $('#settings-open-bug-report')?.addEventListener('click',()=>openPlatformFeedback('bug'));
+  ['close-platform-feedback','cancel-platform-feedback'].forEach(id=>$('#'+id)?.addEventListener('click',()=>$('#platform-feedback-dialog')?.close()));
+  $('#platform-feedback-form')?.addEventListener('submit',async event=>{event.preventDefault();if(!currentUser)return;const title=$('#platform-feedback-subject').value.trim();const body=$('#platform-feedback-body').value.trim();if(title.length<3||body.length<10){toast('Añade un título y una descripción más detallada.','error');return;}const {error}=await client.from('nexus_platform_feedback').insert({user_id:currentUser.id,feedback_type:activeFeedbackType,title,body});if(error){showError(error,'No se pudo enviar el feedback.');return;}$('#platform-feedback-dialog').close();toast(activeFeedbackType==='bug'?'Error enviado al equipo.':'Sugerencia enviada al equipo.','success');});
+
+  // ---------- Platform administration ----------
+  function formatPlatformDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'No disponible';}
+  $('#platform-user-search-form')?.addEventListener('submit',event=>{event.preventDefault();loadPlatformAdminUsers();});
+  async function loadPlatformAdminUsers(){
+    if(!platformAdmin)return;const host=$('#platform-user-results');const term=String($('#platform-user-search')?.value||'').trim().replace(/^@/,'');if(!host)return;if(term.length<2){host.innerHTML='<p class="empty-state compact">Escribe al menos dos caracteres para buscar.</p>';return;}host.innerHTML='<p class="muted small-muted">Buscando…</p>';
+    const safe=term.replace(/[^a-z0-9_\- .]/gi,' ').trim();const {data,error}=await client.from('profiles').select('id,username,nickname,avatar_url,created_at,last_seen_at').or(`username.ilike.%${safe}%,nickname.ilike.%${safe}%`).order('created_at',{ascending:false}).limit(30);
+    if(error){showError(error,'No se pudieron buscar usuarios. Comprueba que las migraciones anteriores están aplicadas.');return;}
+    const ids=(data||[]).map(row=>row.id);
+    const [{data:mutes},{data:bans}]=await Promise.all([
+      ids.length?client.from('nexus_user_mutes').select('user_id,muted_until').in('user_id',ids):Promise.resolve({data:[]}),
+      ids.length?client.from('user_bans').select('user_id,banned_until').in('user_id',ids):Promise.resolve({data:[]})
+    ]);
+    const muted=new Map((mutes||[]).map(row=>[row.user_id,row.muted_until]));const banned=new Map((bans||[]).map(row=>[row.user_id,row.banned_until]));
+    host.innerHTML=(data||[]).map(person=>{const banUntil=banned.has(person.id)?banned.get(person.id):undefined;const banActive=banned.has(person.id)&&(banUntil===null||!banUntil||new Date(banUntil)>new Date());const muteActive=muted.has(person.id)&&new Date(muted.get(person.id))>new Date();return `<article class="platform-user-card"><div class="platform-user-main"><span class="avatar avatar-small">${escapeHtml(initials(person.nickname||person.username))}</span><div><strong>${escapeHtml(person.nickname||person.username)}</strong><small>@${escapeHtml(person.username)}</small><small>Creada: ${escapeHtml(formatPlatformDate(person.created_at))}</small><small>Última vez online: ${escapeHtml(formatPlatformDate(person.last_seen_at))}</small><small>${banActive?'Baneado'+(banUntil?' hasta '+escapeHtml(formatPlatformDate(banUntil)):' permanentemente'):'Sin ban activo'}</small><small>${muteActive?'Silenciado hasta '+escapeHtml(formatPlatformDate(muted.get(person.id))):'Sin silencio activo'}</small></div></div><div class="platform-user-actions"><button type="button" class="button button-danger" data-v102-ban="${person.id}">Banear</button><button type="button" class="button button-secondary" data-v102-unban="${person.id}">Desbanear</button><button type="button" class="button button-secondary" data-v102-mute="${person.id}">Silenciar</button><button type="button" class="button button-secondary" data-v102-warn="${person.id}">Advertir</button></div></article>`;}).join('')||'<p class="empty-state compact">No se encontraron usuarios.</p>';
+    host.querySelectorAll('[data-v102-ban]').forEach(button=>button.addEventListener('click',async()=>{await adminBan(button.dataset.v102Ban);loadPlatformAdminUsers();}));
+    host.querySelectorAll('[data-v102-unban]').forEach(button=>button.addEventListener('click',async()=>{await adminUnban(button.dataset.v102Unban);loadPlatformAdminUsers();}));
+    host.querySelectorAll('[data-v102-mute]').forEach(button=>button.addEventListener('click',()=>adminMute(button.dataset.v102Mute)));
+    host.querySelectorAll('[data-v102-warn]').forEach(button=>button.addEventListener('click',()=>adminWarn(button.dataset.v102Warn)));
+  }
+  $$('[data-feedback-filter]').forEach(button=>button.addEventListener('click',()=>{platformFeedbackFilter=button.dataset.feedbackFilter;$$('[data-feedback-filter]').forEach(node=>node.classList.toggle('active',node===button));const status=$('#platform-feedback-status');if(status)status.value=platformFeedbackFilter==='open'?'open':'all';loadPlatformFeedback();}));
+  $('#platform-feedback-filter')?.addEventListener('change',loadPlatformFeedback);$('#platform-feedback-status')?.addEventListener('change',loadPlatformFeedback);$('#platform-feedback-refresh')?.addEventListener('click',loadPlatformFeedback);
+  async function loadPlatformFeedback(){
+    if(!platformAdmin)return;const host=$('#platform-feedback-list');if(!host)return;host.innerHTML='<p class="muted small-muted">Cargando feedback…</p>';
+    let query=client.from('nexus_platform_feedback').select('id,user_id,feedback_type,title,body,status,admin_note,created_at').order('created_at',{ascending:false}).limit(100);
+    const type=$('#platform-feedback-filter')?.value||'all';const status=$('#platform-feedback-status')?.value||'open';if(type!=='all')query=query.eq('feedback_type',type);if(status!=='all')query=query.eq('status',status);
+    const {data,error}=await query;if(error){showError(error,'No se pudo cargar el feedback.');return;}const people=await fetchProfiles((data||[]).map(row=>row.user_id));const {data:badges}=await client.from('global_badges').select('id,name').order('name');
+    host.innerHTML=(data||[]).map(row=>`<article class="platform-feedback-card"><div class="surface-heading"><span class="tag">${row.feedback_type==='bug'?'BUG':'SUGERENCIA'}</span><small>@${escapeHtml(people[row.user_id]?.username||'usuario')} · ${escapeHtml(formatPlatformDate(row.created_at))}</small></div><h4>${escapeHtml(row.title)}</h4><p>${escapeHtml(row.body).replace(/\n/g,'<br>')}</p><label class="field">Estado<select data-v102-feedback-status="${row.id}"><option value="open" ${row.status==='open'?'selected':''}>Abierto</option><option value="reviewing" ${row.status==='reviewing'?'selected':''}>En revisión</option><option value="resolved" ${row.status==='resolved'?'selected':''}>Resuelto</option><option value="rejected" ${row.status==='rejected'?'selected':''}>Rechazado</option></select></label><label class="field">Nota interna<textarea data-v102-feedback-note="${row.id}" rows="2" maxlength="1000">${escapeHtml(row.admin_note||'')}</textarea></label><label class="field">Medalla opcional al resolver<select data-v102-feedback-badge="${row.id}"><option value="">Sin medalla</option>${(badges||[]).map(badge=>`<option value="${badge.id}">${escapeHtml(badge.name)}</option>`).join('')}</select></label><button type="button" class="button button-primary" data-v102-feedback-save="${row.id}">Guardar revisión</button></article>`).join('')||'<p class="empty-state compact">No hay mensajes con estos filtros.</p>';
+    host.querySelectorAll('[data-v102-feedback-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.v102FeedbackSave;const row=(data||[]).find(item=>item.id===id);if(!row)return;const nextStatus=host.querySelector(`[data-v102-feedback-status="${id}"]`).value;const note=host.querySelector(`[data-v102-feedback-note="${id}"]`).value;const badgeId=host.querySelector(`[data-v102-feedback-badge="${id}"]`).value;const {error:updateError}=await client.from('nexus_platform_feedback').update({status:nextStatus,admin_note:note,updated_at:new Date().toISOString()}).eq('id',id);if(updateError){showError(updateError);return;}if(nextStatus==='resolved'&&badgeId){const {error:assignError}=await client.from('global_badge_assignments').insert({badge_id:badgeId,user_id:row.user_id,assigned_by:currentUser.id});if(assignError&&!/duplicate|unique/i.test(assignError.message||'')){showError(assignError,'Revisión guardada, pero falló la medalla.');return;}}toast('Revisión guardada.','success');loadPlatformFeedback();}));
+  }
+
+  // ---------- Sticker Workshop ----------
+  $('#sticker-workshop-search')?.addEventListener('input',()=>loadStickerWorkshopPage());
+  async function loadStickerWorkshopPage(){
+    const host=$('#sticker-workshop-page-grid');if(!host||!currentUser)return;const search=String($('#sticker-workshop-search')?.value||'').trim().toLowerCase();host.innerHTML='<p class="muted small-muted">Cargando stickers…</p>';
+    const {data:published,error}=await client.from('sticker_workshop').select('id,asset_id,publisher_id,name,description,created_at,installs').order('created_at',{ascending:false}).limit(120);if(error){showError(error,'No se pudo cargar Sticker Workshop. Comprueba la migración de Workshop.');return;}
+    const assetIds=(published||[]).map(row=>row.asset_id);const {data:assets}=assetIds.length?await client.from('custom_assets').select('id,owner_id,name,asset_url,animated,visibility').in('id',assetIds):{data:[]};const assetMap=new Map((assets||[]).map(row=>[row.id,row]));const urls=await signedUrlLookup('nexus-assets',(assets||[]).map(row=>row.asset_url));
+    const {data:saved}=await client.from('sticker_workshop_saves').select('sticker_id').eq('user_id',currentUser.id);const savedIds=new Set((saved||[]).map(row=>row.sticker_id));
+    const ownQuery=await client.from('custom_assets').select('id,name,asset_url,animated,visibility').eq('owner_id',currentUser.id).eq('asset_type','sticker').eq('scope','personal').is('archived_at',null).order('created_at',{ascending:false});const own=ownQuery.data||[];const ownUrls=await signedUrlLookup('nexus-assets',own.map(row=>row.asset_url));
+    const filter=row=>!search||`${row.name} ${row.description||''}`.toLowerCase().includes(search);
+    const rows=(published||[]).filter(filter);const publishedHtml=rows.map(row=>{const asset=assetMap.get(row.asset_id);if(!asset)return '';const src=urls.get(asset.asset_url)||'';return `<article class="custom-asset-card workshop-sticker-card"><img src="${escapeHtml(src)}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.description||'Sticker compartido')} · ${Number(row.installs)||0} instalaciones</small><div><button type="button" class="button button-primary" data-v102-sticker-send="${row.id}">Enviar</button>${savedIds.has(row.id)?'<button type="button" class="button button-secondary" disabled>En mi colección</button>':`<button type="button" class="button button-secondary" data-v102-sticker-save="${row.id}">Añadir a mi colección</button>`}${row.publisher_id===currentUser.id?`<button type="button" class="button button-danger" data-v102-sticker-delete="${row.id}">Retirar</button>`:''}</div></article>`;}).join('');
+    const ownHtml=own.filter(filter).map(row=>`<article class="custom-asset-card workshop-sticker-card"><img src="${escapeHtml(ownUrls.get(row.asset_url)||'')}" alt="${escapeHtml(row.name)}" loading="lazy"><strong>${escapeHtml(row.name)}</strong><small>Sticker personal</small><button type="button" class="button button-secondary" data-v102-sticker-publish="${row.id}">Publicar en Workshop</button></article>`).join('');
+    host.innerHTML=`<section class="workshop-asset-section"><h3>Stickers publicados</h3><div class="custom-asset-grid">${publishedHtml||'<p class="empty-state compact">No hay stickers publicados que coincidan.</p>'}</div></section><section class="workshop-asset-section"><h3>Publicar mis stickers</h3><div class="custom-asset-grid">${ownHtml||'<p class="empty-state compact">No tienes stickers personales para publicar.</p>'}</div></section>`;
+    host.querySelectorAll('[data-v102-sticker-save]').forEach(button=>button.addEventListener('click',async()=>{const {error:saveError}=await client.from('sticker_workshop_saves').insert({sticker_id:button.dataset.v102StickerSave,user_id:currentUser.id});if(saveError)showError(saveError);else{toast('Sticker añadido a tu colección.','success');loadStickerWorkshopPage();}}));
+    host.querySelectorAll('[data-v102-sticker-send]').forEach(button=>button.addEventListener('click',()=>{if(!currentContext){toast('Abre primero un chat para enviar un sticker.','error');return;}const row=(published||[]).find(item=>item.id===button.dataset.v102StickerSend);const asset=row&&assetMap.get(row.asset_id);if(asset)sendStickerMessage({...asset,scope:'personal'});}));
+    host.querySelectorAll('[data-v102-sticker-publish]').forEach(button=>button.addEventListener('click',async()=>{const asset=own.find(item=>item.id===button.dataset.v102StickerPublish);if(!asset)return;const description=await ask('Publicar sticker','Añade una descripción breve (opcional).','Descripción','');if(description===null)return;const {error:publishError}=await client.from('sticker_workshop').insert({asset_id:asset.id,publisher_id:currentUser.id,name:asset.name,description:String(description).slice(0,300)});if(publishError)showError(publishError,'No se pudo publicar el sticker.');else{toast('Sticker publicado.','success');loadStickerWorkshopPage();}}));
+    host.querySelectorAll('[data-v102-sticker-delete]').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('¿Retirar este sticker del Workshop?'))return;const {error:deleteError}=await client.from('sticker_workshop').delete().eq('id',button.dataset.v102StickerDelete).eq('publisher_id',currentUser.id);if(deleteError)showError(deleteError);else loadStickerWorkshopPage();}));
+  }
+
   // ---------- Administration ----------
   async function checkAdmin() {
     const {data,error} = await client.rpc('is_admin');
     if (error) { console.warn('Admin RPC:',error.message); return; }
     isAdmin = Boolean(data);
     const platformResult=await client.rpc('is_platform_admin');platformAdmin=Boolean(platformResult.data&&!platformResult.error);
-    $('#admin-area').classList.toggle('hidden',!isAdmin);
-    $('#platform-badge-create')?.closest('.settings-subsection')?.classList.toggle('hidden',!platformAdmin);
+    $('#admin-area')?.classList.toggle('hidden',!isAdmin);
+    $('#open-admin-panel')?.classList.toggle('hidden',!platformAdmin);
+    $('#view-admin')?.classList.toggle('hidden',!platformAdmin);
     if(platformAdmin)loadPlatformBadges();
   }
   async function loadPlatformBadges(){if(!platformAdmin)return;const {data,error}=await client.from('global_badges').select('id,name,icon_url').order('created_at',{ascending:false});if(error){console.warn(error);return;}const host=$('#platform-badge-list');if(!host)return;host.innerHTML=(data||[]).map(item=>`<div class="platform-badge-row"><span>${escapeHtml(item.icon_url)} · ${escapeHtml(item.name)}</span><div class="platform-badge-actions"><input data-platform-badge-user="${item.id}" maxlength="24" placeholder="usuario" aria-label="Usuario para ${escapeHtml(item.name)}"><button type="button" class="button button-secondary" data-platform-badge-assign="${item.id}">Asignar</button><button type="button" class="button button-secondary" data-platform-badge-delete="${item.id}">Eliminar</button></div></div>`).join('')||'<p class="muted small-muted">No hay medallas universales.</p>';host.querySelectorAll('[data-platform-badge-assign]').forEach(button=>button.addEventListener('click',async()=>{if(!platformAdmin)return;const input=host.querySelector(`[data-platform-badge-user="${button.dataset.platformBadgeAssign}"]`);const username=String(input?.value||'').trim().replace(/^@/,'').toLowerCase();if(!username){toast('Escribe el usuario al que quieres asignar la medalla.','error');return;}const {data:person,error:personError}=await client.from('profiles').select('id').eq('username',username).maybeSingle();if(personError||!person){toast('No se encontró ese usuario.','error');return;}const {error:assignError}=await client.from('global_badge_assignments').insert({badge_id:button.dataset.platformBadgeAssign,user_id:person.id,assigned_by:currentUser.id});if(assignError){showError(assignError,'No se pudo asignar la medalla. Puede que el usuario ya la tenga.');return;}messageIdentityCache.clear();globalBadgeCache.delete(person.id);toast(`Medalla asignada a @${username}.`,'success');}));host.querySelectorAll('[data-platform-badge-delete]').forEach(button=>button.addEventListener('click',async()=>{const {error:removeError}=await client.from('global_badges').delete().eq('id',button.dataset.platformBadgeDelete);if(removeError)showError(removeError);else{messageIdentityCache.clear();globalBadgeCache.clear();await loadPlatformBadges();toast('Medalla global eliminada.','success');}}));}
@@ -4192,15 +4457,20 @@
     if (!isAdmin) return;
     const term = $('#admin-search').value.trim().replace(/^@/,'');
     if (!term) return;
-    const {data,error} = await client.from('profiles').select('id,username,nickname,avatar_url,profile_plate_url,settings').ilike('username',`%${term}%`).limit(20);
+    const {data,error} = await client.from('profiles').select('id,username,nickname,avatar_url,profile_plate_url,settings,created_at,last_seen_at').ilike('username',`%${term}%`).limit(20);
     if (error) { showError(error); return; }
     const badgeMap=await fetchGlobalBadgesByUser((data||[]).map(person=>person.id));
     for(const person of data||[])person.globalBadges=badgeMap.get(person.id)||[];
-    $('#admin-results').innerHTML = data?.length ? data.map(person => personRow(person, `<button class="button button-danger" data-ban="${person.id}">Banear</button><button class="button button-secondary" data-reset="${person.id}">Reset</button><button class="button button-secondary" data-unban="${person.id}">Desbanear</button>`)).join('') : '<div class="empty-state compact">No se han encontrado usuarios.</div>';
+    $('#admin-results').innerHTML = data?.length ? data.map(person => `<article class="platform-user-card">${personRow(person, `<button class="button button-danger" data-ban="${person.id}">Banear</button><button class="button button-secondary" data-mute="${person.id}">Silenciar</button><button class="button button-secondary" data-warn="${person.id}">Advertir</button><button class="button button-secondary" data-reset="${person.id}">Reset</button><button class="button button-secondary" data-unban="${person.id}">Desbanear</button>`)}<small>Alta: ${escapeHtml(formatAdminDate(person.created_at))} · Última actividad: ${escapeHtml(formatAdminDate(person.last_seen_at))}</small></article>`).join('') : '<div class="empty-state compact">No se han encontrado usuarios.</div>';
     $$('[data-ban]').forEach(button => button.addEventListener('click',()=>adminBan(button.dataset.ban)));
     $$('[data-unban]').forEach(button => button.addEventListener('click',()=>adminUnban(button.dataset.unban)));
     $$('[data-reset]').forEach(button => button.addEventListener('click',()=>adminReset(button.dataset.reset)));
+    $$('[data-mute]').forEach(button=>button.addEventListener('click',()=>adminMute(button.dataset.mute)));
+    $$('[data-warn]').forEach(button=>button.addEventListener('click',()=>adminWarn(button.dataset.warn)));
   }
+  function formatAdminDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'Desconocida';}
+  async function adminMute(target){const raw=await ask('Silenciar cuenta','Duración en minutos (1 a 525600).','Minutos','60');if(raw===null)return;const minutes=Number(raw);if(!Number.isInteger(minutes)||minutes<1||minutes>525600){toast('Duración no válida.','error');return;}const reason=await ask('Motivo del silencio','El usuario recibirá un MD de Nexus (App).','Motivo','Incumplimiento de las normas.');const {error}=await client.rpc('admin_mute_user',{p_target:target,p_reason:reason||'',p_minutes:minutes});if(error)showError(error,'No se pudo silenciar la cuenta.');else toast('Cuenta silenciada.','success');}
+  async function adminWarn(target){const reason=await ask('Enviar advertencia','Se enviará un mensaje del sistema Nexus (App).','Motivo','Revisa las normas de la comunidad.');if(reason===null||reason.trim().length<3)return;const {error}=await client.rpc('admin_warn_user',{p_target:target,p_reason:reason});if(error)showError(error,'No se pudo enviar la advertencia.');else toast('Advertencia enviada.','success');}
   async function adminBan(target) {
     const raw = await ask('Banear cuenta','Introduce horas. Deja vacío para un ban permanente.','Duración en horas','24');
     if (raw === null) return;
@@ -4227,8 +4497,11 @@
 
   // Additional actions and welcome shortcuts.
   $('#create-community-shortcut').title = 'Crear un megagrupo';
+  let lastSeenWriteAt=0;
   document.addEventListener('visibilitychange', () => {
-    if(document.hidden||!currentUser||!currentContext)return;
+    if(document.hidden||!currentUser)return;
+    const now=Date.now();if(now-lastSeenWriteAt>60000){lastSeenWriteAt=now;client.from('profiles').update({last_seen_at:new Date().toISOString()}).eq('id',currentUser.id).then(({error})=>{if(error)console.debug('Last seen:',error.message);});}
+    if(!currentContext)return;
     const key=messageContextKey();
     if(messageCache.has(key))syncMessageDelta({...currentContext},{render:true});
     else loadMessages();

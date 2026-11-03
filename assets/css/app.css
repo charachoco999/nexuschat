@@ -653,3 +653,36 @@
   .app-shell.compact-panels.community-focus.mobile-chat-open #view-chats .chat-list-panel{display:none!important;}
   .app-shell.compact-panels.community-focus.mobile-chat-open #view-chats .conversation-panel{display:flex!important;min-width:0;width:100%;}
 }
+
+/* v0.10.2: renderer classes for emoji-only and integrated video messages. */
+.message-emoji-only .message-body{font-size:2.25rem;line-height:1.35;letter-spacing:.04em}
+.message-emoji-only .message-body img,.message-emoji-only .message-body .custom-message-emoji{width:2.15em;height:2.15em;max-width:2.15em;max-height:2.15em;vertical-align:middle}
+.nexus-video-card{display:grid;gap:8px;max-width:min(100%,760px);padding:8px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+.nexus-video-card video{display:block;width:100%;max-height:480px;object-fit:contain;border-radius:11px;background:#050609}
+.nexus-video-card .nexus-video-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.nexus-video-card .nexus-video-toolbar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted)}
+.nexus-video-card .nexus-video-toolbar>div{display:flex;gap:6px;flex-shrink:0}
+.message-forwarded-label{display:inline-flex;align-items:center;gap:5px;margin:0 0 5px;padding:3px 7px;border-radius:6px;background:var(--panel2);color:var(--muted);font-size:10px;font-weight:700}
+
+@media(max-width:760px){.feedback-shortcut{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;overflow:hidden;font-size:0;flex:0 0 34px}.feedback-shortcut#open-suggestion::before{content:'+';font-size:19px}.feedback-shortcut#open-bug-report::before{content:'!';font-size:18px;font-weight:800}}
+
+/* v0.10.2: small-screen message media, group toggle, emoji-only and forwarding polish. */
+.message-grouping-enabled .message-group{display:flex}
+.message-grouping-enabled .message-group .message{background:transparent}
+.message-emoji-only .message-main{min-width:0}
+.message-emoji-only .message-body{font-size:2.25rem;line-height:1.32}
+.message-emoji-only .message-body .custom-message-emoji{width:2.1em;height:2.1em;vertical-align:middle}
+.nexus-video-card .message-media-video{max-width:100%;max-height:min(65vh,560px);aspect-ratio:auto}
+@media(max-width:640px){.nexus-video-card{width:100%;padding:6px}.nexus-video-toolbar>div{display:flex;flex-wrap:wrap}.nexus-video-toolbar .button{min-width:0}.message-forwarded-label{font-size:9px}}
+
+
+/* Nexus v0.10.2-alpha1 release polish */
+.platform-admin-grid{align-items:start}
+.platform-user-card{min-width:0}
+.platform-user-actions{display:flex;flex-wrap:wrap;gap:6px}
+.platform-feedback-card{min-width:0;overflow-wrap:anywhere}
+.workshop-sticker-card img{max-width:100%;object-fit:contain}
+.nexus-video-card video{width:100%;max-height:min(65vh,560px);object-fit:contain;background:#050609}
+.message-date-separator{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--muted);font-size:11px;font-weight:700;text-transform:capitalize}
+.message-date-separator:before,.message-date-separator:after{content:"";height:1px;flex:1;background:var(--line)}
+@media(max-width:640px){.platform-admin-grid{grid-template-columns:minmax(0,1fr)}.platform-user-actions .button{flex:1 1 auto}.platform-feedback-tabs{align-items:stretch;flex-direction:column}.nexus-video-card .nexus-video-toolbar{align-items:flex-start;flex-direction:column}}
