@@ -24,6 +24,11 @@
   let markdownGuideReturnView = 'chats';
   let forwardingMessage = null;
   let activeFeedbackType = 'suggestion';
+  let pendingAttachments = [];
+  let messageImageObserver = null;
+  let messageImageObserverRoot = null;
+  let activeSystemPopupQueue = [];
+  let systemPopupShowing = false;
   let stickerWorkshopRows = [];
   let activeCommunityProfile = null;
   let activeProfileMode = 'main';
@@ -131,13 +136,13 @@
     const normalized = message.toLowerCase();
     console.error(error);
     if (normalized.includes('email rate limit exceeded') || normalized.includes('over_email_send_rate_limit')) {
-      const friendly = 'Nexus ha alcanzado el límite temporal de correos de verificación de Supabase. No es un problema de tu contraseña. El equipo de Nexus debe configurar el envío de correo SMTP; inténtalo de nuevo cuando esté habilitado.';
+      const friendly = 'El servicio de correo de esta instalación ha alcanzado su límite temporal de verificación. No es un problema de tu contraseña. El administrador debe revisar la configuración SMTP.';
       $('#auth-note').textContent = friendly;
       toast('Se ha alcanzado el límite de correos de registro. El administrador debe configurar SMTP.', 'error');
       return;
     }
     if (normalized.includes('email address not authorized') || normalized.includes('email_address_not_authorized')) {
-      const friendly = 'El correo no está autorizado por el servicio de prueba de Supabase. El administrador debe configurar un proveedor SMTP para permitir registros públicos.';
+      const friendly = 'El correo no está autorizado por el servicio de prueba. El administrador debe configurar un proveedor SMTP para permitir registros públicos.';
       $('#auth-note').textContent = friendly;
       toast(friendly, 'error');
       return;
@@ -146,7 +151,7 @@
   };
   const requireClient = () => {
     if (!client) {
-      toast('Primero configura la URL y la clave pública de Supabase en assets/js/config.js.', 'error');
+      toast('Falta configurar la conexión del servidor en esta instalación de Nexus.', 'error');
       return false;
     }
     return true;
@@ -282,7 +287,7 @@
         if (cfg.TURNSTILE_SITE_KEY) signupOptions.captchaToken = authCaptchaToken;
         const { error } = await client.auth.signUp({email, password, options:signupOptions});
         if (error) throw error;
-        toast('Cuenta creada. Revisa tu correo si Supabase exige confirmación.', 'success');
+        toast('Cuenta creada. Revisa tu correo si el servicio solicita confirmación.', 'success');
       } else {
         const signinCredentials = {email, password};
         if (cfg.TURNSTILE_SITE_KEY) signinCredentials.options = {captchaToken:authCaptchaToken};
@@ -338,11 +343,12 @@
   });
 
   $('#auth-note').textContent = hasConfig
-    ? 'Tus datos se guardan en tu propio proyecto de Supabase.'
-    : 'Antes de usar la plataforma, configura tu proyecto Supabase en assets/js/config.js. La guía está en README.md.';
+    ? 'Tus conversaciones y ajustes se sincronizan de forma segura.'
+    : 'Nexus necesita una conexión configurada para activar cuentas y conversaciones.';
 
   async function startApp(user) {
     currentUser = user;
+    showNexusLoading(true);
     showApp();
     applyClientPreferences();
     try {
@@ -366,8 +372,12 @@
       await refreshPushButtonState();
       await handlePushDeepLink();
       renderNotificationPanel();
+      showNexusLoading(false);
+      loadMyBadgeRequests();
+      loadMyReputationStats();
     } catch (error) {
-      showError(error, 'No se pudo cargar el perfil. Ejecuta primero supabase/schema.sql.');
+      showNexusLoading(false);
+      showError(error, 'No se pudo cargar el perfil. Comprueba la conexión y que la base de datos esté actualizada.');
     }
   }
 
@@ -757,7 +767,7 @@
     }).join('') : '<p class="empty-state compact">Todavía no hay notificaciones.</p>';
     $('#notification-subtitle').textContent = notificationItems.length ? `${notificationItems.length} aviso${notificationItems.length===1?'':'s'} recientes` : 'Mensajes nuevos y menciones';
     $('#notification-permission-note').textContent = !('Notification' in window) ? 'Este navegador no admite avisos de escritorio.' : pushEnabledLocal ? 'Avisos push activados en este navegador.' : Notification.permission==='granted' ? 'Avisos de escritorio activados; push con navegador cerrado todavía desactivado.' : 'Sonido mientras Nexus está abierto. Activa los permisos para más avisos.';
-    const pushButton=$('#enable-push-notifications');if(pushButton){pushButton.textContent=pushEnabledLocal?'Desactivar avisos push':'Activar avisos con Nexus cerrado';pushButton.disabled=!cfg.VAPID_PUBLIC_KEY;pushButton.title=cfg.VAPID_PUBLIC_KEY?'':'Configura VAPID_PUBLIC_KEY en config.js y los secretos/webhook de Supabase';}
+    const pushButton=$('#enable-push-notifications');if(pushButton){pushButton.textContent=pushEnabledLocal?'Desactivar avisos push':'Activar avisos con Nexus cerrado';pushButton.disabled=!cfg.VAPID_PUBLIC_KEY;pushButton.title=cfg.VAPID_PUBLIC_KEY?'':'Las notificaciones con Nexus cerrado requieren configuración adicional del servidor.';}
     $$('[data-notification-index]').forEach(button=>button.addEventListener('click',async()=>{
       const item=notificationItems[Number(button.dataset.notificationIndex)];
       if (!item) return;
@@ -848,7 +858,7 @@
     const button=$('#enable-push-notifications');if(!button)return;
     let active=false;
     try{const reg=serviceWorkerRegistration||await initializeServiceWorker();const sub=await reg?.pushManager.getSubscription();if(sub&&currentUser){const {data,error}=await client.from('push_subscriptions').select('endpoint').eq('user_id',currentUser.id).eq('endpoint',sub.endpoint).maybeSingle();active=!error&&Boolean(data);}}catch(error){console.warn('Estado push:',error);}
-    pushEnabledLocal=active;button.textContent=active?'Desactivar avisos push':'Activar avisos con Nexus cerrado';button.disabled=!cfg.VAPID_PUBLIC_KEY;button.title=cfg.VAPID_PUBLIC_KEY?'':'Configura VAPID_PUBLIC_KEY en config.js y los secretos/webhook de Supabase';
+    pushEnabledLocal=active;button.textContent=active?'Desactivar avisos push':'Activar avisos con Nexus cerrado';button.disabled=!cfg.VAPID_PUBLIC_KEY;button.title=cfg.VAPID_PUBLIC_KEY?'':'Las notificaciones con Nexus cerrado requieren configuración adicional del servidor.';
   }
   $('#enable-push-notifications')?.addEventListener('click',()=>pushEnabledLocal?disablePushNotifications():enablePushNotifications());
   async function handlePushDeepLink(){
@@ -1037,14 +1047,16 @@
   }
 
   async function showMessagePanel() {
+    if(messageImageObserver){messageImageObserver.disconnect();messageImageObserver=null;messageImageObserverRoot=null;}
     const panel = $('#conversation-panel');
     const c = currentContext;
     panel.classList.toggle('community-chat-active',Boolean(c?.type==='channel'&&currentCommunity));
     const isCommunityChannel = c.type === 'channel';
     const mediaOnly = isCommunityChannel && c.channelType === 'media';
-    const announcementLocked = isCommunityChannel && c.channelType === 'announcements' && !communityPermissions.post_announcements;
+    const announcementLocked = isCommunityChannel && c.channelType === 'announcements' && !currentChannelPermission('post_announcements',communityPermissions.post_announcements);
     const voiceNotice = isCommunityChannel && c.channelType === 'voice';
-    const readOnly = announcementLocked || voiceNotice;
+    const channelSendDenied=isCommunityChannel&&!currentChannelPermission('send_messages',communityPermissions.send_messages);
+    const readOnly = announcementLocked || channelSendDenied || voiceNotice;
     const channelLabel = isCommunityChannel ? ` · ${escapeHtml(c.channelType === 'media' ? 'Solo multimedia' : c.channelType === 'announcements' ? 'Anuncios' : c.channelType === 'voice' ? 'Voz' : 'Texto')}` : '';
     const composerHint = mediaOnly
       ? 'Este canal solo admite archivos multimedia.'
@@ -1054,13 +1066,14 @@
     panel.innerHTML = `
       <div class="active-conversation">
         <div class="conversation-head"><button type="button" class="conversation-back" id="conversation-back" aria-label="Volver a conversaciones">‹</button>${avatarMarkup({avatar_url:c.icon,profile_frame_url:c.frame,nickname:c.title})}<div class="conversation-head-copy"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.subtitle || '')}${channelLabel}${c.channelDescription ? ` · ${escapeHtml(c.channelDescription)}` : ''}</small><div class="context-presence-controls"><button type="button" id="context-online-trigger" class="online-members-trigger" aria-haspopup="dialog" aria-controls="online-members-dialog"><span class="online-members-dot"></span><span id="context-online-count">0 en línea</span></button><span class="context-presence-status" id="context-presence-status"></span></div></div><div class="conversation-tools"><button class="icon-button" id="conversation-notification-settings" title="Notificaciones de este espacio">♢</button><button class="icon-button" id="conversation-info" title="Información">ⓘ</button></div></div>
+        <div id="important-announcements" class="important-announcements"></div>
         <div id="pinned-messages" class="pinned-messages hidden"></div>
         ${voiceNotice ? '<div class="voice-placeholder voice-room"><div class="voice-placeholder-orb">◖</div><strong>Canal de voz</strong><p>Conéctate para hablar con los miembros presentes. El audio se transmite directamente entre navegadores cuando la red lo permite.</p><div id="voice-status" class="voice-status">Desconectado</div><div id="voice-participants" class="voice-participants"><span class="tag">Aún no hay participantes conectados</span></div><div class="voice-room-actions"><button type="button" class="button button-primary" id="join-voice-room">Conectar micrófono</button><button type="button" class="button button-secondary" id="voice-mute" disabled>Silenciar</button><button type="button" class="button button-secondary" id="voice-screen-share" disabled>Compartir pantalla</button><button type="button" class="button button-secondary" id="leave-voice-room" disabled>Salir</button></div><div id="voice-audio-host" class="voice-audio-host"></div><small class="muted">La calidad de conexión depende de la red. Algunas redes necesitan un servidor TURN adicional.</small></div>' : `
         <div class="messages" id="messages-container" aria-busy="true"><button type="button" class="load-older-messages hidden" id="load-older-messages">Cargar mensajes anteriores</button><div class="message-loading" role="status" aria-label="Cargando mensajes"><div class="message-loading-heading"><span></span><span></span></div><div class="message-loading-line"></div><div class="message-loading-line short"></div><div class="message-loading-heading second"><span></span><span></span></div><div class="message-loading-line medium"></div><div class="message-loading-line short"></div></div></div>
         <div class="composer-wrap ${readOnly ? 'composer-readonly' : ''} ${mediaOnly ? 'composer-media-only' : ''}">
           <div id="reply-composer" class="reply-composer hidden"><div><small>Respondiendo a <strong id="reply-author"></strong></small><span id="reply-excerpt"></span></div><button type="button" id="cancel-reply" class="icon-button" aria-label="Cancelar respuesta">×</button></div>
           <div id="mention-suggestions" class="mention-suggestions hidden" role="listbox" aria-label="Menciones"></div>
-          <div class="composer-tools"><button id="attach-file" ${readOnly ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Emojis / Stickers</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button><button type="button" id="record-audio" ${readOnly ? 'disabled' : ''}>◉ Audio</button><button type="button" id="composer-markdown-guide">Markdown</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" multiple accept="image/*,video/*,.pdf,.txt,.zip,.zipx,.csv,.tsv,.xls,.xlsx,.ods"></div>
+          <div class="composer-tools"><button id="attach-file" ${(readOnly || (isCommunityChannel&&!currentChannelPermission('attach_files',communityPermissions.send_messages))) ? 'disabled' : ''}>＋ Archivo</button><button type="button" id="open-asset-picker" ${readOnly ? 'disabled' : ''}>Emojis / Stickers</button><button type="button" id="open-gif-search" ${readOnly ? 'disabled' : ''}>GIF</button><button type="button" id="record-audio" ${readOnly ? 'disabled' : ''}>◉ Audio</button><button type="button" id="composer-markdown-guide">Markdown</button>${mediaOnly ? '' : `<button id="create-poll" ${readOnly ? 'disabled' : ''}>▤ Encuesta</button><button id="insert-bold" ${readOnly ? 'disabled' : ''}><b>B</b></button><button id="insert-italic" ${readOnly ? 'disabled' : ''}><i>I</i></button><button id="insert-code" ${readOnly ? 'disabled' : ''}>&lt;/&gt;</button>`}<input id="chat-file" class="upload-input" type="file" multiple accept="image/*,video/*,.pdf,.txt,.zip,.zipx,.csv,.tsv,.xls,.xlsx,.ods"></div><div id="pending-attachments" class="pending-attachments hidden"></div><label class="setting-check attachment-spoiler-toggle"><input type="checkbox" id="attachment-spoiler"> Ocultar archivos adjuntos con spoiler</label>
           <form class="composer" id="message-form"><textarea id="message-input" rows="1" maxlength="12000" placeholder="${mediaOnly ? 'Este canal solo admite archivos…' : announcementLocked ? 'Publicar anuncios requiere un permiso…' : 'Escribe un mensaje… (Markdown disponible)'}" ${mediaOnly || readOnly ? 'disabled' : ''}></textarea><button class="composer-send" type="submit" aria-label="Enviar" ${mediaOnly || readOnly ? 'disabled' : ''}>➤</button></form><div class="composer-hint">${composerHint}</div>
         </div>`}
       </div>`;
@@ -1106,7 +1119,7 @@
     $('#conversation-notification-settings')?.addEventListener('click',openContextNotificationSettings);
     $('#conversation-info').addEventListener('click', () => {
       if (isCommunityChannel && c.channelDescription) toast(c.channelDescription);
-      else toast('Los ajustes de nombre personal e icono por miembro se añadirán en el módulo de grupos.');
+      else toast('La información de esta conversación se muestra aquí. Es posible que se añadan más opciones de información en el futuro.');
     });
   }
 
@@ -1205,7 +1218,7 @@
     if(!currentContext){toast('Abre primero una conversación o un canal.','error');return;}
     const AudioContextClass=window.AudioContext||window.webkitAudioContext;
     if(!navigator.mediaDevices?.getUserMedia||!AudioContextClass){toast('Este navegador no admite la grabación de audio necesaria.','error');return;}
-    const targetContext={...currentContext};const targetAltProfile=activeAltProfile?{...activeAltProfile}:null;const targetReply=replyTarget?{...replyTarget}:null;const targetCanPostAnnouncements=Boolean(communityPermissions.post_announcements);
+    const targetContext={...currentContext};const targetAltProfile=activeAltProfile?{...activeAltProfile}:null;const targetReply=replyTarget?{...replyTarget}:null;const targetCanPostAnnouncements=Boolean(currentChannelPermission('post_announcements',communityPermissions.post_announcements));
     try{
       audioRecordStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:{ideal:1}},video:false});
       audioRecordContext=targetContext;audioRecordAltProfile=targetAltProfile;audioRecordReply=targetReply;audioRecordPostAnnouncementsAllowed=targetCanPostAnnouncements;audioRecordChunks=[];audioRecordSampleCount=0;
@@ -1289,8 +1302,8 @@
     return {head:parseRows(match[1],'th'),body:parseRows(match[2],'td'),footer:parseRows(match[3]||'','td')};
   }
   function parseNexusMarkdown(source){
-    let text=String(source||'');const blocks=[];const codeParts=[];const codeButtons=[];
-    text=text.replace(/(^```[^\n]*\n[\s\S]*?^```|`[^`\n]*`)/gm,match=>{let stored=match;if(match.startsWith('```')){const header=match.match(/^```([^\n]*)/);const enabled=Boolean(header&&/&&buttons=true/i.test(header[1]));codeButtons.push(enabled);if(enabled)stored=match.replace(/^```([^\n]*)/,(_,language)=>'```'+language.replace(/&&buttons=true/ig,''));}const token=`NEXUSCODEKEEP${codeParts.length}END`;codeParts.push(stored);return token;});
+    let text=String(source||'');const blocks=[];const codeParts=[];const codeButtons=[];const codeLangLabels=[];
+    text=text.replace(/(^```[^\n]*\n[\s\S]*?^```|`[^`\n]*`)/gm,match=>{let stored=match;if(match.startsWith('```')){const header=match.match(/^```([^\n]*)/);const rawHeader=header?.[1]||'';const enabled=Boolean(/&&buttons=true/i.test(rawHeader));const showLanguage=Boolean(/&&lang=true/i.test(rawHeader));const language=rawHeader.replace(/&&buttons=true/ig,'').replace(/&&lang=true/ig,'').trim().split(/\s+/)[0]||'';codeButtons.push(enabled);codeLangLabels.push(showLanguage?language:'');if(enabled||showLanguage)stored=match.replace(/^```([^\n]*)/,()=> '```'+rawHeader.replace(/&&buttons=true/ig,'').replace(/&&lang=true/ig,'').trim());}const token=`NEXUSCODEKEEP${codeParts.length}END`;codeParts.push(stored);return token;});
     let spoilerAll=false;
     text=text.replace(/\{SPOILER\s*=\s*true\}/ig,()=>{spoilerAll=true;return '';});
     function addBlock(block){const token=`NEXUSMDTOKEN${blocks.length}END`;blocks.push(block);return token;}
@@ -1342,7 +1355,7 @@
     }
     text=parseInline(text);
     text=text.replace(/NEXUSCODEKEEP(\d+)END/g,(_,i)=>codeParts[Number(i)]||'');
-    return {text,blocks,spoilerAll,codeButtons};
+    return {text,blocks,spoilerAll,codeButtons,codeLangLabels};
   }
   function makeNexusTable(table){
     const wrapper=document.createElement('div');wrapper.className='nexus-table-wrap';const el=document.createElement('table');el.className='nexus-md-table';
@@ -1390,6 +1403,11 @@
   function hydrateCodeBlockButtons(body,parsed){
     if(!parsed?.codeButtons?.some(Boolean))return;const codeBlocks=[...body.querySelectorAll('pre')];
     parsed.codeButtons.forEach((enabled,index)=>{if(!enabled)return;const pre=codeBlocks[index];const code=pre?.querySelector('code');if(!code)return;const tools=document.createElement('div');tools.className='nexus-code-tools';const copy=document.createElement('button');copy.type='button';copy.textContent='Copiar';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent='Copiado';setTimeout(()=>copy.textContent='Copiar',1200);}catch{toast('No se pudo copiar el código.','error');}});const download=document.createElement('button');download.type='button';download.textContent='Descargar';download.addEventListener('click',()=>{const blob=new Blob([code.textContent],{type:'text/plain;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`nexus-code-${Date.now()}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});tools.append(copy,download);pre.insertBefore(tools,pre.firstChild);});
+  }
+  function hydrateCodeBlockLanguageLabels(body,parsed){
+    const labels=parsed?.codeLangLabels||[];if(!labels.some(Boolean))return;
+    const codeBlocks=[...body.querySelectorAll('pre')];
+    labels.forEach((language,index)=>{const pre=codeBlocks[index];if(!pre||!language)return;const label=document.createElement('div');label.className='nexus-code-language-label';label.textContent=String(language).slice(0,24).toUpperCase();pre.insertBefore(label,pre.firstChild);pre.dataset.codeLanguage=String(language).slice(0,24);});
   }
   async function hydrateInputSync(body,message,batchData=null){
     const controls=[...body.querySelectorAll('[data-nexus-inputsync]')];if(!controls.length||!client)return;
@@ -1789,10 +1807,8 @@
     const enabled=profile?.settings?.groupMessages!==false;
     container.classList.toggle('message-grouping-enabled',enabled);
     container.classList.toggle('message-group-width-fix-disabled',Boolean(profile?.settings?.disableMessageGroupWidthFix));
-    if(!enabled)return;
     const children=[...container.childNodes];
     const messages=children.filter(node=>node.nodeType===1&&node.classList.contains('message'));
-    if(messages.length<2)return;
     const loadButton=children.find(node=>node.nodeType===1&&node.id==='load-older-messages')||null;
     const otherNodes=children.filter(node=>node!==loadButton&&!(node.nodeType===1&&node.classList.contains('message')));
     const fragment=document.createDocumentFragment();
@@ -1800,9 +1816,8 @@
     let index=0;let previousDay='';
     while(index<messages.length){
       const dayKey=chatDayKey(messages[index].dataset.createdAt||'');
-      if(dayKey&&dayKey!==previousDay){const separator=document.createElement('div');separator.className='message-date-separator';separator.dataset.day=dayKey;separator.innerHTML=`<span>${escapeHtml(chatDayLabel(messages[index].dataset.createdAt))}</span>`;fragment.append(separator);previousDay=dayKey;}
-      const groupMessages=[messages[index]];
-      let next=index+1;
+      if(dayKey&&dayKey!==previousDay){const separator=document.createElement('div');separator.className='message-date-separator';separator.dataset.day=dayKey;const label=document.createElement('span');label.textContent=chatDayLabel(messages[index].dataset.createdAt);separator.append(label);fragment.append(separator);previousDay=dayKey;}
+      const groupMessages=[messages[index]];let next=index+1;
       while(enabled&&next<messages.length&&canGroupMessages(groupMessages.at(-1),messages[next])){groupMessages.push(messages[next]);next++;}
       if(groupMessages.length===1)fragment.append(groupMessages[0]);
       else{
@@ -1811,11 +1826,7 @@
         if(plateSource){group.style.setProperty('--profile-plate-image',plateSource.style.getPropertyValue('--profile-plate-image'));group.style.setProperty('--profile-plate-opacity',plateSource.style.getPropertyValue('--profile-plate-opacity')||'.13');}
         const glowSource=groupMessages.find(message=>message.classList.contains('boxglow-active'))||null;
         if(glowSource){group.classList.add('boxglow-active');for(const property of ['--boxglow-color','--boxglow-strength','--boxglow-image']){const value=glowSource.style.getPropertyValue(property);if(value)group.style.setProperty(property,value);}}
-        // Keep the original per-message decoration metadata as a fallback.
-        // The group paints the shared plate/glow, while child styles survive any
-        // later detach, edit, reaction refresh or partial re-render.
-        groupMessages.forEach((message,messageIndex)=>{message.classList.toggle('message-group-continuation',messageIndex>0);group.append(message);});
-        fragment.append(group);
+        groupMessages.forEach((message,messageIndex)=>{message.classList.toggle('message-group-continuation',messageIndex>0);group.append(message);});fragment.append(group);
       }
       index=next;
     }
@@ -1874,7 +1885,7 @@
     const stickerAssetIds=[...new Set(rows.map(row=>row.attachment?.custom_asset_id).filter(Boolean))];
     const emojiAssetIds=[...new Set(rows.flatMap(row=>Array.isArray(row.formatting?.custom_emojis)?row.formatting.custom_emojis:[]).filter(id=>typeof id==='string'))];
     const inputSyncMessageIds=rows.filter(row=>/\{\s*insync:/i.test(String(row.body||''))).map(row=>row.id);
-    const mediaPaths=[...new Set(rows.map(row=>row.attachment?.path).filter(Boolean))];
+    const mediaPaths=[...new Set(rows.flatMap(row=>[row.attachment?.path,...(Array.isArray(row.attachment?.items)?row.attachment.items.map(item=>item.path):[])]).filter(Boolean))];
     const [profilesResponse,reactionsResponse,repliesResponse,pollsResponse,stickersResponse,emojisResponse,inputSyncResponse]=await Promise.all([
       fetchProfiles(rows.map(row=>row.sender_id)),
       messageIds.length?client.from('message_reactions').select('message_id,emoji,user_id').in('message_id',messageIds):Promise.resolve({data:[],error:null}),
@@ -2122,6 +2133,45 @@
     return result;
   }
 
+
+  // ImageCulling beta: load from the visible/bottom portion of a chat upward.
+  function deferMessageImages(root){
+    if(!root)return;
+    root.querySelectorAll('.message-attachment img[src],.message-attachment video[src]').forEach(media=>{
+      const src=media.getAttribute('src');
+      if(src){media.dataset.nexusDeferredSrc=src;media.removeAttribute('src');}
+      if(media.tagName==='VIDEO')media.preload='none';else media.loading='lazy';
+    });
+  }
+  function loadDeferredMedia(media){
+    const src=media?.dataset?.nexusDeferredSrc;
+    if(!src||media.getAttribute('src'))return;
+    media.setAttribute('src',src);delete media.dataset.nexusDeferredSrc;
+    if(media.tagName==='VIDEO'){media.preload='metadata';try{media.load();}catch{}}
+  }
+  function activateDeferredMessageImages(root,container=$('#messages-container')){
+    if(!root)return;
+    if(profile?.settings?.imageCulling===false){root.querySelectorAll('[data-nexus-deferred-src]').forEach(loadDeferredMedia);return;}
+    const targets=[...root.querySelectorAll('[data-nexus-deferred-src]')];
+    if(!targets.length)return;
+    if(!('IntersectionObserver' in window)){targets.forEach(loadDeferredMedia);return;}
+    const scrollRoot=container||null;
+    if(messageImageObserver && messageImageObserverRoot!==scrollRoot){messageImageObserver.disconnect();messageImageObserver=null;}
+    if(!messageImageObserver){
+      messageImageObserverRoot=scrollRoot;
+      messageImageObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(entry.isIntersecting){loadDeferredMedia(entry.target);messageImageObserver?.unobserve(entry.target);}
+        }
+      },{root:scrollRoot,rootMargin:'280px 0px 900px 0px',threshold:0.01});
+    }
+    targets.forEach(media=>messageImageObserver.observe(media));
+  }
+  function loadAllDeferredMessageImages(){
+    if(messageImageObserver){messageImageObserver.disconnect();messageImageObserver=null;messageImageObserverRoot=null;}
+    $$('#messages-container [data-nexus-deferred-src]').forEach(loadDeferredMedia);
+  }
+
   async function appendMessage(message, sender, initialReactions = null, batchData = null) {
     if (!message?.id || renderingMessageIds.has(message.id) || renderedMessageIds.has(message.id)) return;
     const existingContainer = $('#messages-container');
@@ -2208,7 +2258,7 @@
     const pinButton = document.createElement('button');
     pinButton.type = 'button'; pinButton.className = 'message-action-button'; pinButton.textContent = 'Fijar';
     pinButton.dataset.pinMessageId = message.id;
-    if (currentContext?.type === 'channel' && !communityPermissions.manage_messages) { pinButton.disabled = true; pinButton.title = 'Solo moderadores pueden fijar mensajes en este canal.'; }
+    if (currentContext?.type === 'channel' && !currentChannelPermission('manage_messages',communityPermissions.manage_messages)) { pinButton.disabled = true; pinButton.title = 'Solo moderadores pueden fijar mensajes en este canal.'; }
     pinButton.addEventListener('click', () => togglePinnedMessage(message));
     messageActions.append(pinButton);
     if (message.sender_id === currentUser.id && message.message_type === 'text') {
@@ -2219,14 +2269,14 @@
       editButton.addEventListener('click', () => openMessageEditor(message));
       messageActions.append(editButton);
     }
-    if (message.sender_id === currentUser.id || (currentContext?.type === 'channel' && communityPermissions.manage_messages)) {
+    if (message.sender_id === currentUser.id || (currentContext?.type === 'channel' && currentChannelPermission('manage_messages',communityPermissions.manage_messages))) {
       const deleteButton = document.createElement('button');
       deleteButton.type = 'button';
       deleteButton.className = 'message-delete-button';
       deleteButton.textContent = 'Eliminar';
       deleteButton.title = 'Eliminar este mensaje';
       deleteButton.addEventListener('click', async () => {
-        if (!confirm('¿Eliminar este mensaje?')) return;
+        if (!(await nexusConfirm('Eliminar mensaje','¿Quieres eliminar este mensaje? Esta acción no se puede deshacer.','Eliminar'))) return;
         const {error} = await client.from('messages').delete().eq('id',message.id);
         if (error) showError(error,'No tienes permiso para eliminar este mensaje.');
         else { const key=messageContextKey(); const state=messageCache.get(key); if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==message.id),state.hasOlder); article.remove(); renderedMessageIds.delete(message.id); rebuildMessageGroups(container); toast('Mensaje eliminado.','success'); }
@@ -2270,6 +2320,7 @@
       body.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rendered, {USE_PROFILES:{html:true}}) : escapeHtml(source);
       hydrateNexusBlocks(body,parsedMarkdown.blocks,message);
       hydrateCodeBlockButtons(body,parsedMarkdown);
+      hydrateCodeBlockLanguageLabels(body,parsedMarkdown);
       if(parsedMarkdown.spoilerAll){const spoiler=document.createElement('div');spoiler.className='nexus-spoiler nexus-spoiler-all';spoiler.setAttribute('role','button');spoiler.tabIndex=0;spoiler.setAttribute('aria-expanded','false');const content=document.createElement('span');content.className='nexus-spoiler-content';while(body.firstChild)content.append(body.firstChild);spoiler.append(content);const toggleSpoiler=()=>{spoiler.classList.toggle('revealed');spoiler.setAttribute('aria-expanded',String(spoiler.classList.contains('revealed')));};spoiler.addEventListener('click',toggleSpoiler);spoiler.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSpoiler();}});body.append(spoiler);}
       body.querySelectorAll('pre code').forEach(block=>{if(window.hljs)window.hljs.highlightElement(block);});
       renderLinkPreviews(body);
@@ -2322,6 +2373,22 @@
       const image=document.createElement('img'); image.className='message-gif'; image.src=message.attachment.url; image.alt=String(message.attachment.alt||'GIF').slice(0,120); image.loading='lazy'; $('.message-attachment',article).append(image);
       const credit=document.createElement('small'); credit.className='gif-credit'; credit.textContent='Powered by GIPHY'; $('.message-attachment',article).append(credit);
     }
+    if (message.attachment?.kind === 'bundle' && Array.isArray(message.attachment.items)) {
+      const host=$('.message-attachment',article);const content=document.createElement('div');content.className='message-attachment-bundle';
+      for(const item of message.attachment.items.slice(0,10)){
+        const url=batchData?.mediaUrls?.get(item.path)||null;if(!url)continue;
+        const card=document.createElement('div');card.className='message-attachment-bundle-item';
+        const name=String(item.name||'archivo').slice(0,180);const type=String(item.mimetype||'');
+        if(type.startsWith('image/')){const link=document.createElement('a');link.className='message-image-link';link.href=url;link.target='_blank';link.rel='noopener noreferrer';const image=document.createElement('img');image.className='message-media-image';image.alt=name;image.dataset.nexusDeferredSrc=url;image.loading='lazy';image.decoding='async';link.append(image);card.append(link);}
+        else if(type.startsWith('video/')){const video=document.createElement('video');video.className='message-media-video';video.controls=true;video.playsInline=true;video.preload='metadata';video.dataset.nexusDeferredSrc=url;card.append(video);const label=document.createElement('small');label.textContent=name;card.append(label);}
+        else if(type.startsWith('audio/')){const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=url;card.append(audio);const label=document.createElement('small');label.textContent=name;card.append(label);}
+        else if(type==='text/csv'||type==='text/tab-separated-values'||/^application\/(vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|vnd\.oasis\.opendocument\.spreadsheet)$/i.test(type)||/\.(csv|tsv|xls|xlsx|ods)$/i.test(name))renderSpreadsheetPreview(card,url,name,type);
+        else{const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.download=name;link.textContent=`Descargar ${name}`;card.append(link);}
+        content.append(card);
+      }
+      if(message.attachment.spoiler){const reveal=document.createElement('button');reveal.type='button';reveal.className='attachment-spoiler-reveal';reveal.textContent='Mostrar archivos adjuntos';content.hidden=true;reveal.addEventListener('click',()=>{content.hidden=false;reveal.remove();});host.append(reveal);}
+      host.append(content);
+    }
     if (message.attachment?.path) {
       let signedUrl=batchData?.mediaUrls?.get(message.attachment.path)||null;
       if(!batchData){const response=await client.storage.from('chat-media').createSignedUrl(message.attachment.path,3600);signedUrl=response.data?.signedUrl||null;}
@@ -2342,7 +2409,9 @@
     if (container !== $('#messages-container') || currentContext?.id !== contextIdAtStart) return;
     const stickToBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
     const scrollVersionAtAppend=Number(container.dataset.nexusScrollVersion)||0;
+    deferMessageImages(article);
     container.append(template);
+    activateDeferredMessageImages(article,container);
     renderedMessageIds.add(message.id);
     const keepBottomIfNeeded=()=>{
       if(container!==$('#messages-container'))return;
@@ -2733,32 +2802,28 @@
   function applyChannelMentionMarkup(container){
     if(!container||currentContext?.type!=='channel'||!currentCommunity?.id)return;
     const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement?.closest('code,pre,a,button,.nexus-inputsync')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
-    const re=/#([\p{L}\p{N}_-]{1,70})/gu;
-    for(const node of nodes){const value=node.nodeValue||'';const matches=[...value.matchAll(re)];if(!matches.length)continue;const frag=document.createDocumentFragment();let at=0;for(const m of matches){const channel=currentCommunityChannels.find(item=>String(item.name).toLowerCase()===m[1].toLowerCase());if(!channel)continue;frag.append(document.createTextNode(value.slice(at,m.index)));const button=document.createElement('button');button.type='button';button.className='nexus-channel-mention';button.textContent=m[0];button.addEventListener('click',()=>openCommunityChannel(channel));frag.append(button);at=m.index+m[0].length;}frag.append(document.createTextNode(value.slice(at)));node.parentNode?.replaceChild(frag,node);}
+    const re=/#([\p{L}\p{N}_-]{1,70}(?:\/[\p{L}\p{N}_-]{1,70}\/?)?)/gu;
+    for(const node of nodes){const value=node.nodeValue||'';const matches=[...value.matchAll(re)];if(!matches.length)continue;const frag=document.createDocumentFragment();let at=0;for(const m of matches){const token=m[1].replace(/\/$/,'');const parts=token.split('/');const channel=parts.length===2?currentCommunityChannels.find(item=>String(item.category).toLowerCase()===parts[0].toLowerCase()&&String(item.name).toLowerCase()===parts[1].toLowerCase()):currentCommunityChannels.find(item=>String(item.name).toLowerCase()===token.toLowerCase());if(!channel)continue;frag.append(document.createTextNode(value.slice(at,m.index)));const button=document.createElement('button');button.type='button';button.className='nexus-channel-mention';button.textContent=`#${parts.length===2?parts.join('/')+'/':token}`;button.addEventListener('click',()=>openCommunityChannel(channel));frag.append(button);at=m.index+m[0].length;}frag.append(document.createTextNode(value.slice(at)));node.parentNode?.replaceChild(frag,node);}
   }
   async function sendMessage(event) {
     event.preventDefault();
     if (!currentContext) return;
-    if (currentContext.type === 'channel' && currentContext.channelType === 'media') { toast('Este canal solo admite archivos multimedia.','error'); return; }
-    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
-    const input = $('#message-input');
-    const body = input.value.trim();
-    if (!body) return;
-    input.disabled = true;
-    const mentions = await collectMessageMentions(body);
-    await loadCustomEmojiCache();
-    const customEmojis=collectCustomEmojiIds(body);
-    const payload = {sender_id:currentUser.id, body, formatting:{mentions,custom_emojis:customEmojis}, ...(activeAltProfile ? {alt_profile_id:activeAltProfile.id} : {}), ...(replyTarget ? {reply_to:replyTarget.id} : {})};
-    payload[currentContext.type === 'conversation' ? 'conversation_id' : 'channel_id'] = currentContext.id;
-    const {error} = await client.from('messages').insert(payload);
-    input.disabled = false;
-    if (error) { showError(error, 'No se pudo enviar el mensaje.'); return; }
-    input.value = '';
-    autoResizeComposer(input);
-    broadcastTypingState(false);
-    clearReplyTarget();
-    hideEmojiSuggestions();hideMentionSuggestions();
-    input.focus();
+    if (currentContext.type === 'channel' && currentContext.channelType === 'media' && !pendingAttachments.length) { toast('Este canal solo admite archivos multimedia.','error'); return; }
+    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !currentChannelPermission('post_announcements',communityPermissions.post_announcements)) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
+    const input=$('#message-input');const body=input.value.trim();const files=[...pendingAttachments];
+    if(!body&&!files.length)return;
+    const context={...currentContext};const reply=replyTarget?{...replyTarget}:null;const alt=activeAltProfile?{...activeAltProfile}:null;
+    input.disabled=true;const uploaded=[];
+    try{
+      const mentions=body?await collectMessageMentions(body):[];await loadCustomEmojiCache();const customEmojis=body?collectCustomEmojiIds(body):[];
+      for(const file of files){const item=await uploadAttachmentFile(file,{context,reply,alt,deferInsert:true,silent:true});if(!item)throw new Error(`No se pudo adjuntar ${file.name}.`);uploaded.push(item);}
+      const payload={sender_id:currentUser.id,body,formatting:{mentions,custom_emojis:customEmojis},...(alt?{alt_profile_id:alt.id}:{}),...(reply?{reply_to:reply.id}:{})};
+      if(uploaded.length){payload.message_type='media';payload.attachment={kind:'bundle',items:uploaded.map(({file,...item})=>item),spoiler:Boolean($('#attachment-spoiler')?.checked)};}
+      payload[context.type==='conversation'?'conversation_id':'channel_id']=context.id;
+      const {error}=await client.from('messages').insert(payload);if(error)throw error;
+      input.value='';autoResizeComposer(input);pendingAttachments=[];renderPendingAttachments();$('#attachment-spoiler').checked=false;broadcastTypingState(false);clearReplyTarget();hideEmojiSuggestions();hideMentionSuggestions();toast(uploaded.length?'Mensaje enviado con archivos.':'Mensaje enviado.','success');
+    }catch(error){if(uploaded.length){await client.storage.from('chat-media').remove(uploaded.map(item=>item.path).filter(Boolean)).catch(()=>{});}showError(error,'No se pudo enviar el mensaje.');}
+    finally{input.disabled=false;input.focus();}
   }
 
   // ---------- Stickers, custom emoji and GIPHY GIFs ----------
@@ -2883,7 +2948,7 @@
   }
   async function sendStickerMessage(asset){
     if(!currentContext)return;
-    if(currentContext.type==='channel'&&currentContext.channelType==='announcements'&&!communityPermissions.post_announcements){toast('Necesitas permiso para publicar aquí.','error');return;}
+    if(currentContext.type==='channel'&&currentContext.channelType==='announcements'&&!currentChannelPermission('post_announcements',communityPermissions.post_announcements)){toast('Necesitas permiso para publicar aquí.','error');return;}
     const payload={sender_id:currentUser.id,body:`Sticker: ${asset.name}`,message_type:'media',attachment:{kind:'sticker',custom_asset_id:asset.id,name:asset.name},...(activeAltProfile?{alt_profile_id:activeAltProfile.id}:{})};
     payload[currentContext.type==='conversation'?'conversation_id':'channel_id']=currentContext.id;
     const {error}=await client.from('messages').insert(payload);if(error)showError(error,'No se pudo enviar el sticker.');else{$('#asset-picker-dialog').close();toast('Sticker enviado.','success');}
@@ -2948,37 +3013,17 @@
     else{trackGiphyEvent(item.analytics?.onsent?.url);$('#gif-search-dialog').close();toast('GIF enviado.','success');}
   }
 
-  async function uploadAttachment(event) {
-    const files=[...(event.target.files||[])];
-    event.target.value='';
-    if(!files.length)return;
-    const context=currentContext?{...currentContext}:null;
-    const reply=replyTarget?{...replyTarget}:null;
-    const alt=activeAltProfile?{...activeAltProfile}:null;
-    const caption=String($('#message-input')?.value||'').trim().slice(0,12000);
-    for(let index=0;index<files.length;index++){
-      await uploadAttachmentFile(files[index],{context,reply,alt,caption:index===0?caption:'',keepComposerCaption:true});
-    }
-    const input=$('#message-input');
-    if(input&&context&&currentContext?.id===context.id&&input.value.trim()===caption){input.value='';autoResizeComposer(input);clearReplyTarget();}
+  function stagePendingAttachments(files){
+    const incoming=[...(files||[])].filter(Boolean);for(const file of incoming){if(pendingAttachments.length>=10){toast('Puedes adjuntar hasta 10 archivos por mensaje.','error');break;}if(pendingAttachments.some(item=>item.name===file.name&&item.size===file.size&&item.lastModified===file.lastModified))continue;pendingAttachments.push(file);}renderPendingAttachments();
   }
+  function renderPendingAttachments(){
+    const host=$('#pending-attachments');if(!host)return;host.classList.toggle('hidden',!pendingAttachments.length);host.innerHTML=pendingAttachments.map((file,index)=>`<div class="pending-attachment-item"><span class="pending-attachment-icon">${/^image\//.test(file.type)?'▧':/^video\//.test(file.type)?'▶':'↧'}</span><span>${escapeHtml(file.name)}<small>${(file.size/1024/1024).toFixed(2)} MB</small></span><button type="button" data-remove-pending="${index}" aria-label="Quitar ${escapeHtml(file.name)}">×</button></div>`).join('');host.querySelectorAll('[data-remove-pending]').forEach(button=>button.addEventListener('click',()=>{pendingAttachments.splice(Number(button.dataset.removePending),1);renderPendingAttachments();}));
+  }
+  async function uploadAttachment(event){const files=[...(event.target.files||[])];event.target.value='';if(files.length)stagePendingAttachments(files);}
 
   async function handleComposerPaste(event) {
-    const items=[...(event.clipboardData?.items||[])];
-    const fromItems=items.filter(item=>item.kind==='file'&&(/^(image\/|video\/(mp4|webm)$)/i.test(item.type||'')))
-      .map(item=>item.getAsFile()).filter(Boolean);
-    const fromFiles=[...(event.clipboardData?.files||[])].filter(file=>/^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/i.test(file.type||''));
-    const files=fromItems.length?fromItems:fromFiles;
-    if(!files.length)return;
-    event.preventDefault();
-    const context=currentContext?{...currentContext}:null;const reply=replyTarget?{...replyTarget}:null;const alt=activeAltProfile?{...activeAltProfile}:null;const caption=String($('#message-input')?.value||'').trim().slice(0,12000);
-    for(let index=0;index<files.length;index++){
-      const source=files[index];
-      const ext=source.type==='image/jpeg'?'jpg':source.type==='image/webp'?'webp':source.type==='image/gif'?'gif':source.type==='video/webm'?'webm':source.type==='video/mp4'?'mp4':'png';
-      const file=new File([source],source.name||`pegado-${Date.now()}-${index+1}.${ext}`,{type:source.type||'image/png',lastModified:Date.now()});
-      await uploadAttachmentFile(file,{context,reply,alt,caption:index===0?caption:'',keepComposerCaption:true});
-    }
-    const input=$('#message-input');if(input&&context&&currentContext?.id===context.id&&input.value.trim()===caption){input.value='';autoResizeComposer(input);clearReplyTarget();}
+    const items=[...(event.clipboardData?.items||[])];const fromItems=items.filter(item=>item.kind==='file'&&(/^(image\/|video\/(mp4|webm)$)/i.test(item.type||''))).map(item=>item.getAsFile()).filter(Boolean);
+    const fromFiles=[...(event.clipboardData?.files||[])].filter(file=>/^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/i.test(file.type||''));const files=fromItems.length?fromItems:fromFiles;if(!files.length)return;event.preventDefault();stagePendingAttachments(files);
   }
 
   async function uploadAttachmentFile(file, options={}) {
@@ -2987,7 +3032,7 @@
     const context={...sourceContext};
     const replySnapshot=Object.prototype.hasOwnProperty.call(options,'reply')?options.reply:(replyTarget?{...replyTarget}:null);
     const altSnapshot=Object.prototype.hasOwnProperty.call(options,'alt')?options.alt:(activeAltProfile?{...activeAltProfile}:null);
-    if (context.type === 'channel' && context.channelType === 'announcements' && !(Object.prototype.hasOwnProperty.call(options,'postAnnouncementsAllowed')?options.postAnnouncementsAllowed:communityPermissions.post_announcements)) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
+    if (context.type === 'channel' && context.channelType === 'announcements' && !(Object.prototype.hasOwnProperty.call(options,'postAnnouncementsAllowed')?options.postAnnouncementsAllowed:currentChannelPermission('post_announcements',communityPermissions.post_announcements))) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     if (file.size > 50 * 1024 * 1024) { toast('El límite inicial de archivos es 50 MB.', 'error'); return; }
     const extension=(file.name.split('.').pop()||'').toLowerCase();
     let isZip=false;
@@ -3011,7 +3056,7 @@
     const safeExtension = (file.name.split('.').pop() || 'bin').replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
     const path = `${folder}/${context.id}/${crypto.randomUUID()}.${safeExtension}`;
     const storage = client.storage.from('chat-media');
-    toast('Subiendo archivo…');
+    if(!options.silent)toast('Subiendo archivo…');
 
     try {
       const {error: uploadError} = await storage.upload(path, file, {contentType:normalizedMime,upsert:false});
@@ -3021,6 +3066,7 @@
         }
         throw uploadError;
       }
+      if(options.deferInsert)return {path,name:file.name||'archivo',mimetype:normalizedMime,file};
       const caption=Object.prototype.hasOwnProperty.call(options,'caption')?String(options.caption||'').trim().slice(0,12000):String($('#message-input')?.value||'').trim().slice(0,12000);
       const payload = {
         sender_id:currentUser.id,
@@ -3041,6 +3087,7 @@
       toast('Archivo enviado.', 'success');
     } catch (error) {
       showError(error, 'No se pudo subir el archivo.');
+      return null;
     }
   }
 
@@ -3048,7 +3095,7 @@
     if (!currentContext) return;
     if (currentContext.type === 'channel' && currentContext.channelType === 'media') { toast('Los canales multimedia solo admiten archivos.','error'); return; }
     if (currentContext.type === 'channel' && currentContext.channelType === 'voice') { toast('Los canales de voz no admiten encuestas.','error'); return; }
-    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !communityPermissions.post_announcements) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
+    if (currentContext.type === 'channel' && currentContext.channelType === 'announcements' && !currentChannelPermission('post_announcements',communityPermissions.post_announcements)) { toast('Necesitas el permiso Publicar anuncios.','error'); return; }
     const raw = await ask('Crear encuesta','Escribe la pregunta y dos o más opciones separadas por |.','Pregunta y opciones','¿Qué hacemos? | Opción A | Opción B');
     if (!raw) return;
     const parts = raw.split('|').map(value => value.trim()).filter(Boolean);
@@ -3321,6 +3368,7 @@
     permissionNames.forEach((name,index) => { communityPermissions[name] = Boolean(permissionResults[index].data); });
     $('#community-settings').classList.toggle('hidden',community.owner_id !== currentUser.id && !communityPermissions.create_invites);
     await loadChannels();
+    await loadForumUi();
     await loadAllies();
     const {count} = await client.from('community_members').select('*',{count:'exact',head:true}).eq('community_id',community.id);
     $('#community-members-count').textContent = count ?? '—';
@@ -3512,6 +3560,7 @@
     $('#channel-edit-category').value = channel?.category || 'General';
     $('#channel-edit-description').value = channel?.description || '';
     $('#channel-edit-position').value = String(channel?.position ?? currentCommunityChannels.length);
+    $('#channel-important-enabled').checked=Boolean(channel?.important_announcements_enabled);
     $('#channel-editor-dialog').showModal();
   }
 
@@ -3524,7 +3573,7 @@
     $('#add-channel').classList.toggle('hidden',!communityPermissions.manage_channels);
     const channelGroups=new Map();
     for(const channel of currentCommunityChannels){const category=String(channel.category||'General').trim()||'General';if(!channelGroups.has(category))channelGroups.set(category,[]);channelGroups.get(category).push(channel);}
-    $('#channel-list').innerHTML = [...channelGroups.entries()].map(([category,channels])=>`<section class="channel-category"><button type="button" class="channel-category-heading" data-toggle-channel-category="${escapeHtml(category)}"><span>⌄</span>${escapeHtml(category)}<small>${channels.length}</small></button><div class="channel-category-items">${channels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}" title="${escapeHtml(channel.description || channelTypeLabel(channel.type))}"><span class="channel-hash">${channelTypeIcon(channel.type)}</span><span class="channel-item-name">${escapeHtml(channel.name)}</span><span class="channel-type-mini">${channel.type === 'text' ? '' : escapeHtml(channelTypeLabel(channel.type))}</span></button>${communityPermissions.manage_channels ? `<span class="channel-admin-actions"><button type="button" data-edit-channel="${channel.id}" title="Editar canal">✎</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button></span>` : ''}</div>`).join('')}</div></section>`).join('') || '<p class="muted channel-empty">Todavía no hay canales.</p>';
+    $('#channel-list').innerHTML = [...channelGroups.entries()].map(([category,channels])=>`<section class="channel-category"><button type="button" class="channel-category-heading" data-toggle-channel-category="${escapeHtml(category)}"><span>⌄</span>${escapeHtml(category)}<small>${channels.length}</small></button><div class="channel-category-items">${channels.map(channel => `<div class="channel-row"><button class="channel-item ${currentContext?.id === channel.id ? 'active' : ''}" data-channel="${channel.id}" title="${escapeHtml(channel.description || channelTypeLabel(channel.type))}"><span class="channel-hash">${channelTypeIcon(channel.type)}</span><span class="channel-item-name">${escapeHtml(channel.name)}</span><span class="channel-type-mini">${channel.type === 'text' ? '' : escapeHtml(channelTypeLabel(channel.type))}</span></button>${(communityPermissions.manage_channels||communityPermissions.manage_roles) ? `<span class="channel-admin-actions">${communityPermissions.manage_channels?`<button type="button" data-edit-channel="${channel.id}" title="Editar canal">✎</button><button type="button" data-delete-channel="${channel.id}" title="Eliminar canal">×</button>`:''}<button type="button" data-channel-access="${channel.id}" title="Channels+ · Permisos">⚿</button></span>` : ''}</div>`).join('')}</div></section>`).join('') || '<p class="muted channel-empty">Todavía no hay canales.</p>';
     renderChannelUnreadBadges();
     refreshUnreadCounts();
     $$('[data-toggle-channel-category]').forEach(button=>button.addEventListener('click',()=>{const section=button.closest('.channel-category');const collapsed=section?.classList.toggle('collapsed');button.querySelector('span').textContent=collapsed?'›':'⌄';}));
@@ -3538,7 +3587,7 @@
     }));
     $$('[data-delete-channel]').forEach(button => button.addEventListener('click', async () => {
       const channel = currentCommunityChannels.find(row => row.id === button.dataset.deleteChannel);
-      if (!channel || !confirm(`¿Eliminar #${channel.name} y sus mensajes? Esta acción no se puede deshacer.`)) return;
+      if (!channel || !(await nexusConfirm('Eliminar canal',`¿Eliminar #${channel.name} y sus mensajes? Esta acción no se puede deshacer.`,'Eliminar'))) return;
       const {error:deleteError} = await client.from('channels').delete().eq('id',channel.id).eq('community_id',currentCommunity.id);
       if (deleteError) showError(deleteError,'No se pudo eliminar el canal.');
       else {
@@ -3547,6 +3596,7 @@
         await loadChannels();
       }
     }));
+    $$('[data-channel-access]').forEach(button=>button.addEventListener('click',()=>openChannelPermissionsDialog(button.dataset.channelAccess)));
   }
 
   $('#channel-editor-form').addEventListener('submit', async event => {
@@ -3559,12 +3609,13 @@
     const description = $('#channel-edit-description').value.trim();
     const category = ($('#channel-edit-category').value.trim() || 'General').slice(0,40);
     const position = Number.parseInt($('#channel-edit-position').value,10);
+    const importantEnabled=Boolean($('#channel-important-enabled').checked);
     if (name.length < 1 || name.length > 70) { toast('El nombre debe tener entre 1 y 70 caracteres.','error'); return; }
     if (!['text','announcements','voice','media'].includes(type)) { toast('Tipo de canal no válido.','error'); return; }
     if (!Number.isInteger(position) || position < 0 || position > 500) { toast('La posición debe estar entre 0 y 500.','error'); return; }
-    const payload = {community_id:currentCommunity.id,name,type,description,position,category};
+    const payload = {community_id:currentCommunity.id,name,type,description,position,category,important_announcements_enabled:importantEnabled};
     const response = channelId
-      ? await client.from('channels').update({name,type,description,position,category}).eq('id',channelId).eq('community_id',currentCommunity.id)
+      ? await client.from('channels').update({name,type,description,position,category,important_announcements_enabled:importantEnabled}).eq('id',channelId).eq('community_id',currentCommunity.id)
       : await client.from('channels').insert(payload);
     if (response.error) { showError(response.error,'No se pudo guardar el canal. Comprueba tus permisos y que el nombre sea válido.'); return; }
     $('#channel-editor-dialog').close();
@@ -3682,6 +3733,20 @@
     if(options.refresh!==false&&currentContext?.type==='channel'&&currentContext.channelType==='voice')await showMessagePanel();
   }
 
+  async function getChannelPermissionState(channelId){
+    const names=['view_channel','send_messages','attach_files','add_reactions','manage_messages','post_announcements'];
+    const values=await Promise.all(names.map(async name=>{
+      const {data,error}=await client.rpc('can_access_community_channel',{p_channel_id:channelId,p_permission:name});
+      if(error){console.debug(`Channels+ ${name}:`,error.message);return [name,null];}
+      return [name,Boolean(data)];
+    }));
+    return Object.fromEntries(values);
+  }
+  function currentChannelPermission(name,fallback=false){
+    const value=currentContext?.channelPermissions?.[name];
+    return value===null||value===undefined?Boolean(fallback):Boolean(value);
+  }
+
   async function openCommunityChannel(channel) {
     if (voiceSession && channel.type==='voice' && voiceSession.channelId!==channel.id) await leaveVoiceRoom({refresh:false});
     switchView('chats');
@@ -3693,14 +3758,14 @@
     replyTarget = null;
     if (channel.type === 'voice') {
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
-      currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || ''};
+      currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || '',importantAnnouncementsEnabled:Boolean(channel.important_announcements_enabled),channelPermissions:await getChannelPermissionState(channel.id)};
       renderVoiceDock();
       switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
       await showMessagePanel();
       $$('.channel-item').forEach(button => button.classList.toggle('active',button.dataset.channel === channel.id));
       return;
     }
-    currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || ''};
+    currentContext = {type:'channel',id:channel.id,title:`${channelTypeIcon(channel.type)} ${channel.name}`,subtitle:currentCommunity.name,channelType:channel.type,channelDescription:channel.description || '',importantAnnouncementsEnabled:Boolean(channel.important_announcements_enabled),channelPermissions:await getChannelPermissionState(channel.id)};
     renderVoiceDock();
     switchView('chats'); $('#app-screen').classList.toggle('community-focus',Boolean(profile?.settings?.compactPanels)); $('#app-screen').classList.add('mobile-chat-open');
     await showMessagePanel();
@@ -4199,12 +4264,14 @@
     $('#app-screen')?.classList.toggle('megacompact-mode',Boolean(settings.compactPanels&&settings.megacompact));
     $('#megacompact-view-switcher')?.classList.toggle('hidden',!(settings.compactPanels&&settings.megacompact));
     $('#app-screen')?.classList.toggle('community-focus',Boolean(settings.compactPanels&&currentCommunity&&(currentView==='community'||(currentView==='chats'&&currentContext?.type==='channel'))));
+    document.documentElement.classList.toggle('nexus-hover-plus',settings.hoverPlus!==false);
+    if(settings.imageCulling===false)loadAllDeferredMessageImages();
   }
   $('#widget-type')?.addEventListener('change',()=>{const link=$('#widget-type').value==='link';$('#widget-url-field')?.classList.toggle('hidden',!link);$('#widget-banner-field')?.classList.toggle('hidden',link);$('#widget-icon')?.closest('.field')?.classList.toggle('hidden',link);});
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
     const previousMessagePageSize=messagePageSize();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,megacompact:$('#setting-compact-panels').checked&&$('#setting-megacompact').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
+    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,imageCulling:$('#setting-image-culling').checked,nativePopups:$('#setting-native-popups').checked,hoverPlus:$('#setting-hover-plus').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,megacompact:$('#setting-compact-panels').checked&&$('#setting-megacompact').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
     if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
   });
@@ -4443,7 +4510,7 @@
     if (error) { console.warn('Admin RPC:',error.message); return; }
     isAdmin = Boolean(data);
     const platformResult=await client.rpc('is_platform_admin');platformAdmin=Boolean(platformResult.data&&!platformResult.error);
-    $('#admin-area')?.classList.toggle('hidden',!isAdmin);
+    $('#admin-area')?.classList.add('hidden');
     $('#open-admin-panel')?.classList.toggle('hidden',!platformAdmin);
     $('#view-admin')?.classList.toggle('hidden',!platformAdmin);
     if(platformAdmin)loadPlatformBadges();
@@ -4513,6 +4580,235 @@
     await originalLoadInitialData();
     await loadInitialDataSafe();
   };
+
+
+  // -------------------------------------------------------------------------
+  // Nexus 0.11.0 alpha modules: dialogs, forum boards, Channels+, notices,
+  // badge requests, reputation and first-login changelog.
+  // -------------------------------------------------------------------------
+  let globalAnnouncementsLoaded=false;
+  function showNexusLoading(show=true){
+    const screen=$('#nexus-loading-screen');if(!screen)return;
+    screen.classList.toggle('hidden',!show);screen.setAttribute('aria-hidden',String(!show));
+    if(show)screen.dataset.startedAt=String(Date.now());
+  }
+  function markWhatsNewSeen(){
+    if(!currentUser)return;try{localStorage.setItem(`nexus-whats-new-v0.11.0:${currentUser.id}`,'1');}catch{}
+    $('#nexus-whats-new')?.close();
+  }
+  function showWhatsNewOnce(){
+    if(!currentUser||!globalAnnouncementsLoaded||systemPopupShowing||activeSystemPopupQueue.length)return;
+    let seen=false;try{seen=localStorage.getItem(`nexus-whats-new-v0.11.0:${currentUser.id}`)==='1';}catch{seen=true;}
+    if(seen)return;const dialog=$('#nexus-whats-new');if(dialog&&!dialog.open)dialog.showModal();
+  }
+  ['nexus-whats-new-close','nexus-whats-new-ok'].forEach(id=>$('#'+id)?.addEventListener('click',markWhatsNewSeen));
+
+  function showNexusPopup(title,body,kind='notice'){
+    const settings=profile?.settings||{};
+    if(settings.nativePopups){window.alert(`${title}\n\n${body}`);return Promise.resolve();}
+    const dialog=$('#nexus-system-popup');if(!dialog)return Promise.resolve(window.alert(`${title}\n\n${body}`));
+    $('#nexus-system-popup-title').textContent=title||'Nexus (App)';
+    const content=$('#nexus-system-popup-body');content.textContent=body||'';content.dataset.kind=kind;
+    return new Promise(resolve=>{
+      const closeButton=$('#nexus-system-popup-close');const okButton=$('#nexus-system-popup-ok');
+      const close=()=>{if(dialog.open)dialog.close();};
+      const done=()=>{closeButton?.removeEventListener('click',close);okButton?.removeEventListener('click',close);resolve();};
+      closeButton?.addEventListener('click',close);okButton?.addEventListener('click',close);
+      dialog.addEventListener('close',done,{once:true});dialog.showModal();
+    });
+  }
+  function nexusConfirm(title,body,acceptLabel='Continuar'){
+    if(profile?.settings?.nativePopups)return Promise.resolve(window.confirm(`${title}\n\n${body}`));
+    const dialog=$('#nexus-confirm-dialog');if(!dialog)return Promise.resolve(window.confirm(`${title}\n\n${body}`));
+    $('#nexus-confirm-title').textContent=title;$('#nexus-confirm-body').textContent=body;$('#nexus-confirm-accept').textContent=acceptLabel;
+    return new Promise(resolve=>{
+      let result=false;const acceptButton=$('#nexus-confirm-accept');const cancelButtons=['nexus-confirm-close','nexus-confirm-cancel'].map(id=>$('#'+id)).filter(Boolean);
+      const accept=()=>{result=true;if(dialog.open)dialog.close();};const cancel=()=>{result=false;if(dialog.open)dialog.close();};
+      const closed=()=>{acceptButton?.removeEventListener('click',accept);cancelButtons.forEach(button=>button.removeEventListener('click',cancel));dialog.removeEventListener('cancel',onCancel);resolve(result);};
+      const onCancel=()=>{result=false;};
+      acceptButton?.addEventListener('click',accept);cancelButtons.forEach(button=>button.addEventListener('click',cancel));
+      dialog.addEventListener('cancel',onCancel);dialog.addEventListener('close',closed,{once:true});dialog.showModal();
+    });
+  }
+  async function showSystemInboxQueue(){
+    if(systemPopupShowing||!activeSystemPopupQueue.length)return;systemPopupShowing=true;
+    while(activeSystemPopupQueue.length){const row=activeSystemPopupQueue.shift();await showNexusPopup(row.title||'Nexus (App)',row.body||'',row.message_type||'notice');
+      if(row.id&&client&&currentUser){const {error}=await client.from('nexus_system_messages').update({read_at:new Date().toISOString()}).eq('id',row.id).eq('user_id',currentUser.id);if(error)console.debug('No se pudo marcar el aviso como leído:',error.message);}
+      if(row.announcementId&&currentUser){let seen=[];try{seen=JSON.parse(localStorage.getItem(`nexus-global-notices:${currentUser.id}`)||'[]');}catch{};if(!seen.includes(row.announcementId))seen.push(row.announcementId);try{localStorage.setItem(`nexus-global-notices:${currentUser.id}`,JSON.stringify(seen.slice(-100)));}catch{}}
+    }
+    systemPopupShowing=false;
+    if(globalAnnouncementsLoaded)showWhatsNewOnce();
+  }
+  // The previous inbox rendered warnings as permanent text. Replace it with a queue of dismissible dialogs.
+  loadSystemInboxMessages=async function(){
+    if(!currentUser||!client)return;try{const {data,error}=await client.from('nexus_system_messages').select('id,title,body,message_type,created_at').eq('user_id',currentUser.id).is('read_at',null).order('created_at',{ascending:true}).limit(12);if(error)throw error;activeSystemPopupQueue.push(...(data||[]));showSystemInboxQueue();}catch(error){console.debug('Buzón de Nexus no disponible:',error.message||error);}
+  };
+  async function loadMyBadgeRequests(){
+    const host=$('#my-badge-requests');if(!host||!currentUser||!client)return;
+    const {data,error}=await client.from('nexus_badge_requests').select('id,proposed_name,reason,status,admin_note,created_at,updated_at').eq('user_id',currentUser.id).order('created_at',{ascending:false}).limit(12);
+    if(error){host.innerHTML='<small class="muted">No se pudieron cargar tus solicitudes. Comprueba la migración 0.11.</small>';return;}
+    host.innerHTML=(data||[]).map(row=>`<article class="badge-request-row"><div><strong>${escapeHtml(row.proposed_name)}</strong><small>${escapeHtml(row.status==='submitted'?'Enviada':row.status==='reviewing'?'En revisión':row.status==='accepted'?'Aceptada':'Rechazada')} · ${escapeHtml(formatPlatformDate(row.created_at))}</small>${row.admin_note?`<p>${escapeHtml(row.admin_note)}</p>`:''}</div></article>`).join('')||'<small class="muted">Todavía no has enviado solicitudes.</small>';
+  }
+  async function loadMyReputationStats(){
+    const host=$('#nexus-reputation');if(!host||!currentUser||!client)return;
+    const {data,error}=await client.from('nexus_moderation_history').select('action_type,duration_seconds,created_at').eq('user_id',currentUser.id);
+    if(error){host.innerHTML='<small class="muted">Las estadísticas de reputación estarán disponibles cuando se aplique la migración 0.11.</small>';return;}
+    const rows=data||[];const warnings=rows.filter(row=>row.action_type==='warning').length;
+    const elapsedDuration=row=>{const assigned=Number(row.duration_seconds||0);if(assigned<=0)return 0;const started=Date.parse(row.created_at||'');const elapsed=Number.isFinite(started)?Math.max(0,(Date.now()-started)/1000):assigned;return Math.min(assigned,elapsed);};
+    const banRows=rows.filter(row=>row.action_type==='ban');
+    const banSeconds=banRows.reduce((sum,row)=>sum+elapsedDuration(row),0);
+    const permanentBans=banRows.filter(row=>Number(row.duration_seconds||0)===0).length;
+    const muteSeconds=rows.filter(row=>row.action_type==='mute').reduce((sum,row)=>sum+elapsedDuration(row),0);
+    const duration=value=>{const days=Math.floor(value/86400);const hours=Math.floor(value%86400/3600);const minutes=Math.floor(value%3600/60);return `${days} d · ${hours} h · ${minutes} min`;};
+    host.innerHTML=`<div class="reputation-title"><strong>Reputación</strong><small>Actividad de moderación registrada</small></div><div class="reputation-stats"><span><b>${warnings}</b><small>Avisos</small></span><span><b>${duration(banSeconds)}</b><small>Tiempo de ban${permanentBans?` · ${permanentBans} permanente(s)`:''}</small></span><span><b>${duration(muteSeconds)}</b><small>Tiempo de silencio</small></span></div>`;
+  }
+  $('#request-global-badge')?.addEventListener('click',()=>$('#badge-request-dialog')?.showModal());
+  ['close-badge-request','cancel-badge-request'].forEach(id=>$('#'+id)?.addEventListener('click',()=>$('#badge-request-dialog')?.close()));
+  $('#badge-request-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();if(!currentUser)return;const name=$('#badge-request-name').value.trim();const reason=$('#badge-request-reason').value.trim();
+    if(name.length<2||reason.length<10){toast('Indica un nombre y una razón de al menos 10 caracteres.','error');return;}
+    const button=$('#badge-request-form button[type="submit"]');button.disabled=true;
+    try{const {error}=await client.from('nexus_badge_requests').insert({user_id:currentUser.id,proposed_name:name,reason});if(error)throw error;$('#badge-request-dialog').close();$('#badge-request-form').reset();toast('Solicitud enviada al equipo de Nexus.','success');await loadMyBadgeRequests();}
+    catch(error){showError(error,'No se pudo enviar la solicitud. Comprueba la migración de insignias.');}finally{button.disabled=false;}
+  });
+
+  async function loadPlatformBadgeRequests(){
+    if(!platformAdmin)return;const host=$('#platform-badge-requests');if(!host)return;
+    const {data,error}=await client.from('nexus_badge_requests').select('id,user_id,proposed_name,reason,status,admin_note,created_at').order('created_at',{ascending:false}).limit(100);
+    if(error){host.innerHTML='<p class="muted">No se pudieron cargar las solicitudes.</p>';return;}
+    const people=await fetchProfiles([...new Set((data||[]).map(row=>row.user_id))]);
+    const {data:badges}=await client.from('global_badges').select('id,name').order('name');
+    host.innerHTML=(data||[]).map(row=>`<article class="badge-review-card"><div class="surface-heading"><strong>${escapeHtml(row.proposed_name)}</strong><small>@${escapeHtml(people[row.user_id]?.username||'usuario')} · ${escapeHtml(formatPlatformDate(row.created_at))}</small></div><p>${escapeHtml(row.reason)}</p><label class="field">Estado<select data-badge-request-status="${row.id}"><option value="submitted" ${row.status==='submitted'?'selected':''}>Recibida</option><option value="reviewing" ${row.status==='reviewing'?'selected':''}>En revisión</option><option value="accepted" ${row.status==='accepted'?'selected':''}>Aceptada</option><option value="rejected" ${row.status==='rejected'?'selected':''}>Rechazada</option></select></label><label class="field">Nota para el usuario<textarea data-badge-request-note="${row.id}" rows="2">${escapeHtml(row.admin_note||'')}</textarea></label><label class="field">Insignia a asignar al aceptar<select data-badge-request-award="${row.id}"><option value="">Asignar más adelante</option>${(badges||[]).map(b=>`<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}</select></label><button type="button" class="button button-primary" data-badge-request-save="${row.id}">Guardar revisión</button></article>`).join('')||'<p class="empty-state compact">No hay solicitudes de insignias.</p>';
+    host.querySelectorAll('[data-badge-request-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.badgeRequestSave;const status=host.querySelector(`[data-badge-request-status="${id}"]`).value;const admin_note=host.querySelector(`[data-badge-request-note="${id}"]`).value.trim();const approved_badge_id=host.querySelector(`[data-badge-request-award="${id}"]`).value||null;const {error:updateError}=await client.from('nexus_badge_requests').update({status,admin_note,approved_badge_id,reviewed_by:currentUser.id}).eq('id',id);if(updateError)showError(updateError,'No se pudo actualizar la solicitud.');else{toast('Revisión guardada.','success');await loadPlatformBadgeRequests();}}));
+  }
+  async function loadPlatformAnnouncementCommunityOptions(){
+    const select=$('#platform-announcement-community');if(!select)return;const {data,error}=await client.from('communities').select('id,name').order('name');if(error){console.warn(error);return;}select.innerHTML=(data||[]).map(row=>`<option value="${row.id}">${escapeHtml(row.name)}</option>`).join('');
+  }
+  $('#platform-announcement-scope')?.addEventListener('change',()=>$('#platform-announcement-community-wrap')?.classList.toggle('hidden',$('#platform-announcement-scope').value!=='community'));
+  $('#platform-announcement-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();if(!platformAdmin)return;const scope=$('#platform-announcement-scope').value;const communityId=scope==='community'?$('#platform-announcement-community').value:null;const title=$('#platform-announcement-title').value.trim();const body=$('#platform-announcement-body').value.trim();
+    const {error}=await client.rpc('create_nexus_important_announcement',{p_scope:scope,p_community_id:communityId,p_title:title,p_body:body});if(error){showError(error,'No se pudo publicar el aviso importante. Comprueba la migración de 0.11.');return;}$('#platform-announcement-form').reset();$('#platform-announcement-community-wrap')?.classList.add('hidden');toast('Aviso importante publicado.','success');
+  });
+  async function loadGlobalImportantAnnouncements(){
+    if(!currentUser)return;const {data,error}=await client.from('nexus_important_announcements').select('id,title,body,created_at').eq('scope','global').order('created_at',{ascending:false}).limit(10);
+    globalAnnouncementsLoaded=true;
+    if(error){console.debug('Avisos globales:',error.message);showWhatsNewOnce();return;}
+    let seen=[];try{seen=JSON.parse(localStorage.getItem(`nexus-global-notices:${currentUser.id}`)||'[]');}catch{}
+    const unseen=(data||[]).slice().reverse().filter(row=>!seen.includes(row.id));
+    if(!unseen.length){showWhatsNewOnce();return;}
+    activeSystemPopupQueue.push(...unseen.map(row=>({title:row.title,body:row.body,message_type:'important',announcementId:row.id})));
+    showSystemInboxQueue();
+  }
+  async function loadImportantAnnouncementsForContext(){
+    const host=$('#important-announcements');if(!host||!currentContext||!client)return;host.replaceChildren();
+    try{
+      const {data:globalRows,error:globalError}=await client.from('nexus_important_announcements').select('id,title,body,created_at').eq('scope','global').order('created_at',{ascending:false}).limit(3);if(globalError)throw globalError;
+      let communityRows=[];if(currentContext.type==='channel'&&currentContext.importantAnnouncementsEnabled&&currentCommunity){const response=await client.from('nexus_important_announcements').select('id,title,body,created_at').eq('scope','community').eq('community_id',currentCommunity.id).order('created_at',{ascending:false}).limit(5);if(response.error)throw response.error;communityRows=response.data||[];}
+      for(const row of [...(globalRows||[]),...communityRows].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))){const card=document.createElement('article');card.className='important-announcement-card';const title=document.createElement('strong');title.textContent=row.title;const body=document.createElement('p');body.textContent=row.body;const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Cerrar aviso');close.addEventListener('click',()=>card.remove());card.append(title,body,close);host.append(card);}
+    }catch(error){console.debug('No se pudieron cargar avisos importantes:',error.message||error);}
+  }
+
+  // Channels+: channel-level role/member access control, backed by RLS.
+  let activeChannelPermissionChannelId=null;
+  async function refreshChannelPermissionTargets(){
+    const type=$('#channel-permissions-target-type')?.value||'role';const select=$('#channel-permissions-target');if(!select||!currentCommunity)return;
+    if(type==='role'){const {data,error}=await client.from('community_roles').select('id,name').eq('community_id',currentCommunity.id).order('position');if(error){showError(error);return;}select.innerHTML=(data||[]).map(row=>`<option value="${row.id}">${escapeHtml(row.name)}</option>`).join('');}
+    else{const {data:members,error}=await client.from('community_members').select('user_id').eq('community_id',currentCommunity.id);if(error){showError(error);return;}const ids=(members||[]).map(row=>row.user_id);const people=await fetchProfiles(ids);select.innerHTML=ids.map(id=>`<option value="${id}">${escapeHtml(people[id]?.nickname||people[id]?.username||id.slice(0,8))} (@${escapeHtml(people[id]?.username||'usuario')})</option>`).join('');}
+    await loadChannelPermissionSelection();
+  }
+  async function loadChannelPermissionSelection(){
+    if(!activeChannelPermissionChannelId||!currentCommunity)return;const subjectType=$('#channel-permissions-target-type').value;const subjectId=$('#channel-permissions-target').value;if(!subjectId)return;
+    const {data,error}=await client.from('channel_permission_overrides').select('permissions').eq('channel_id',activeChannelPermissionChannelId).eq('subject_type',subjectType).eq('subject_id',subjectId).maybeSingle();if(error){showError(error);return;}const permissions=data?.permissions||{};
+    $$('[data-channel-permission]').forEach(box=>{box.checked=permissions[box.dataset.channelPermission]===true;});
+  }
+  async function openChannelPermissionsDialog(channelId){
+    if(!currentCommunity||(!communityPermissions.manage_channels&&!communityPermissions.manage_roles))return;activeChannelPermissionChannelId=channelId;$('#channel-permissions-id').value=channelId;const channel=currentCommunityChannels.find(row=>row.id===channelId);$('#channel-permissions-subtitle').textContent=`#${channel?.name||'canal'} · Los overrides se aplican sobre los permisos generales.`;
+    await refreshChannelPermissionTargets();$('#channel-permissions-dialog')?.showModal();
+  }
+  $('#channel-permissions-target-type')?.addEventListener('change',refreshChannelPermissionTargets);
+  $('#channel-permissions-target')?.addEventListener('change',loadChannelPermissionSelection);
+  $('#close-channel-permissions')?.addEventListener('click',()=>$('#channel-permissions-dialog')?.close());
+  $('#clear-channel-permissions')?.addEventListener('click',async()=>{const subjectId=$('#channel-permissions-target').value;if(!activeChannelPermissionChannelId||!subjectId)return;const {error}=await client.from('channel_permission_overrides').delete().eq('channel_id',activeChannelPermissionChannelId).eq('subject_type',$('#channel-permissions-target-type').value).eq('subject_id',subjectId);if(error)showError(error);else{toast('Se restauró la herencia de permisos.','success');await loadChannelPermissionSelection();}});
+  $('#channel-permissions-form')?.addEventListener('submit',async event=>{event.preventDefault();if(!activeChannelPermissionChannelId||!currentCommunity)return;const subjectType=$('#channel-permissions-target-type').value;const subjectId=$('#channel-permissions-target').value;if(!subjectId)return;const permissions={};$$('[data-channel-permission]').forEach(box=>permissions[box.dataset.channelPermission]=Boolean(box.checked));const {error}=await client.from('channel_permission_overrides').upsert({channel_id:activeChannelPermissionChannelId,community_id:currentCommunity.id,subject_type:subjectType,subject_id:subjectId,permissions,updated_by:currentUser.id,updated_at:new Date().toISOString()},{onConflict:'channel_id,subject_type,subject_id'});if(error)showError(error,'No se pudieron guardar los permisos de Channels+.');else{$('#channel-permissions-dialog').close();toast('Permisos del canal actualizados.','success');await loadChannels();await loadForumUi();}});
+
+  // Forum UI: boards use regular text channels, so existing mentions and history stay compatible.
+  let loadedForumChannelIds=new Set();
+  async function loadForumUi(){
+    if(!currentCommunity)return;const list=$('#channel-list');if(!list)return;
+    try{
+      const {data:forums,error}=await client.from('community_forums').select('id,name,description,created_by').eq('community_id',currentCommunity.id).order('created_at');if(error)throw error;
+      const forumIds=(forums||[]).map(row=>row.id);const {data:boards,error:boardError}=forumIds.length?await client.from('forum_boards').select('id,forum_id,channel_id,created_by').in('forum_id',forumIds):{data:[],error:null};if(boardError)throw boardError;
+      loadedForumChannelIds=new Set((boards||[]).map(row=>row.channel_id));
+      // Remove the standard category rendering for board channels; each board is rendered under its forum.
+      list.querySelectorAll('[data-channel]').forEach(button=>{if(loadedForumChannelIds.has(button.dataset.channel))button.closest('.channel-row')?.remove();});
+      list.querySelectorAll('.channel-category').forEach(section=>{if(!section.querySelector('.channel-row'))section.remove();});
+      list.querySelectorAll('.forum-category').forEach(node=>node.remove());
+      for(const forum of forums||[]){const forumBoards=(boards||[]).filter(row=>row.forum_id===forum.id);const ids=forumBoards.map(row=>row.channel_id);const channels=currentCommunityChannels.filter(row=>ids.includes(row.id));const section=document.createElement('section');section.className='forum-category channel-category';const heading=document.createElement('div');heading.className='forum-category-heading';const title=document.createElement('strong');title.textContent=`▤ ${forum.name}`;const create=document.createElement('button');create.type='button';create.className='tiny-button';create.textContent='+';create.title=`Crear tablero en ${forum.name}`;create.addEventListener('click',()=>createForumBoard(forum));heading.append(title,create);section.append(heading);
+        const boardList=document.createElement('div');boardList.className='channel-category-items';for(const channel of channels){const row=document.createElement('div');row.className='channel-row';const open=document.createElement('button');open.type='button';open.className=`channel-item ${currentContext?.id===channel.id?'active':''}`;open.dataset.channel=channel.id;open.innerHTML=`<span class="channel-hash">▤</span><span class="channel-item-name">${escapeHtml(channel.name)}</span><span class="channel-type-mini">TABLERO</span>`;open.addEventListener('click',()=>openCommunityChannel(channel));row.append(open);if(communityPermissions.manage_channels||communityPermissions.manage_roles){const admin=document.createElement('span');admin.className='channel-admin-actions';const access=document.createElement('button');access.type='button';access.textContent='⚿';access.title='Channels+ · Permisos';access.addEventListener('click',()=>openChannelPermissionsDialog(channel.id));admin.append(access);row.append(admin);}boardList.append(row);}if(!channels.length){const empty=document.createElement('small');empty.className='muted small-muted forum-empty';empty.textContent='Todavía no hay tableros. Cualquier miembro puede crear el primero.';boardList.append(empty);}section.append(boardList);list.append(section);
+      }
+      const addForum=$('#add-forum');if(addForum){addForum.classList.toggle('hidden',!communityPermissions.manage_channels);addForum.onclick=createForumCategory;}
+    }catch(error){console.warn('Foros no disponibles:',error.message||error);}
+  }
+  async function createForumCategory(){
+    if(!currentCommunity||!communityPermissions.manage_channels)return;const name=await ask('Crear foro','Crea una categoría de foros dentro de este megagrupo.','Nombre del foro','Foros');if(!name)return;const description=await ask('Descripción del foro','Puedes dejarla vacía.','Descripción','');if(description===null)return;const {error}=await client.rpc('create_community_forum',{p_community_id:currentCommunity.id,p_name:name,p_description:description||''});if(error)showError(error,'No se pudo crear el foro.');else{toast('Foro creado.','success');await loadChannels();await loadForumUi();}
+  }
+  async function createForumBoard(forum){
+    if(!forum||!currentCommunity)return;const name=await ask('Crear tablero',`Nuevo tablero dentro de «${forum.name}».`,'Nombre del tablero','Mi tablero');if(!name)return;const description=await ask('Descripción del tablero','Puedes dejarla vacía.','Descripción','');if(description===null)return;const {data:channelId,error}=await client.rpc('create_forum_board',{p_forum_id:forum.id,p_name:name,p_description:description||''});if(error){showError(error,'No se pudo crear el tablero.');return;}await loadChannels();await loadForumUi();const channel=currentCommunityChannels.find(row=>row.id===channelId);if(channel)await openCommunityChannel(channel);toast('Tablero creado.','success');
+  }
+
+  // Important announcements are also displayed inside opted-in megagroup channels.
+  const oldShowMessagePanelForAnnouncements=showMessagePanel;
+  showMessagePanel=async function(){await oldShowMessagePanelForAnnouncements();await loadImportantAnnouncementsForContext();};
+
+  // Admin entry point loads the new 0.11 queues when the separated panel opens.
+  const oldLoadPlatformFeedback=loadPlatformFeedback;
+  if(typeof oldLoadPlatformFeedback==='function'){
+    const originalSwitchView=switchView;
+    switchView=function(view){originalSwitchView(view);if(view==='admin'&&platformAdmin){loadPlatformBadgeRequests();loadPlatformAnnouncementCommunityOptions();}};
+  }
+
+  // Repair megacompact navigation: move the category strip to the top of the DM list.
+  function relocateMegacompactSwitcher(){
+    const switcher=$('#megacompact-view-switcher');const panel=$('.chat-list-panel');const personal=$('#sidebar-personal');if(!switcher||!panel||!personal)return;
+    const enabled=Boolean(profile?.settings?.compactPanels&&profile?.settings?.megacompact&&currentView==='chats'&&!currentCommunity);
+    if(enabled&&switcher.parentElement!==panel){panel.insertBefore(switcher,panel.firstChild);}
+    else if(!enabled&&switcher.parentElement!==personal){personal.insertBefore(switcher,personal.firstChild);}
+    switcher.classList.toggle('hidden',!(profile?.settings?.compactPanels&&profile?.settings?.megacompact));
+    switcher.querySelectorAll('[data-view]').forEach(button=>{const active=button.dataset.view===currentView;button.classList.toggle('active',active);button.setAttribute('aria-current',active?'true':'false');});
+  }
+  $('#megacompact-view-switcher')?.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>switchView(button.dataset.view)));
+  const oldApplyClientPreferences=applyClientPreferences;
+  applyClientPreferences=function(){oldApplyClientPreferences();relocateMegacompactSwitcher();};
+  const oldSwitchView=switchView;
+  switchView=function(view){oldSwitchView(view);relocateMegacompactSwitcher();};
+
+
+  // Hovers+: replace native badge title tooltips with themed lightweight cards.
+  if(!document.documentElement.dataset.nexusHoverDelegated){
+    document.documentElement.dataset.nexusHoverDelegated='1';
+    let activeNexusHover=null;
+    document.addEventListener('pointerover',event=>{
+      if(!document.documentElement.classList.contains('nexus-hover-plus'))return;
+      const target=event.target.closest('.message-badge-icon[title],.message-badge-emoji[title],.message-role-tag[title],.profile-badge[title],.global-badge-icon[title]');
+      if(!target||activeNexusHover?.target===target)return;
+      if(activeNexusHover){activeNexusHover.tip.remove();if(activeNexusHover.title)activeNexusHover.target.setAttribute('title',activeNexusHover.title);activeNexusHover=null;}
+      const label=target.getAttribute('title');if(!label)return;
+      target.removeAttribute('title');
+      const tip=document.createElement('span');tip.className='nexus-themed-hover';tip.textContent=label;
+      const rect=target.getBoundingClientRect();tip.style.left=`${rect.left+rect.width/2}px`;tip.style.top=`${Math.max(8,rect.top-8)}px`;
+      document.body.append(tip);activeNexusHover={target,tip,title:label};
+    });
+    document.addEventListener('pointerout',event=>{
+      if(!activeNexusHover||activeNexusHover.target!==event.target.closest('.message-badge-icon,.message-badge-emoji,.message-role-tag,.profile-badge,.global-badge-icon'))return;
+      if(activeNexusHover.target.contains(event.relatedTarget))return;
+      activeNexusHover.tip.remove();activeNexusHover.target.setAttribute('title',activeNexusHover.title);activeNexusHover=null;
+    });
+  }
+
+
+  // Global announcement delivery is a per-account popup, shown once per notice.
+  const oldStartAppForNotices=startApp;
+  startApp=async function(user){globalAnnouncementsLoaded=false;await oldStartAppForNotices(user);if(currentUser&&profile){await loadGlobalImportantAnnouncements();await loadMyBadgeRequests();await loadMyReputationStats();}};
 
   // Helpful inline formatting shortcuts.
   $('#message-template').setAttribute('aria-hidden','true');

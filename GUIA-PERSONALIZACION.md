@@ -81,3 +81,32 @@ Los mensajes consecutivos de una misma persona se presentan en un único bloque.
 - **Separadores de fecha:** los mensajes de días diferentes se separan por fecha aunque desactives la agrupación.
 - **Ayuda de Markdown:** Configuración → Guías de Nexus → Markdown ofrece ejemplos recomendados y ejemplos que conviene evitar.
 
+
+
+## Opciones añadidas en Nexus v0.11
+
+### Optimización y navegación
+
+- **ImageCulling (BETA):** carga imágenes y vídeos a medida que te acercas a ellos en el historial. Desactívalo en Configuración → Optimizaciones si prefieres cargar todos los medios de inmediato.
+- **Megacompactación (BETA):** necesita que **Compactar paneles** esté activado. Reúne la navegación de Chats, Amigos y Workshops en una barra superior de la lista de MDs. Puede consumir más recursos en dispositivos modestos.
+- **Popups nativos:** en Optimizaciones puedes sustituir las ventanas de Nexus por los diálogos del navegador.
+- **Hovers+:** activa o desactiva las tarjetas emergentes con el estilo visual de Nexus.
+
+### Mensajes y adjuntos
+
+- Selecciona uno o varios archivos con **＋ Archivo**. Se quedan en la bandeja de adjuntos hasta que envíes el mensaje, junto con el texto que escribas.
+- Marca **Ocultar archivos adjuntos con spoiler** para que los destinatarios tengan que pulsar para mostrarlos.
+- Añade `&&lang=true` a la cabecera de un bloque de código para mostrar el lenguaje sobre el bloque.
+
+### Megagrupos
+
+- Los **Foros** son categorías con tableros. Los miembros pueden crear tableros dentro de un foro usando el botón `+`.
+- **Channels+** permite a quienes gestionan canales o roles asignar permisos concretos por canal a miembros y roles. Un override de miembro tiene prioridad; una denegación de rol prevalece sobre una autorización de otro rol.
+- Cada canal puede activar o desactivar la recepción de avisos importantes del megagrupo.
+
+### Avisos, reputación e insignias
+
+- Los avisos importantes globales aparecen como ventanas de Nexus. Los avisos de megagrupo se muestran dentro de los canales con recepción activada.
+- En la sección de personalización puedes solicitar una insignia y revisar el estado de la propuesta.
+- En **Reputación** aparecen los avisos y los tiempos de sanción que el sistema ha podido registrar.
+

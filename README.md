@@ -1,8 +1,26 @@
-> **Nexus v0.10.2-alpha1:** añade reenvío, archivos con descripción, panel de administración, perfiles por megagrupo, Sticker Workshop y mejoras de personalización. Continúa en fase alpha. Consulta `UPGRADE-v0.10.2-alpha1.md` antes de actualizar.
-
+> **Nexus v0.11.0-alpha1:** añade ImageCulling, foros, Channels+, avisos importantes, solicitudes de insignias, popups temáticos y mejoras de carga. Esta entrega es alpha y requiere la nueva migración SQL. Consulta `UPGRADE-v0.11.0-alpha1.md` antes de actualizar.
 # Nexus — chat y comunidades
 
-Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática y Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
+Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática; un backend Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
+
+## Nexus v0.11.0-alpha1
+
+Esta versión abre la rama 0.11 para web y móvil. Desktop permanece sin cambios. La entrega es alpha y debe probarse con el proyecto real antes de considerarla estable.
+
+### Añadido en alpha1
+
+- Adjuntos preparados en el compositor, enviados junto al texto en un mismo mensaje y con opción de spoiler.
+- Etiquetas de lenguaje en bloques de código mediante `&&lang=true`.
+- ImageCulling beta para cargar primero los medios cercanos al final de conversaciones largas.
+- Foros de megagrupo con tableros creados por sus miembros y menciones por ruta.
+- Channels+: permisos individuales por miembro y por rol, aplicados también mediante RLS.
+- Avisos importantes globales y de megagrupo, con recepción configurable por canal.
+- Solicitudes de insignias, notificaciones de revisión y estadísticas personales de moderación.
+- Popups de sistema, confirmaciones propias y novedades de versión; se pueden sustituir por los diálogos nativos del navegador.
+- Hovers+ temáticos, carga inicial con logo animado y barra Megacompactación revisada.
+- Revisión de textos y documentación de optimización.
+
+Consulta `UPGRADE-v0.11.0-alpha1.md` para la migración y las pruebas recomendadas.
 
 ## Nexus v0.10.2-alpha1
 

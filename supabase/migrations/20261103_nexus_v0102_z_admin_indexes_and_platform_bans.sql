@@ -1,6 +1,9 @@
 begin;
 
 -- Indexes for the platform administration panel and Sticker Workshop.
+-- Ensure the first migration has created the activity field before indexing it.
+alter table public.profiles add column if not exists last_seen_at timestamptz;
+
 create index if not exists profiles_last_seen_at_desc_idx
   on public.profiles(last_seen_at desc nulls last);
 create index if not exists nexus_platform_feedback_filter_idx

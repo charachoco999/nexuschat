@@ -236,36 +236,7 @@ $$;
 revoke all on function public.can_read_nexus_asset(text) from public,anon;
 grant execute on function public.can_read_nexus_asset(text) to authenticated;
 
--- Permit a published personal sticker to be attached by any signed-in member.
-create or replace function public.guard_nexus_v07_message_assets()
-returns trigger language plpgsql security definer set search_path=public,auth,pg_temp
-as $$
-declare asset_row public.custom_assets%rowtype; asset_id uuid; asset_value jsonb; target_community uuid; is_allowed boolean;
-begin
-  if new.formatting is null or jsonb_typeof(new.formatting)<>'object' then new.formatting:='{}'::jsonb; end if;
-  if new.formatting ? 'custom_emojis' then
-    if jsonb_typeof(new.formatting->'custom_emojis')<>'array' or jsonb_array_length(new.formatting->'custom_emojis')>30 then raise exception 'La lista de emojis personalizados no es válida.'; end if;
-    for asset_value in select value from jsonb_array_elements(new.formatting->'custom_emojis') loop
-      begin asset_id:=(asset_value #>> '{}')::uuid; exception when others then raise exception 'Referencia de emoji no válida.'; end;
-      select * into asset_row from public.custom_assets where id=asset_id and asset_type='emoji' and archived_at is null;
-      if not found then raise exception 'Uno de los emojis ya no existe.'; end if;
-      is_allowed:=asset_row.scope='personal' and (asset_row.owner_id=new.sender_id or asset_row.visibility='public' or (asset_row.visibility='friends' and exists(select 1 from public.friends f where f.status='accepted' and ((f.requester=asset_row.owner_id and f.addressee=new.sender_id) or (f.addressee=asset_row.owner_id and f.requester=new.sender_id)))) or (asset_row.scope='conversation' and asset_row.scope_id=new.conversation_id) or (asset_row.scope='community' and new.channel_id is not null and exists(select 1 from public.channels ch where ch.id=new.channel_id and ch.community_id=asset_row.scope_id));
-      if not is_allowed then raise exception 'Un emoji no pertenece a este chat o no es tuyo.'; end if;
-    end loop;
-  end if;
-  if coalesce(new.attachment,'{}'::jsonb)->>'kind'='sticker' then
-    if new.message_type<>'media' then raise exception 'Un sticker debe enviarse como mensaje multimedia.'; end if;
-    begin asset_id:=(new.attachment->>'custom_asset_id')::uuid; exception when others then raise exception 'Sticker no válido.'; end;
-    select * into asset_row from public.custom_assets where id=asset_id and asset_type='sticker' and archived_at is null;
-    if not found then raise exception 'El sticker ya no existe.'; end if;
-    is_allowed:=(asset_row.scope='personal' and (asset_row.owner_id=new.sender_id or exists(select 1 from public.sticker_workshop sw where sw.asset_id=asset_row.id))) or (asset_row.scope='conversation' and asset_row.scope_id=new.conversation_id) or (asset_row.scope='community' and new.channel_id is not null and exists(select 1 from public.channels ch where ch.id=new.channel_id and ch.community_id=asset_row.scope_id));
-    if not is_allowed then raise exception 'El sticker no está disponible en este chat.'; end if;
-  end if;
-  if coalesce(new.attachment,'{}'::jsonb)->>'kind'='gif' and (new.message_type<>'media' or coalesce(new.attachment->>'provider','')<>'giphy' or coalesce(new.attachment->>'url','') !~ '^https://([a-z0-9-]+\.)*giphy\.com/' or coalesce(new.attachment->>'preview_url','') !~ '^https://([a-z0-9-]+\.)*giphy\.com/') then raise exception 'El GIF debe proceder del catálogo de GIPHY.'; end if;
-  return new;
-end;
-$$;
-
+-- The final guard function below is the authoritative definition.
 
 -- Keep the public workshop install counter derived from actual saved items.
 create or replace function public.refresh_sticker_workshop_installs()
