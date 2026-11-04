@@ -1,6 +1,6 @@
 # Guía de personalización de Nexus
 
-Esta guía explica las opciones visuales y de comodidad disponibles en Nexus v0.10.2-alpha1. Se actualizará junto con las siguientes versiones cuando se añadan nuevas opciones.
+Esta guía explica las opciones visuales y de comodidad disponibles en Nexus v0.11.0. Se actualizará junto con las siguientes versiones cuando se añadan nuevas opciones.
 
 ## Abrir la guía dentro de Nexus
 
@@ -28,13 +28,13 @@ Selecciona un megagrupo y entra en su página. Pulsa **Administrar** para editar
 
 En Configuración puedes elegir la fuente de los mensajes y activar BoxGlow, que permite ajustar color, intensidad y una textura HTTPS opcional. Para dar formato a los mensajes, abre la **Guía de Markdown** desde Configuración o desde el compositor. Allí encontrarás bloques, estilos, spoilers, citas, tablas, NexCSS e InputSync.
 
-## Notificaciones
+## Notificaciones y voz
 
-Configura por separado los avisos de MDs, grupos y megagrupos. Puedes seleccionar un sonido personalizado, que se guarda localmente en el navegador/dispositivo. Cada conversación o canal puede usar la configuración general, recibir todos los mensajes, solo menciones o quedar silenciado desde el botón de notificaciones de su encabezado.
+Configura por separado los avisos de MDs, grupos y megagrupos. Puedes seleccionar un sonido personalizado, que se guarda localmente en el navegador/dispositivo. Cada conversación o canal puede usar la configuración general, recibir todos los mensajes, solo menciones o quedar silenciado desde el botón de notificaciones de su encabezado. En Configuración puedes activar **More Sounds** para escuchar tonos al entrar o salir de una sala de voz y cuando otras personas se conectan o desconectan. La cancelación básica de eco y ruido se solicita al navegador y depende del soporte del dispositivo.
 
 ## Optimización
 
-En Configuración → Optimizaciones puedes compactar paneles, elegir 25/50/75/100 mensajes iniciales, activar o desactivar el agrupado de mensajes, desactivar el ajuste de ancho/efectos de las cajas agrupadas, desactivar los retrasos Markdown y reducir tarjetas visuales en voz.
+En Configuración → Optimizaciones puedes compactar paneles, elegir 25/50/75/100 mensajes iniciales, activar o desactivar el agrupado de mensajes, desactivar el ajuste de ancho/efectos de las cajas agrupadas, desactivar los retrasos Markdown, reducir tarjetas visuales en voz y sustituir los popups de Nexus por diálogos nativos.
 
 ## Emojis y stickers
 
@@ -110,3 +110,16 @@ Los mensajes consecutivos de una misma persona se presentan en un único bloque.
 - En la sección de personalización puedes solicitar una insignia y revisar el estado de la propuesta.
 - En **Reputación** aparecen los avisos y los tiempos de sanción que el sistema ha podido registrar.
 
+
+## MarkdownUI BETA
+
+En el compositor pulsa **MarkdownUI BETA** para abrir un editor visual. Selecciona texto y utiliza los botones para aplicar negrita, cursiva, tachado, código, títulos, citas, listas, enlaces o spoilers. La vista previa se actualiza mientras escribes. **Aplicar al mensaje** devuelve el texto al compositor; MarkdownUI inserta sintaxis Markdown normal y no ejecuta HTML arbitrario. Para tablas, InputSync, NexCSS y bloques extendidos sigue usando la Guía de Markdown.
+
+
+## More Sounds (voz)
+
+En **Configuración → Voz**, activa o desactiva More Sounds. Reproduce tonos distintos al entrar o salir de una sala de voz y cuando otra persona se conecta o desconecta. El navegador puede necesitar que pulses primero un botón para permitir audio.
+
+## Avisos importantes
+
+Los administradores de plataforma pueden publicar avisos globales o elegir varios megagrupos. En los avisos de megagrupo, cada canal de texto/media/anuncios con **Recibir avisos importantes** activado recibe un mensaje de Nexus (App). También existe una opción para todos los megagrupos suscritos.
