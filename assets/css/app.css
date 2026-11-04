@@ -744,3 +744,38 @@
 .nexus-loading-logo{overflow:hidden;padding:13px}
 .nexus-loading-logo img{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 4px 12px color-mix(in srgb,var(--accent) 45%,transparent))}
 .nexus-themed-hover{position:fixed;left:0;top:0;z-index:10000;transform:translate(-50%,-100%);max-width:min(250px,80vw);min-width:max-content;padding:7px 10px;border:1px solid color-mix(in srgb,var(--accent) 48%,var(--line));border-radius:9px;background:var(--panel);color:var(--text);box-shadow:0 8px 28px #0008;font-size:11px;font-weight:600;line-height:1.3;white-space:normal;text-align:center;pointer-events:none}
+
+/* Nexus v0.11.0-alpha1-hotfix1: true MegaCompact single personal sidebar. */
+.app-shell.megacompact-personal-mode{grid-template-columns:58px minmax(255px,290px) minmax(0,1fr)!important;}
+.app-shell.megacompact-personal-mode>.sidebar{display:flex!important;min-width:0;min-height:0;overflow:hidden;}
+.app-shell.megacompact-personal-mode #sidebar-personal,
+.app-shell.megacompact-personal-mode #sidebar-community{display:none!important;}
+.app-shell.megacompact-personal-mode>.sidebar>.megacompact-view-switcher{display:flex!important;align-items:center;gap:5px;padding:10px 9px;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;scrollbar-width:none;flex:none;}
+.app-shell.megacompact-personal-mode>.sidebar>.megacompact-view-switcher::-webkit-scrollbar{display:none;}
+.app-shell.megacompact-personal-mode .megacompact-view-switcher button{flex:1 1 0;min-width:0;padding:8px 7px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--muted);font-size:11px;white-space:nowrap;cursor:pointer;}
+.app-shell.megacompact-personal-mode .megacompact-view-switcher button.active,
+.app-shell.megacompact-personal-mode .megacompact-view-switcher button[aria-current=page]{border-color:color-mix(in srgb,var(--accent) 58%,var(--line));background:color-mix(in srgb,var(--accent) 18%,var(--panel2));color:var(--text);box-shadow:inset 0 -2px var(--accent);}
+.app-shell.megacompact-chat-active>.sidebar>.chat-list-panel{display:flex!important;flex:1 1 auto;min-width:0;min-height:0;width:100%;border:0;border-radius:0;background:var(--panel);overflow:hidden;}
+.app-shell.megacompact-chat-active>.sidebar>.chat-list-panel .panel-heading{flex:none;padding:16px 13px 11px;gap:8px;}
+.app-shell.megacompact-chat-active>.sidebar>.chat-list-panel .panel-heading h3{font-size:16px;}
+.app-shell.megacompact-chat-active>.sidebar>.chat-list-panel .conversation-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 7px 12px;}
+.app-shell.megacompact-chat-active #view-chats .chat-layout{display:grid;grid-template-columns:minmax(0,1fr)!important;min-width:0;}
+.app-shell.megacompact-chat-active #view-chats .conversation-panel{display:flex!important;min-width:0;width:100%;}
+.app-shell.megacompact-personal-mode>.sidebar>.sidebar-bottom{flex:none;}
+
+/* On narrow screens keep the single-column, slide-out app navigation. The
+   personal category switcher sits directly above the inbox or active page. */
+@media(max-width:760px){
+  .app-shell.megacompact-personal-mode{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important;}
+  .app-shell.megacompact-personal-mode>.sidebar{display:flex!important;}
+  .app-shell.megacompact-personal-mode #sidebar-personal{display:none!important;}
+  .app-shell.megacompact-personal-mode>.main-panel>.megacompact-view-switcher,
+  .app-shell.megacompact-personal-mode #view-chats .chat-list-panel>.megacompact-view-switcher{display:flex!important;align-items:center;gap:5px;padding:7px 9px;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;scrollbar-width:none;flex:none;}
+  .app-shell.megacompact-personal-mode>.main-panel>.megacompact-view-switcher button,
+  .app-shell.megacompact-personal-mode #view-chats .chat-list-panel>.megacompact-view-switcher button{flex:1 1 0;min-width:0;padding:9px 7px;font-size:11px;}
+  .app-shell.megacompact-personal-mode #view-chats .chat-list-panel{display:flex!important;min-width:0;width:100%;}
+  .app-shell.megacompact-personal-mode #view-chats .chat-layout{grid-template-columns:minmax(0,1fr)!important;}
+  .app-shell.megacompact-personal-mode #view-chats .conversation-panel{display:none;}
+  .app-shell.megacompact-personal-mode.mobile-chat-open #view-chats .chat-list-panel{display:none!important;}
+  .app-shell.megacompact-personal-mode.mobile-chat-open #view-chats .conversation-panel{display:flex!important;}
+}

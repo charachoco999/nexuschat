@@ -4783,6 +4783,97 @@
   switchView=function(view){oldSwitchView(view);relocateMegacompactSwitcher();};
 
 
+  // MegaCompact layout hotfix: use one real sidebar for the personal inbox.
+  // Desktop: switcher + DM list share the sidebar column; the conversation stays
+  // in the main panel. Mobile: keep the DM list in the main view and put the
+  // switcher above it so the normal one-panel navigation remains usable.
+  function syncMegacompactLayout(){
+    const app=$('#app-screen');
+    const sidebar=$('.sidebar');
+    const sidebarTop=sidebar?.querySelector('.sidebar-top');
+    const personal=$('#sidebar-personal');
+    const switcher=$('#megacompact-view-switcher');
+    const chatLayout=$('#view-chats .chat-layout');
+    const listPanel=$('.chat-list-panel');
+    const conversationPanel=$('#conversation-panel');
+    const mainPanel=$('.main-panel');
+    if(!app||!sidebar||!personal||!switcher||!chatLayout||!listPanel||!conversationPanel||!mainPanel)return;
+
+    const preferences=profile?.settings||{};
+    const enabled=Boolean(preferences.compactPanels&&preferences.megacompact);
+    const communityContext=currentView==='community'||(currentView==='chats'&&currentContext?.type==='channel');
+    const active=enabled&&!communityContext;
+    const narrow=window.matchMedia('(max-width: 760px)').matches;
+
+    app.classList.toggle('megacompact-mode',active);
+    app.classList.toggle('megacompact-personal-mode',active);
+    app.classList.toggle('megacompact-chat-active',active&&currentView==='chats'&&!narrow);
+
+    // Always restore the chat list before moving it to another host. This also
+    // makes resize/orientation changes safe and prevents detached panels.
+    if(!active){
+      if(listPanel.parentElement!==chatLayout)chatLayout.insertBefore(listPanel,conversationPanel);
+      if(switcher.parentElement!==personal)personal.insertBefore(switcher,personal.firstChild);
+      switcher.classList.add('hidden');
+    }else if(narrow){
+      if(listPanel.parentElement!==chatLayout)chatLayout.insertBefore(listPanel,conversationPanel);
+      if(currentView==='chats'){
+        if(switcher.parentElement!==listPanel)listPanel.insertBefore(switcher,listPanel.firstChild);
+      }else{
+        const firstView=mainPanel.querySelector('.view');
+        if(switcher.parentElement!==mainPanel)mainPanel.insertBefore(switcher,firstView||null);
+      }
+      switcher.classList.remove('hidden');
+    }else{
+      if(switcher.parentElement!==sidebar){
+        sidebar.insertBefore(switcher,personal);
+      }
+      if(currentView==='chats'){
+        if(listPanel.parentElement!==sidebar)sidebar.insertBefore(listPanel,personal);
+      }else if(listPanel.parentElement!==chatLayout){
+        chatLayout.insertBefore(listPanel,conversationPanel);
+      }
+      switcher.classList.remove('hidden');
+    }
+
+    switcher.querySelectorAll('[data-view]').forEach(button=>{
+      const selected=button.dataset.view===currentView;
+      button.classList.toggle('active',selected);
+      button.setAttribute('aria-current',selected?'page':'false');
+    });
+  }
+
+  // A tab switch back to Chats must leave a channel context first; otherwise
+  // the community sidebar would keep the personal mega layout from activating.
+  const previousMegaSwitchView=switchView;
+  switchView=function(view){
+    previousMegaSwitchView(view);
+    syncMegacompactLayout();
+  };
+  // The Chats tab is the explicit route back from a community channel to the
+  // personal inbox. Do this only for clicks on the mega switcher, not for the
+  // programmatic switchView('chats') used when opening a channel.
+  $('#megacompact-view-switcher')?.addEventListener('click',event=>{
+    const button=event.target.closest('[data-view]');
+    if(button?.dataset.view==='chats'&&currentContext?.type==='channel')returnToPersonalInbox();
+  },true);
+
+  const previousMegaApplyPreferences=applyClientPreferences;
+  applyClientPreferences=function(){
+    previousMegaApplyPreferences();
+    syncMegacompactLayout();
+  };
+
+  const previousMegaStartApp=startApp;
+  startApp=async function(user){
+    await previousMegaStartApp(user);
+    syncMegacompactLayout();
+  };
+
+  window.addEventListener('resize',()=>syncMegacompactLayout(),{passive:true});
+  window.addEventListener('orientationchange',()=>syncMegacompactLayout(),{passive:true});
+  syncMegacompactLayout();
+
   // Hovers+: replace native badge title tooltips with themed lightweight cards.
   if(!document.documentElement.dataset.nexusHoverDelegated){
     document.documentElement.dataset.nexusHoverDelegated='1';

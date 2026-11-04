@@ -1,4 +1,6 @@
-> **Nexus v0.11.0-alpha1:** añade ImageCulling, foros, Channels+, avisos importantes, solicitudes de insignias, popups temáticos y mejoras de carga. Esta entrega es alpha y requiere la nueva migración SQL. Consulta `UPGRADE-v0.11.0-alpha1.md` antes de actualizar.
+> **Nexus v0.11.0-alpha1-hotfix1:** corrige la megacompactación real: una barra de categorías y la lista de MDs comparten una única columna lateral; en móviles la barra se adapta a la navegación de una sola columna. La entrega no cambia la base de datos.
+>
+> **Base funcional:** v0.11.0-alpha1: añade ImageCulling, foros, Channels+, avisos importantes, solicitudes de insignias, popups temáticos y mejoras de carga. Esta entrega es alpha y requiere la nueva migración SQL. Consulta `UPGRADE-v0.11.0-alpha1.md` antes de actualizar.
 # Nexus — chat y comunidades
 
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática; un backend Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
