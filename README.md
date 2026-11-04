@@ -1,3 +1,5 @@
+> **Nexus v0.11.0-alpha1-hotfix3:** valida avisos globales antes de insertarlos y elimina del encabezado del canal las antiguas barras de avisos; los avisos importantes de megagrupo deben aparecer como mensajes del canal. Requiere una migración SQL pequeña; consulta `UPGRADE-v0.11.0-alpha1-hotfix3.md`.
+
 > **Nexus v0.11.0-alpha1-hotfix2:** corrige anuncios repetidos, entrega avisos de megagrupo como mensajes reales, mantiene la voz activa al navegar, mejora los tooltips, amplía `glow:` y añade More Sounds y MarkdownUI BETA. Requiere una migración SQL adicional; consulta `UPGRADE-v0.11.0-alpha1-hotfix2.md`.
 
 > **Nexus v0.11.0-alpha1-hotfix1:** corrige la megacompactación real: una barra de categorías y la lista de MDs comparten una única columna lateral; en móviles la barra se adapta a la navegación de una sola columna. La entrega no cambia la base de datos.

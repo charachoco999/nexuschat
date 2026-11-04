@@ -696,11 +696,11 @@
 .nexus-loading-screen small{color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
 .nexus-code-language-label{display:flex;align-items:center;min-height:25px;padding:5px 11px;border-bottom:1px solid var(--line);font-size:10px;font-weight:800;letter-spacing:.13em;color:var(--muted);background:color-mix(in srgb,var(--panel2) 85%,transparent)}
 .nexus-code-tools{position:absolute;top:4px;right:6px;display:flex;gap:5px;z-index:2}
-.important-announcements{display:grid;gap:8px;padding:0 14px}
-.important-announcement-card{position:relative;padding:11px 40px 11px 13px;border:1px solid color-mix(in srgb,var(--accent) 42%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--accent) 8%,var(--panel));box-shadow:0 3px 14px #0002}
-.important-announcement-card strong{display:block;color:var(--text);font-size:13px}
-.important-announcement-card p{margin:4px 0 0;color:var(--muted);font-size:12px;white-space:pre-wrap}
-.important-announcement-card button{position:absolute;right:9px;top:8px;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer}
+
+
+
+
+
 .forum-category{margin-top:12px;padding:7px;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--panel) 74%,transparent)}
 .forum-category-heading{display:flex;align-items:center;justify-content:space-between;padding:5px 7px 8px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}
 .forum-category-heading .tiny-button{width:25px;height:25px;border-radius:8px}
@@ -734,7 +734,7 @@
   .reputation-stats{grid-template-columns:1fr}
   .megacompact-mode .chat-list-panel>.megacompact-view-switcher{padding:6px;gap:3px}
   .megacompact-mode .chat-list-panel>.megacompact-view-switcher button{padding:9px 8px;font-size:11px}
-  .important-announcements{padding:0 9px}
+  
   .forum-category{margin-top:8px;padding:5px}
 }
 .nexus-hover-plus .message-badge-icon,.nexus-hover-plus .message-badge-emoji,.nexus-hover-plus .message-role-tag{position:relative}
