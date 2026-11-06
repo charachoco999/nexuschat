@@ -7,6 +7,23 @@
 > **Base funcional:** v0.11.0-alpha1: añade ImageCulling, foros, Channels+, avisos importantes, solicitudes de insignias, popups temáticos y mejoras de carga. Esta entrega es alpha y requiere la nueva migración SQL. Consulta `UPGRADE-v0.11.0-alpha1.md` antes de actualizar.
 # Nexus — chat y comunidades
 
+## Nexus v0.11.1-alpha1 — Privacidad, condiciones y reportes
+
+Esta entrega incorpora un documento de condiciones versionado, aceptación obligatoria para cuentas nuevas y existentes, bloqueos entre usuarios y reportes de mensajes con contexto y evidencia privada.
+
+- **Condiciones:** `legal/terms-of-service-v0.11.1.html`. La versión y la huella SHA-256 se validan en el cliente y en la RPC `accept_nexus_terms`; la aceptación se registra con hora del servidor, sin IP ni agente de usuario.
+- **Bloqueos:** impiden nuevos MDs directos y solicitudes de amistad entre las dos cuentas. No borran el historial ni modifican el acceso a canales compartidos.
+- **Reportes:** envían al panel de plataforma el mensaje señalado y hasta cinco mensajes anteriores. Los adjuntos accesibles se copian primero a un bucket privado de evidencias; después se retiran del chat. Si falla la copia, no se finaliza el reporte ni se borran los mensajes.
+- **Contraseñas:** continúan bajo Supabase Auth. Nexus no las lee ni las almacena en texto claro.
+- **IPs:** Nexus no crea un registro propio ni aplica una transformación reversible. Supabase Auth puede conservar metadatos de IP en sus esquemas gestionados.
+- **E2EE:** todavía **no está implementado**. Los MDs usan HTTPS/TLS y los controles de almacenamiento del proveedor, pero no deben considerarse cifrados de extremo a extremo. Consulta `E2EE-STATUS-v0.11.1.md`.
+- **Seguridad:** consulta `SECURITY-CHECKLIST-v0.11.1.md`. La lista incluye tareas de producción aún pendientes; no es una auditoría ni una certificación.
+
+Para actualizar desde `v0.11.0-alpha1-hotfix3`, ejecuta `supabase/migrations/20261106_nexus_v0111_terms_privacy_blocks_reports.sql` una vez y sigue `UPGRADE-v0.11.1-alpha1.md`. Conserva `assets/js/config.js`.
+
+**Antes de producción:** completa la identidad/contacto del responsable y los plazos de conservación en el ToS, confirma la región/DPA de Supabase, revisa las políticas RLS de todas las tablas y buckets, y obtén revisión jurídica y de seguridad. El documento legal es un borrador operativo, no asesoramiento legal.
+
+
 Nexus es una plataforma web en evolución para mensajes y megagrupos. La interfaz se publica como web estática; un backend Supabase proporciona autenticación, PostgreSQL, almacenamiento privado y actualizaciones en tiempo real.
 
 ## Nexus v0.11.0-alpha1

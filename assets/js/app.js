@@ -1,4 +1,4 @@
-/* Nexus front-end. The database rules in supabase/schema.sql are the security boundary. */
+/* Nexus v0.11.1-alpha1 front-end. Database RLS and protected RPCs are the security boundary. */
 (() => {
   'use strict';
 
@@ -10,6 +10,11 @@
   const authHashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const authQueryParams = new URLSearchParams(location.search);
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
+  const NEXUS_TERMS_VERSION = '2026-11-06-v1';
+  const NEXUS_TERMS_HASH = '88fe87771d333d444807568ec6906441e23e1e6afe37c39fa30ed01f98ba33a0';
+  let pendingTermsResolver = null;
+  let pendingReportMessage = null;
+  let termsAcceptanceBusy = false;
   const PENDING_INVITE_KEY = 'nexus-pending-community-invite';
   const readPendingInvite = () => { try { return localStorage.getItem(PENDING_INVITE_KEY); } catch { return null; } };
   const savePendingInvite = code => { try { localStorage.setItem(PENDING_INVITE_KEY, code); } catch {} };
@@ -349,12 +354,53 @@
     ? 'Tus conversaciones y ajustes se sincronizan de forma segura.'
     : 'Nexus necesita una conexión configurada para activar cuentas y conversaciones.';
 
+  async function ensureNexusTermsAccepted() {
+    const {data,error}=await client.from('tos_acceptances')
+      .select('terms_version,terms_hash')
+      .eq('user_id',currentUser.id)
+      .eq('terms_version',NEXUS_TERMS_VERSION)
+      .maybeSingle();
+    if(error) throw new Error(`No se pudo comprobar la aceptación de las condiciones. Ejecuta primero la migración 0.11.1: ${error.message}`);
+    if(data?.terms_hash===NEXUS_TERMS_HASH) return true;
+    const dialog=$('#tos-acceptance-dialog');
+    const checkbox=$('#tos-accept-checkbox');
+    const button=$('#tos-accept-submit');
+    if(!dialog||!checkbox||!button) throw new Error('Falta la pantalla obligatoria de aceptación de condiciones.');
+    checkbox.checked=false;button.disabled=true;termsAcceptanceBusy=false;
+    if(!dialog.open)dialog.showModal();
+    return new Promise(resolve=>{pendingTermsResolver=resolve;});
+  }
+
+  $('#tos-accept-checkbox')?.addEventListener('change',event=>{
+    $('#tos-accept-submit').disabled=!event.currentTarget.checked||termsAcceptanceBusy;
+  });
+  $('#tos-accept-submit')?.addEventListener('click',async()=>{
+    if(termsAcceptanceBusy||!$('#tos-accept-checkbox')?.checked||!currentUser)return;
+    termsAcceptanceBusy=true;const button=$('#tos-accept-submit');button.disabled=true;button.textContent='Guardando…';
+    try{
+      const {error}=await client.rpc('accept_nexus_terms',{p_terms_version:NEXUS_TERMS_VERSION,p_terms_hash:NEXUS_TERMS_HASH});
+      if(error)throw error;
+      const dialog=$('#tos-acceptance-dialog');if(dialog?.open)dialog.close();
+      const resolve=pendingTermsResolver;pendingTermsResolver=null;resolve?.(true);
+    }catch(error){showError(error,'No se pudo guardar la aceptación. Comprueba la migración de ToS.');}
+    finally{termsAcceptanceBusy=false;button.textContent='Aceptar y continuar';button.disabled=!$('#tos-accept-checkbox')?.checked;}
+  });
+  $('#tos-decline-submit')?.addEventListener('click',async()=>{
+    const resolve=pendingTermsResolver;pendingTermsResolver=null;
+    const dialog=$('#tos-acceptance-dialog');if(dialog?.open)dialog.close();
+    resolve?.(false);
+    await signOut();
+  });
+  $('#tos-acceptance-dialog')?.addEventListener('cancel',event=>event.preventDefault());
+
   async function startApp(user) {
     currentUser = user;
     showNexusLoading(true);
     showApp();
     applyClientPreferences();
     try {
+      const accepted = await ensureNexusTermsAccepted();
+      if (!accepted) { showNexusLoading(false); return; }
       const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
       if (error) throw error;
       profile = data;
@@ -381,6 +427,9 @@
     } catch (error) {
       showNexusLoading(false);
       showError(error, 'No se pudo cargar el perfil. Comprueba la conexión y que la base de datos esté actualizada.');
+      if(String(error?.message||'').includes('aceptación de las condiciones')||String(error?.message||'').includes('pantalla obligatoria')){
+        await client.auth.signOut();currentUser=null;profile=null;showLoginScreen();
+      }
     }
   }
 
@@ -452,7 +501,7 @@
     $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
     if (view === 'profile') { fillProfileForm(); switchProfileMode('main'); renderProfileWidgets(); fillCommunityNickname(); loadCommunityProfileEditor(); renderIdentityAssetLinks(); loadAltProfiles(); $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings)); $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`; }
     if (view === 'settings') fillSettingsForm();
-    if (view === 'admin' && platformAdmin) { loadPlatformAdminUsers(); loadPlatformFeedback(); loadPlatformBadges(); }
+    if (view === 'admin' && platformAdmin) { loadPlatformAdminUsers(); loadPlatformFeedback(); loadPlatformBadges(); loadAdminMessageReports(); }
     if (view === 'sticker-workshop') loadStickerWorkshopPage();
     renderVoiceDock();
   }
@@ -1709,10 +1758,92 @@
       });
       host.append(grid);
     }
+    if(currentUser&&userId!==currentUser.id){
+      const actions=document.createElement('div');actions.className='public-profile-actions';
+      const existing=await client.from('user_blocks').select('blocked_id').eq('blocker_id',currentUser.id).eq('blocked_id',userId).maybeSingle();
+      const blocked=Boolean(existing.data);
+      const button=document.createElement('button');button.type='button';button.className=blocked?'button button-secondary':'button button-danger';button.textContent=blocked?'Desbloquear usuario':'Bloquear usuario';
+      button.addEventListener('click',async()=>{
+        if(blocked){const {error:removeError}=await client.from('user_blocks').delete().eq('blocker_id',currentUser.id).eq('blocked_id',userId);if(removeError){showError(removeError);return;}toast('Usuario desbloqueado.','success');}
+        else{if(!(await nexusConfirm('Bloquear usuario','No podréis iniciar nuevos MDs ni enviar solicitudes de amistad mientras el bloqueo esté activo. Los mensajes y canales compartidos existentes no se borran.','Bloquear')))return;const {error:blockError}=await client.from('user_blocks').insert({blocker_id:currentUser.id,blocked_id:userId});if(blockError){showError(blockError);return;}toast('Usuario bloqueado.','success');}
+        $('#public-profile-dialog').close();
+      });
+      actions.append(button);host.append(actions);
+    }
     $('#public-profile-dialog').showModal();
   }
 
   $('#close-public-profile').addEventListener('click',()=>$('#public-profile-dialog').close());
+
+  function openMessageReportDialog(message){
+    if(!message?.id||message.sender_id===currentUser?.id)return;
+    pendingReportMessage=message;
+    $('#message-report-target-id').value=message.id;
+    $('#message-report-reason').value='';
+    $('#message-report-dialog').showModal();
+  }
+  $('#message-report-close')?.addEventListener('click',()=>$('#message-report-dialog').close());
+  $('#message-report-cancel')?.addEventListener('click',()=>$('#message-report-dialog').close());
+  async function copyReportAttachmentToEvidence(reportId,messageId,attachment,uploadState,formatting={}){
+    const entries=[];
+    if(attachment?.path)entries.push({bucket:'chat-media',path:attachment.path,name:attachment.name,mimetype:attachment.mimetype});
+    if(attachment?.kind==='bundle'&&Array.isArray(attachment.items))entries.push(...attachment.items.filter(item=>item?.path).map(item=>({...item,bucket:'chat-media'})));
+    if(attachment?.kind==='sticker'&&attachment.custom_asset_id){
+      const {data:asset,error}=await client.from('custom_assets').select('name,asset_url').eq('id',attachment.custom_asset_id).maybeSingle();
+      if(error)throw error;if(asset?.asset_url)entries.push({bucket:'nexus-assets',path:asset.asset_url,name:asset.name||attachment.name||'sticker',mimetype:'image/webp'});
+    }
+    const emojiIds=Array.isArray(formatting?.custom_emojis)?formatting.custom_emojis.filter(id=>typeof id==='string').slice(0,30):[];
+    if(emojiIds.length){
+      const {data:assets,error}=await client.from('custom_assets').select('id,name,asset_url,animated').in('id',emojiIds).eq('asset_type','emoji');
+      if(error)throw error;for(const asset of assets||[])if(asset.asset_url)entries.push({bucket:'nexus-assets',path:asset.asset_url,name:asset.name||'emoji',mimetype:asset.animated?'image/gif':'image/webp'});
+    }
+    if(entries.length>60)throw new Error('Este reporte contiene demasiados archivos adjuntos para copiarlos de forma segura.');
+    const copied=[];
+    for(const item of entries){
+      const storageBucket=item.bucket||'chat-media';
+      const {data:blob,error:downloadError}=await client.storage.from(storageBucket).download(item.path);
+      if(downloadError||!blob)throw new Error(`No se pudo copiar ${item.name||'un adjunto'} a las evidencias: ${downloadError?.message||'archivo no disponible'}`);
+      if(blob.size>50*1024*1024)throw new Error(`El archivo ${item.name||''} supera el límite de 50 MB para evidencias.`);
+      if(uploadState.totalBytes+blob.size>100*1024*1024)throw new Error('Los adjuntos del reporte superan el límite total de 100 MB.');
+      const cleanName=String(item.name||'archivo').replace(/[^\p{L}\p{N}._-]+/gu,'_').slice(0,100)||'archivo';
+      const filePath=`${currentUser.id}/${reportId}/${messageId}_${crypto.randomUUID()}_${cleanName}`;
+      const mimetype=item.mimetype||blob.type||'application/octet-stream';
+      const {error:uploadError}=await client.storage.from('nexus-report-evidence').upload(filePath,blob,{contentType:mimetype,upsert:false});
+      if(uploadError)throw uploadError;
+      uploadState.paths.push(filePath);uploadState.totalBytes+=blob.size;
+      copied.push({message_id:messageId,path:filePath,name:cleanName,mimetype,size:blob.size});
+    }
+    return copied;
+  }
+  $('#message-report-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const messageId=String($('#message-report-target-id').value||'');
+    const reason=String($('#message-report-reason').value||'').trim();
+    if(!messageId||reason.length<5){toast('Selecciona un mensaje y explica el motivo del reporte.','error');return;}
+    const submit=$('#message-report-submit');submit.disabled=true;submit.textContent='Preparando evidencia…';
+    let reportId=null;const uploadState={paths:[],totalBytes:0};const reportContext={...(currentContext||{})};
+    try{
+      const {data,error}=await client.rpc('create_nexus_message_report',{p_message_id:messageId,p_reason:reason});
+      if(error)throw error;
+      reportId=typeof data==='string'?JSON.parse(data).report_id:data?.report_id;
+      const messages=typeof data==='string'?JSON.parse(data).messages:(data?.messages||[]);
+      if(!reportId||!Array.isArray(messages))throw new Error('El servidor devolvió un reporte incompleto.');
+      const evidenceFiles=[];
+      for(const row of messages){const copied=await copyReportAttachmentToEvidence(reportId,row.id,row.attachment,uploadState,row.formatting);if(copied.length)evidenceFiles.push(...copied);}
+      const reportedIds=new Set(messages.map(row=>row.id));
+      const {error:finalizeError}=await client.rpc('finalize_nexus_message_report',{p_report_id:reportId,p_evidence_files:evidenceFiles});
+      if(finalizeError)throw finalizeError;
+      $('#message-report-dialog').close();pendingReportMessage=null;
+      toast('Reporte enviado. Los mensajes incluidos se han retirado del chat y la evidencia privada se ha enviado al equipo de Nexus.','success');
+      const reportKey=reportContext.type&&reportContext.id?`${reportContext.type}:${reportContext.id}`:messageContextKey();
+      const cachedReport=messageCache.get(reportKey);if(cachedReport)saveMessageCache(reportKey,cachedReport.rows.filter(row=>!reportedIds.has(row.id)),cachedReport.hasOlder);
+      if(currentContext&&messageContextKey()===reportKey){messageCache.delete(reportKey);await loadMessages();}
+    }catch(error){
+      if(uploadState.paths.length)await client.storage.from('nexus-report-evidence').remove(uploadState.paths).catch(()=>{});
+      if(reportId)await client.rpc('cancel_nexus_message_report',{p_report_id:reportId}).catch(()=>{});
+      showError(error,'No se pudo completar el reporte. Los mensajes permanecen en el chat.');
+    }finally{submit.disabled=false;submit.textContent='Enviar reporte y retirar mensajes';}
+  });
 
   async function fetchProfiles(ids) {
     const unique = [...new Set(ids)].filter(Boolean);
@@ -2283,6 +2414,7 @@
     replyButton.addEventListener('click', () => setReplyTarget(message, sender));
     messageActions.append(replyButton);
     const forwardButton=document.createElement('button');forwardButton.type='button';forwardButton.className='message-action-button';forwardButton.textContent='Reenviar';forwardButton.addEventListener('click',()=>openForwardMessageDialog(message,sender));messageActions.append(forwardButton);
+    if(!isNexusImportantAnnouncement&&message.sender_id&&message.sender_id!==currentUser.id){const reportButton=document.createElement('button');reportButton.type='button';reportButton.className='message-action-button message-report-action';reportButton.textContent='Reportar';reportButton.addEventListener('click',()=>openMessageReportDialog(message));messageActions.append(reportButton);}
     const pinButton = document.createElement('button');
     pinButton.type = 'button'; pinButton.className = 'message-action-button'; pinButton.textContent = 'Fijar';
     pinButton.dataset.pinMessageId = message.id;
@@ -4504,6 +4636,54 @@
   // ---------- Platform administration ----------
   function formatPlatformDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'No disponible';}
   $('#platform-user-search-form')?.addEventListener('submit',event=>{event.preventDefault();loadPlatformAdminUsers();});
+  $('#platform-message-reports-refresh')?.addEventListener('click',loadAdminMessageReports);
+  async function loadAdminMessageReports(){
+    if(!platformAdmin)return;
+    const host=$('#platform-message-reports');if(!host)return;
+    host.innerHTML='<p class="empty-state compact">Cargando reportes…</p>';
+    const {data:rows,error}=await client.from('nexus_message_reports').select('*').order('created_at',{ascending:false}).limit(50);
+    if(error){host.textContent='No se pudieron cargar los reportes. Comprueba los permisos y la migración.';console.warn(error);return;}
+    if(!rows?.length){host.textContent='No hay reportes pendientes.';return;}
+    const ids=[...new Set(rows.flatMap(row=>[row.reporter_id,row.reported_user_id,...(row.evidence||[]).map(item=>item.sender_id)]))];
+    const profiles=await fetchProfiles(ids);
+    const paths=rows.flatMap(row=>(row.evidence_files||[]).map(file=>file.path).filter(Boolean));
+    const urls=await signedUrlLookup('nexus-report-evidence',paths);
+    host.innerHTML='';
+    for(const row of rows){
+      const card=document.createElement('article');card.className='message-report-card';
+      const heading=document.createElement('div');heading.className='message-report-card-heading';
+      const title=document.createElement('strong');title.textContent=`Reporte · ${row.status}`;
+      const meta=document.createElement('small');meta.textContent=new Date(row.created_at).toLocaleString('es-ES');heading.append(title,meta);card.append(heading);
+      const people=document.createElement('p');people.className='muted small-muted';people.textContent=`Denunciante: @${profiles[row.reporter_id]?.username||'usuario'} · Cuenta señalada: @${profiles[row.reported_user_id]?.username||'usuario'}`;card.append(people);
+      const reason=document.createElement('p');reason.textContent=`Motivo: ${row.reason}`;card.append(reason);
+      const evidence=document.createElement('div');evidence.className='message-report-evidence';
+      const evidenceTitle=document.createElement('strong');evidenceTitle.textContent='Contexto del chat';evidence.append(evidenceTitle);
+      for(const item of row.evidence||[]){
+        const entry=document.createElement('div');entry.className='message-report-evidence-entry';
+        const author=document.createElement('strong');author.textContent=profiles[item.sender_id]?.nickname||profiles[item.sender_id]?.username||'Usuario';
+        const when=document.createElement('small');when.textContent=item.created_at?new Date(item.created_at).toLocaleString('es-ES'):'';
+        const body=document.createElement('p');body.textContent=String(item.body||'').slice(0,12000);
+        if(item.id===row.reported_message_id){const flagged=document.createElement('span');flagged.className='tag tag-admin';flagged.textContent='Mensaje reportado';entry.append(flagged);}
+        entry.append(author,when,body);
+        for(const file of (row.evidence_files||[]).filter(itemFile=>itemFile.message_id===item.id)){
+          const url=urls.get(file.path);if(!url)continue;
+          const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=`Adjunto: ${file.name||'archivo'} (${file.mimetype||'tipo desconocido'})`;
+          link.className='message-report-evidence-file';entry.append(link);
+        }
+        evidence.append(entry);
+      }
+      card.append(evidence);
+      const noteLabel=document.createElement('label');noteLabel.className='field';noteLabel.textContent='Nota interna';
+      const note=document.createElement('textarea');note.rows=2;note.maxLength=1500;note.value=row.admin_note||'';noteLabel.append(note);card.append(noteLabel);
+      const actions=document.createElement('div');actions.className='message-report-admin-actions';
+      for(const [status,label,className] of [['reviewing','En revisión','button-secondary'],['actioned','Tomar medidas','button-danger'],['dismissed','Descartar','button-secondary']]){
+        const button=document.createElement('button');button.type='button';button.className=`button ${className}`;button.textContent=label;button.disabled=row.status===status;
+        button.addEventListener('click',async()=>{button.disabled=true;const {error:updateError}=await client.from('nexus_message_reports').update({status,admin_note:String(note.value||'').trim(),reviewed_at:new Date().toISOString(),reviewed_by:currentUser.id}).eq('id',row.id);if(updateError){showError(updateError);button.disabled=false;return;}toast('Estado del reporte actualizado.','success');loadAdminMessageReports();});actions.append(button);
+      }
+      card.append(actions);host.append(card);
+    }
+  }
+
   async function loadPlatformAdminUsers(){
     if(!platformAdmin)return;const host=$('#platform-user-results');const term=String($('#platform-user-search')?.value||'').trim().replace(/^@/,'');if(!host)return;if(term.length<2){host.innerHTML='<p class="empty-state compact">Escribe al menos dos caracteres para buscar.</p>';return;}host.innerHTML='<p class="muted small-muted">Buscando…</p>';
     const safe=term.replace(/[^a-z0-9_\- .]/gi,' ').trim();const {data,error}=await client.from('profiles').select('id,username,nickname,avatar_url,created_at,last_seen_at').or(`username.ilike.%${safe}%,nickname.ilike.%${safe}%`).order('created_at',{ascending:false}).limit(30);
@@ -4628,7 +4808,7 @@
 
 
   // -------------------------------------------------------------------------
-  // Nexus 0.11.0 alpha modules: dialogs, forum boards, Channels+, notices,
+  // Nexus 0.11.1 alpha modules: Terms, privacy controls, user blocks and message reports,
   // badge requests, reputation and first-login changelog.
   // -------------------------------------------------------------------------
   let globalAnnouncementsLoaded=false;
@@ -4638,12 +4818,12 @@
     if(show)screen.dataset.startedAt=String(Date.now());
   }
   function markWhatsNewSeen(){
-    if(!currentUser)return;try{localStorage.setItem(`nexus-whats-new-v0.11.0:${currentUser.id}`,'1');}catch{}
+    if(!currentUser)return;try{localStorage.setItem(`nexus-whats-new-v0.11.1:${currentUser.id}`,'1');}catch{}
     $('#nexus-whats-new')?.close();
   }
   function showWhatsNewOnce(){
     if(!currentUser||!globalAnnouncementsLoaded||systemPopupShowing||activeSystemPopupQueue.length)return;
-    let seen=false;try{seen=localStorage.getItem(`nexus-whats-new-v0.11.0:${currentUser.id}`)==='1';}catch{seen=true;}
+    let seen=false;try{seen=localStorage.getItem(`nexus-whats-new-v0.11.1:${currentUser.id}`)==='1';}catch{seen=true;}
     if(seen)return;const dialog=$('#nexus-whats-new');if(dialog&&!dialog.open)dialog.showModal();
   }
   ['nexus-whats-new-close','nexus-whats-new-ok'].forEach(id=>$('#'+id)?.addEventListener('click',markWhatsNewSeen));
