@@ -22,7 +22,15 @@
   const STORAGE_KEY='nexus-language-v1';
   const originalText=new WeakMap();
   const originalAttrs=new WeakMap();
+  const missingKeys=new Set();
   const skipSelector='script,style,textarea,input,select,option,code,pre,[data-no-translate],.message-body,.message-content,.message-content-inner,.message-attachment,.markdown-body,.nexcss-preview,.user-generated,.profile-bio,.custom-status,.message-list,.message-bubble';
+  const skipAttributeSelector='script,style,textarea,select,option,code,pre,[data-no-translate],.message-body,.message-content,.message-content-inner,.message-attachment,.markdown-body,.nexcss-preview,.user-generated,.profile-bio,.custom-status,.message-list,.message-bubble';
+  const EXPLICIT_ATTRIBUTE_KEYS={
+    'data-i18n-placeholder':'placeholder',
+    'data-i18n-title':'title',
+    'data-i18n-aria-label':'aria-label',
+    'data-i18n-alt':'alt'
+  };
   let current='es';
   let observer=null;
   const locale=code=>LOCALES.find(item=>item.code===code)||LOCALES[0];
@@ -40,10 +48,18 @@
     return 'es';
   }
   function dictionary(){return CATALOG;}
+  function t(key,variables={}){
+    const source=String(key??'');
+    const translated=CATALOG[source]?.[current];
+    if(!translated&&current!=='es'&&source.length>2)missingKeys.add(source);
+    const value=translated||source;
+    return value.replace(/\\{\\{([a-zA-Z0-9_]+)\\}\\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(variables,name)?String(variables[name]):match);
+  }
   function translateText(source){
     const dict=dictionary();
     const exact=dict[source]?.[current];
     if(exact)return exact;
+    if(current!=='es'&&source.length>2&&!dict[source]?.[current])missingKeys.add(source);
     // Translate known UI fragments in dynamic status strings while leaving
     // user-authored message areas untouched.
     let result=source;
@@ -53,7 +69,7 @@
   }
   function shouldSkipText(node){
     const parent=node.parentElement;
-    return !parent||parent.closest(skipSelector)||parent.isContentEditable;
+    return !parent||parent.closest(skipSelector)||parent.closest('[data-i18n]')||parent.isContentEditable;
   }
   function translateTextNode(node){
     if(!node||node.nodeType!==Node.TEXT_NODE||shouldSkipText(node))return;
@@ -67,7 +83,7 @@
     if(node.nodeValue!==value)node.nodeValue=value;
   }
   function translateAttributes(element){
-    if(!element||element.nodeType!==Node.ELEMENT_NODE||element.matches(skipSelector))return;
+    if(!element||element.nodeType!==Node.ELEMENT_NODE||element.matches(skipAttributeSelector))return;
     let originals=originalAttrs.get(element);
     if(!originals){originals={};originalAttrs.set(element,originals);}
     for(const name of ['placeholder','title','aria-label','alt']){
@@ -75,6 +91,17 @@
       if(!(name in originals))originals[name]=element.getAttribute(name);
       const source=originals[name];const translated=translateText(source);
       if(element.getAttribute(name)!==translated)element.setAttribute(name,translated);
+    }
+    if(element.hasAttribute('data-i18n')&&!element.matches('input,textarea,select,option')){
+      const key=element.getAttribute('data-i18n');
+      const translated=t(key);
+      if(element.textContent!==translated)element.textContent=translated;
+    }
+    for(const [dataName,attributeName] of Object.entries(EXPLICIT_ATTRIBUTE_KEYS)){
+      if(!element.hasAttribute(dataName))continue;
+      const key=element.getAttribute(dataName);
+      const translated=t(key);
+      if(element.getAttribute(attributeName)!==translated)element.setAttribute(attributeName,translated);
     }
   }
   function scan(root=document.body){
@@ -96,6 +123,7 @@
   }
   function setLocale(code,{persist=true}={}){
     current=locale(code).code;
+    missingKeys.clear();
     if(persist){try{localStorage.setItem(STORAGE_KEY,current);}catch{}}
     const meta=locale(current);
     document.documentElement.lang=meta.html;
@@ -121,6 +149,16 @@
     });
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','title','aria-label','alt']});
   }
-  window.NexusI18n={locales:LOCALES,catalog:CATALOG,setLocale,locale:()=>current,intlLocale,hasExplicitPreference,translate:translateText,refresh:()=>scan(document.body)};
+  function coverage(){
+    const keys=Object.keys(CATALOG);
+    const locales=LOCALES.filter(item=>item.code!=='es');
+    return {keys:keys.length,locales:locales.map(item=>({code:item.code,translated:keys.filter(key=>Boolean(CATALOG[key]?.[item.code])).length,total:keys.length}))};
+  }
+  window.NexusI18n={
+    locales:LOCALES,catalog:CATALOG,setLocale,locale:()=>current,intlLocale,
+    hasExplicitPreference,translate:translateText,t,
+    coverage,missingKeys:()=>[...missingKeys].sort(),
+    refresh:()=>scan(document.body)
+  };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
