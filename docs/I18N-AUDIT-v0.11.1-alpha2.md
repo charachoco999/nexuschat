@@ -14,7 +14,7 @@ La localización actual es parcial. El selector ofrece 15 variantes contando esp
 | Asignaciones de texto dinámico inspeccionadas en `assets/js/app.js` | 389 |
 | Candidatos dinámicos distintos encontrados | 366 |
 
-La auditoría dinámica es una extracción por patrones, no una enumeración exhaustiva de todas las cadenas del proyecto. No cuenta textos construidos mediante datos del servidor ni todos los fragmentos de plantillas. Las cifras sirven para dimensionar el trabajo, no para certificar un porcentaje de traducción total.
+La auditoría dinámica es una extracción por patrones, no una enumeración exhaustiva de todas las cadenas del proyecto. No cuenta textos construidos mediante datos del servidor ni todos los fragmentos de plantillas. Las cadenas heredadas detectadas se guardan en `scripts/i18n-alpha2-untranslated-baseline.json`: CI permite temporalmente ese legado, pero falla cuando se añade una nueva cadena visible fuera del catálogo. Las cifras sirven para dimensionar el trabajo, no para certificar un porcentaje de traducción total.
 
 ## Qué debe cubrir v0.11.2 en español
 
