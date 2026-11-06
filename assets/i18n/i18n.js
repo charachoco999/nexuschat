@@ -59,7 +59,6 @@
     const dict=dictionary();
     const exact=dict[source]?.[current];
     if(exact)return exact;
-    if(current!=='es'&&source.length>2&&!dict[source]?.[current])missingKeys.add(source);
     // Translate known UI fragments in dynamic status strings while leaving
     // user-authored message areas untouched.
     let result=source;
