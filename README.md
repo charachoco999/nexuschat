@@ -2,7 +2,7 @@
 
 > **Internacionalización en preparación:** el español seguirá siendo la fuente canónica. La propuesta es cerrar primero el inventario español en v0.11.2 y publicar la cobertura completa de idiomas en v0.12.0. El catálogo alpha2 solo cubre una parte de la interfaz; no debe anunciarse como traducción completa.
 
-Consulta [la política de idiomas](docs/LOCALIZATION-POLICY.md). El runtime ofrece `NexusI18n.t()` y atributos `data-i18n-*`; ejecuta `node scripts/check-i18n.mjs` para validar que todas las claves existentes tengan traducción en todos los idiomas configurados.
+Consulta [la política de idiomas](docs/LOCALIZATION-POLICY.md). El runtime ofrece `NexusI18n.t()` y atributos `data-i18n-*`; `node scripts/check-i18n.mjs` valida las claves y evita que el código añada nuevas cadenas de interfaz sin catalogar.
 
 
 > **Nexus v0.11.1-alpha1-hotfix1:** corrige el inicio de sesión de cuentas sin registro de ToS, elimina el error de objeto JSON único usando RPCs con respuestas explícitas, evita el doble arranque de autenticación y recupera de forma segura el perfil propio. No acepta los ToS automáticamente. Requiere `supabase/migrations/20261106_nexus_v0111_tos_login_hotfix.sql`; consulta `UPGRADE-v0.11.1-alpha1-hotfix1.md`.
