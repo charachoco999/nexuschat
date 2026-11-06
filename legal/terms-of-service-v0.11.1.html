@@ -3,9 +3,16 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#171126"><title>Condiciones de uso · Nexus</title>
-<link rel="stylesheet" href="../assets/css/app.css?v=0.11.1-alpha1">
+<link rel="stylesheet" href="../assets/css/app.css?v=0.11.1-alpha1-hotfix2">
 <style>
 .legal-page{max-width:920px;margin:0 auto;padding:36px 20px 64px;color:var(--text,#f1efff);line-height:1.7}
+/* v0.11.1-alpha1-hotfix2: the shared mobile app stylesheet locks html/body scrolling.
+   This legal document is embedded in an iframe, so restore native touch scrolling here only. */
+html,body{height:auto!important;min-height:100%!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body{display:block!important;position:static!important}
+.legal-page{min-height:100%;padding-bottom:max(64px,env(safe-area-inset-bottom));overflow:visible;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.legal-page *{touch-action:pan-y}
+
 .legal-page h1{font-size:clamp(28px,5vw,42px);margin:8px 0 5px}.legal-page h2{font-size:19px;margin:32px 0 8px}.legal-page h3{font-size:15px;margin:18px 0 6px}.legal-page p,.legal-page li{color:var(--muted,#b9b3ce);font-size:14px}.legal-page .legal-warning{padding:13px 16px;border:1px solid #a96937;background:#8a51201c;border-radius:12px;color:#f0c49b}.legal-page a{color:#c0b5ff}.legal-page .legal-nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}.legal-page .legal-nav a{padding:9px 12px;border:1px solid #ffffff20;border-radius:9px;text-decoration:none}.legal-page .legal-meta{font-size:12px;color:var(--muted,#b9b3ce)}
 </style></head>
 <body><main class="legal-page">
@@ -13,7 +20,7 @@
 <p class="eyebrow">NEXUS · DOCUMENTO LEGAL</p><h1>Condiciones de uso y privacidad</h1>
 <p class="legal-meta">Versión 2026-11-06-v1 · En vigor desde el 6 de noviembre de 2026.</p>
 <h2>1. Responsable y alcance</h2>
-<p>Nexus es un proyecto de comunicación y comunidades. El responsable de decidir los fines y medios del tratamiento de datos es <strong>Nexus Open Source Project by xfriskxevx</strong>, con contacto en <strong>nsxmsgng@gmail.com</strong> y dirección de contacto en <strong>xxxfriskxevx@gmail.com</strong> (en adelante, «el responsable»).</p>
+<p>Nexus es un proyecto de comunicación y comunidades. El responsable de decidir los fines y medios del tratamiento de datos es <strong>Nexus Open Source Project by xfriskxevx</strong>, con contacto en <strong>nxsmsgng@gmail.com</strong> y domicilio o dirección de contacto en <strong>xxxfriskxevx@gmail.com</strong> (en adelante, «el responsable»).</p>
 <p>Estas condiciones regulan las cuentas, mensajes directos, grupos, megagrupos, canales, voz, archivos, perfiles, reacciones, avisos y herramientas de moderación disponibles en Nexus. Al usar el servicio, la persona usuaria acepta estas condiciones. Las funciones en fase beta pueden cambiar, limitarse o retirarse.</p>
 <h2 id="privacy">2. Datos que se recogen y para qué</h2>
 <ul>
@@ -40,7 +47,7 @@
 <p>Los datos se tratan para crear y mantener cuentas, entregar mensajes y archivos, gestionar comunidades, aplicar preferencias, prevenir spam y abuso, proteger el servicio, investigar reportes y responder a solicitudes de soporte. La base jurídica aplicable debe determinarse para cada finalidad (por ejemplo, ejecución del servicio, consentimiento cuando sea necesario, obligaciones legales o interés legítimo debidamente ponderado). El responsable debe documentar esa evaluación y no asumir que aceptar estas condiciones legitima automáticamente cualquier tratamiento.</p>
 <h2>7. Conservación, eliminación y derechos</h2>
 <p>Los mensajes y archivos se conservan mientras sean necesarios para prestar la función, hasta que se eliminen o durante el plazo de moderación/retención definido por el responsable. Los registros de autenticación, seguridad y copias de respaldo pueden tener plazos distintos establecidos por Supabase y por la configuración del proyecto. Al eliminar una cuenta, se iniciará la eliminación de los datos asociados que controle Nexus, sin prometer la desaparición instantánea de copias de seguridad o registros que el proveedor deba conservar temporalmente.</p>
-<p>La persona usuaria puede solicitar acceso, rectificación, supresión, limitación, oposición o portabilidad cuando corresponda, escribiendo a <strong>nxsmsgng@gmail.com</strong>. También puede presentar una reclamación ante la autoridad de protección de datos competente, en España la Agencia Española de Protección de Datos. El responsable deberá verificar la identidad de quien solicita y responder dentro de los plazos legales.</p>
+<p>La persona usuaria puede solicitar acceso, rectificación, supresión, limitación, oposición o portabilidad cuando corresponda, escribiendo a <strong>[EMAIL DE PRIVACIDAD/CONTACTO]</strong>. También puede presentar una reclamación ante la autoridad de protección de datos competente, en España la Agencia Española de Protección de Datos. El responsable deberá verificar la identidad de quien solicita y responder dentro de los plazos legales.</p>
 <h2>8. Edad y protección de menores</h2>
 <p>El servicio no está dirigido a menores de 14 años. Cuando la normativa aplicable exija consentimiento parental o asistencia de tutores, no se debe crear o mantener una cuenta sin cumplir ese requisito. Antes de permitir el acceso de menores, el responsable debe revisar la edad mínima, el diseño de privacidad, los reportes, la moderación y las obligaciones legales aplicables a servicios digitales dirigidos a menores.</p>
 <h2 id="rules">9. Normas de uso</h2>
@@ -63,10 +70,10 @@
 <h2>13. No comercialización y situación económica</h2>
 <p>En la fecha de esta versión, Nexus no cobra suscripciones por el uso normal del proyecto, no recibe ingresos por el servicio y no vende, alquila ni comercializa los datos personales de las personas usuarias. No se utilizan los datos de conversaciones para publicidad dirigida. Si el modelo económico o las finalidades cambian, el responsable deberá revisar la información de privacidad y las bases jurídicas antes de aplicar esos cambios.</p>
 <h2>14. Seguridad y notificación de incidentes</h2>
-<p>El servicio aplica controles como autenticación, Row Level Security (RLS), permisos de Storage, funciones de servidor y conexiones cifradas. Ningún sistema conectado a Internet puede garantizar seguridad absoluta. Las personas usuarias deben proteger sus dispositivos, mantener sus credenciales privadas y comunicar incidentes a <strong>nsxmsgng@gmail.com</strong>. El responsable debe disponer de un procedimiento para investigar, contener y, cuando corresponda, notificar brechas de datos.</p>
+<p>El servicio aplica controles como autenticación, Row Level Security (RLS), permisos de Storage, funciones de servidor y conexiones cifradas. Ningún sistema conectado a Internet puede garantizar seguridad absoluta. Las personas usuarias deben proteger sus dispositivos, mantener sus credenciales privadas y comunicar incidentes a <strong>nxsmsgng@gmail.com</strong>. El responsable debe disponer de un procedimiento para investigar, contener y, cuando corresponda, notificar brechas de datos.</p>
 <h2>15. Cambios en estas condiciones</h2>
 <p>Las condiciones pueden actualizarse si cambian las funciones, proveedores, finalidades o requisitos legales. Los cambios sustanciales se comunicarán dentro del servicio y se solicitará una nueva aceptación cuando sea necesario. Se conservará la versión aceptada y su fecha, sin almacenar IP ni agente de usuario como prueba de aceptación.</p>
 <h2>16. Ley aplicable y contacto</h2>
-<p>Estas condiciones deben revisarse conforme a la legislación aplicable al responsable y a las personas usuarias. Para consultas, privacidad, ejercicio de derechos o reclamaciones, contactar con <strong>nsxmsgng@gmail.com</strong>. La jurisdicción y el mecanismo de resolución de controversias deben ser validados por asesoría jurídica antes de publicar este documento como definitivo.</p>
+<p>Estas condiciones deben revisarse conforme a la legislación aplicable al responsable y a las personas usuarias. Para consultas, privacidad, ejercicio de derechos o reclamaciones, contactar con <strong>nxsmsgng@gmail.com</strong>. La jurisdicción y el mecanismo de resolución de controversias deben ser validados por asesoría jurídica antes de publicar este documento como definitivo.</p>
 <p><a href="../index.html">← Volver a Nexus</a></p>
 </main></body></html>
