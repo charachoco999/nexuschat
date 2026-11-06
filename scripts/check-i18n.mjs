@@ -18,8 +18,12 @@ import path from 'node:path';
 const root = process.cwd();
 const i18nPath = path.join(root, 'assets/i18n/i18n.js');
 const htmlPath = path.join(root, 'index.html');
+const appPath = path.join(root, 'assets/js/app.js');
+const baselinePath = path.join(root, 'scripts/i18n-alpha2-untranslated-baseline.json');
 const source = fs.readFileSync(i18nPath, 'utf8');
 const html = fs.readFileSync(htmlPath, 'utf8');
+const appSource = fs.readFileSync(appPath, 'utf8');
+const legacyBaseline = new Set(JSON.parse(fs.readFileSync(baselinePath, 'utf8')));
 
 const localeCodes = [...source.matchAll(/\{code:'([^']+)'/g)].map(match => match[1]);
 const catalogMatch = source.match(/const CATALOG = (\{[\s\S]*?\});\s*const STORAGE_KEY/);
@@ -74,21 +78,29 @@ for (const match of visibleHtml.matchAll(/\b(?:placeholder|title|aria-label|alt)
   const value = normalize(match[1]);
   if (value.length > 2) htmlStrings.add(value);
 }
-const uncovered = [...htmlStrings].filter(value => !Object.hasOwn(catalog, value));
+const appStrings = new Set();
+const uiSinkPattern = /(?:textContent|innerHTML|placeholder|title|aria-label|toast|showError|ask|nexusConfirm|confirm|alert)\s*(?:=|,|\()\s*(['"`])([\s\S]*?)\1/g;
+for (const match of appSource.matchAll(uiSinkPattern)) {
+  const value = normalize(match[2]);
+  if (value.length > 2) appStrings.add(value);
+}
+const candidates = new Set([...htmlStrings, ...appStrings]);
+const uncovered = [...candidates].filter(value => !Object.hasOwn(catalog, value));
+const newlyUncovered = uncovered.filter(value => !legacyBaseline.has(value));
 
 console.log(`Nexus i18n catalog: ${keys.length} source keys, ${locales.length} target locales, ${keys.length * locales.length} expected translations.`);
 console.log(`Catalog gaps: ${missing.length}.`);
-console.log(`Static index.html audit: ${htmlStrings.size} unique visible strings, ${uncovered.length} not yet in the catalog.`);
+console.log(`Static HTML + JavaScript UI-sink audit: ${candidates.size} unique strings, ${uncovered.length} legacy strings not yet in the catalog, ${newlyUncovered.length} new uncatalogued strings.`);
 
 if (missing.length) {
   console.error('Missing catalog translations (first 40):');
   for (const item of missing.slice(0, 40)) console.error(`  [${item.locale}] ${item.key}`);
 }
-if (uncovered.length) {
-  console.log('Uncatalogued static strings (first 40):');
-  for (const value of uncovered.slice(0, 40)) console.log(`  ${value}`);
+if (newlyUncovered.length) {
+  console.error('New UI strings missing from the catalog (first 40):');
+  for (const value of newlyUncovered.slice(0, 40)) console.error(`  ${value}`);
 }
 
-if (missing.length || (process.argv.includes('--require-complete') && uncovered.length)) {
+if (missing.length || newlyUncovered.length || (process.argv.includes('--require-complete') && uncovered.length)) {
   process.exitCode = 1;
 }
