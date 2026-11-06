@@ -6,12 +6,12 @@
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <meta content="#10131c" name="theme-color"/>
 <meta content="Nexus, plataforma de chats y comunidades personalizables." name="description"/>
-<title>Nexus — Chat &amp; Communities · v0.11.1-alpha1-hotfix1</title>
+<title>Nexus — Chat &amp; Communities · v0.11.1-alpha2</title>
 <link href="./manifest.webmanifest" rel="manifest"/>
 <meta content="#141925" name="theme-color"/>
 <link href="./nexus-icon.svg" rel="icon" type="image/svg+xml"/>
 <link href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M27 72V28h10l26 27V28h10v44H63L37 45v27z' fill='white'/%3E%3C/svg%3E" rel="icon"/>
-<link href="assets/css/app.css?v=0.11.1-alpha1-hotfix1" rel="stylesheet"/>
+<link href="assets/css/app.css?v=0.11.1-alpha2" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
@@ -19,14 +19,16 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" rel="stylesheet"/>
 <script defer="" src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 <script defer="" src="assets/js/config.js"></script>
-<script defer="" src="assets/js/app.js?v=0.11.1-alpha1-hotfix1"></script>
+<script defer="" src="assets/i18n/i18n.js?v=0.11.1-alpha2"></script>
+<script defer="" src="assets/js/app.js?v=0.11.1-alpha2"></script>
 </head>
 <body>
-<div aria-live="polite" class="nexus-loading-screen hidden" id="nexus-loading-screen"><div class="nexus-loading-logo"><img alt="Nexus" src="nexus-icon.svg"/></div><p class="eyebrow">¿Sabías que...?</p><strong>Este es el único facto curioso en esta versión?</strong><small>Nexus · 0.11.1 alpha</small></div>
+<div aria-live="polite" class="nexus-loading-screen hidden" id="nexus-loading-screen"><div class="nexus-loading-logo"><img alt="Nexus" src="nexus-icon.svg"/></div><p class="eyebrow">¿Sabías que...?</p><strong>Este es el único facto curioso en esta versión?</strong><small>Nexus · 0.11.1 alpha2</small></div>
 <div aria-live="polite" class="toast-region" id="toast-region"></div>
 <main class="auth-screen" id="auth-screen">
 <section class="auth-card">
 <div class="brand brand-large"><span class="brand-mark">N</span><span>Nexus</span></div>
+<label class="field auth-language-field">Idioma de Nexus<select id="language-select-auth" data-nexus-language-select aria-label="Idioma de Nexus"></select></label>
 <p class="eyebrow">TU ESPACIO. TUS COMUNIDADES.</p>
 <h1 id="auth-title">Inicia sesión</h1>
 <p class="muted" id="auth-subtitle">Vuelve a tus conversaciones.</p>
@@ -44,7 +46,7 @@
 <button class="link-button" id="cancel-password-recovery" type="button">Cancelar y volver al inicio de sesión</button>
 </form>
 <div class="auth-links"><button class="link-button" id="auth-toggle">Crear cuenta</button><button class="link-button" id="forgot-password">He olvidado mi contraseña</button></div>
-<p class="auth-note" id="auth-note">Las cuentas y conversaciones compartidas requieren una conexión de servidor configurada.</p><p class="auth-legal-link"><a href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha1-hotfix2" target="_blank" rel="noopener noreferrer">Condiciones de uso y privacidad</a></p>
+<p class="auth-note" id="auth-note">Las cuentas y conversaciones compartidas requieren una conexión de servidor configurada.</p><p class="auth-legal-link"><a href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha2" target="_blank" rel="noopener noreferrer">Condiciones de uso y privacidad</a></p>
 </section>
 <div class="auth-decoration decoration-one"></div><div class="auth-decoration decoration-two"></div>
 </main>
@@ -171,6 +173,7 @@
 </div></section>
 <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia, notificaciones y rendimiento de Nexus.</p></div></div>
 <form class="surface form-grid" id="settings-form">
+<div class="full-field settings-subsection language-settings-section"><h3>Idioma de Nexus</h3><p class="muted small-muted">Elige el idioma de la interfaz. Guaraní y latín están en beta; los textos todavía no traducidos se mostrarán en español.</p><label class="field">Idioma<select id="language-select-settings" data-nexus-language-select aria-label="Idioma de Nexus"></select></label></div>
 <label class="field">Color de acento<input id="setting-accent" type="color" value="#8d7cff"/></label>
 <label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label>
 <label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label>
@@ -214,7 +217,7 @@
 </form>
 <section class="surface settings-surface"><div class="surface-heading"><h3>Medallas universales</h3><span class="tag">NEXUS</span></div><p class="muted small-muted">Puedes ocultar las medallas universales que se muestran junto a tu nombre. El cambio se aplica a mensajes, perfiles y listas de miembros.</p><div class="global-badge-visibility" id="global-badge-visibility"><small class="muted">Cargando medallas…</small></div></section>
 <section class="surface settings-surface"><div class="surface-heading"><h3>Guías de Nexus</h3><div class="guide-actions"><button class="button button-secondary" id="open-customization-guide-settings" type="button">Personalización</button><button class="button button-secondary" id="open-markdown-guide" type="button">Markdown</button></div></div><p class="muted">La guía de personalización explica cómo ajustar cada parte de Nexus. La guía de Markdown recoge los formatos y bloques de mensajes.</p></section>
-<section class="surface settings-surface"><div class="surface-heading"><h3>Privacidad y seguridad</h3><span class="tag">0.11.1</span></div><p class="muted"><strong>Importante:</strong> los MDs todavía no disponen de cifrado de extremo a extremo. El transporte utiliza HTTPS/TLS y el almacenamiento depende de los controles de Supabase, pero no debes tratar los MDs como comunicaciones E2EE.</p><div class="guide-actions"><a class="button button-secondary" href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha1-hotfix2" target="_blank" rel="noopener noreferrer">Condiciones y privacidad</a><a class="button button-secondary" href="SECURITY-CHECKLIST-v0.11.1.md" target="_blank" rel="noopener noreferrer">Seguridad del proyecto</a><a class="button button-secondary" href="E2EE-STATUS-v0.11.1.md" target="_blank" rel="noopener noreferrer">Estado del cifrado E2EE</a></div></section>
+<section class="surface settings-surface"><div class="surface-heading"><h3>Privacidad y seguridad</h3><span class="tag">0.11.1</span></div><p class="muted"><strong>Importante:</strong> los MDs todavía no disponen de cifrado de extremo a extremo. El transporte utiliza HTTPS/TLS y el almacenamiento depende de los controles de Supabase, pero no debes tratar los MDs como comunicaciones E2EE.</p><div class="guide-actions"><a class="button button-secondary" href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha2" target="_blank" rel="noopener noreferrer">Condiciones y privacidad</a><a class="button button-secondary" href="SECURITY-CHECKLIST-v0.11.1.md" target="_blank" rel="noopener noreferrer">Seguridad del proyecto</a><a class="button button-secondary" href="E2EE-STATUS-v0.11.1.md" target="_blank" rel="noopener noreferrer">Estado del cifrado E2EE</a></div></section>
 <div class="surface settings-surface"><div class="surface-heading"><h3>Cuenta</h3></div><p class="muted">La recuperación de contraseña se realiza mediante un enlace seguro enviado al correo electrónico.</p><button class="button button-secondary" id="change-password">Enviar enlace de recuperación</button><small class="muted small-muted" id="change-password-note">El enlace abrirá un formulario independiente para establecer la nueva contraseña. Al terminar, Nexus cerrará esa sesión temporal y tendrás que iniciar sesión de nuevo.</small><button class="button button-danger" id="logout-button">Cerrar sesión</button></div>
 <div class="surface settings-surface hidden" id="admin-area"><div class="surface-heading"><h3>Panel de administración</h3><span class="tag tag-admin">ADMIN</span></div><p class="muted">Busca cuentas para aplicar o retirar sanciones y enviar recuperaciones de contraseña.</p><div class="inline-form"><input id="admin-search" placeholder="Buscar por usuario"/><button class="button button-secondary" id="admin-search-button">Buscar</button></div><div class="list-stack" id="admin-results"></div></div>
 </div></section>
@@ -278,10 +281,10 @@
 </div>
 <dialog class="dialog-card wide-dialog tos-acceptance-dialog" id="tos-acceptance-dialog" aria-labelledby="tos-acceptance-title">
   <div class="dialog-heading"><div><p class="eyebrow">PRIMER ACCESO · PRIVACIDAD</p><h3 id="tos-acceptance-title">Condiciones de uso y privacidad</h3></div></div>
-  <p class="muted small-muted">Para continuar, revisa la información sobre datos, normas, reportes y administración. Puedes abrir el documento completo en otra pestaña.</p>
-  <div class="tos-iframe-wrap"><iframe title="Condiciones de uso y privacidad de Nexus" src="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha1-hotfix2" scrolling="yes"></iframe></div>
+  <p class="muted small-muted" id="tos-acceptance-summary">Antes de continuar, debes leer y aceptar las condiciones de uso y privacidad.</p><p class="muted small-muted" id="tos-translation-note">La versión legal oficial es la española; la interfaz puede mostrarse en otros idiomas, pero este documento aún no está traducido íntegramente.</p><label class="field tos-language-field">Idioma de Nexus<select id="language-select-tos" data-nexus-language-select aria-label="Idioma de Nexus"></select></label>
+  <div class="tos-iframe-wrap"><iframe title="Condiciones de uso y privacidad de Nexus" src="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha2" scrolling="yes"></iframe></div>
   <label class="setting-check tos-accept-check"><input id="tos-accept-checkbox" type="checkbox"/> He leído y acepto las condiciones de uso y privacidad de Nexus.</label>
-  <div class="dialog-actions"><button class="button button-secondary" id="tos-decline-submit" type="button">Cerrar sesión</button><a class="button button-secondary" href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha1-hotfix2" target="_blank" rel="noopener noreferrer">Abrir documento completo</a><button class="button button-primary" id="tos-accept-submit" type="button" disabled>Aceptar y continuar</button></div>
+  <div class="dialog-actions"><button class="button button-secondary" id="tos-decline-submit" type="button">Cerrar sesión</button><a class="button button-secondary" href="legal/terms-of-service-v0.11.1.html?v=0.11.1-alpha2" target="_blank" rel="noopener noreferrer">Abrir documento completo</a><button class="button button-primary" id="tos-accept-submit" type="button" disabled>Aceptar y continuar</button></div>
 </dialog>
 <dialog class="dialog-card wide-dialog" id="message-report-dialog">
   <form id="message-report-form"><div class="dialog-heading"><div><h3>Reportar mensaje</h3><p class="muted small-muted">Se enviará el mensaje seleccionado y hasta cinco anteriores para revisar el contexto.</p></div><button class="icon-button" id="message-report-close" type="button" aria-label="Cerrar">×</button></div>
@@ -396,7 +399,7 @@ const nexus = true;
 <dialog class="dialog-card wide-dialog" id="badge-request-dialog"><form id="badge-request-form"><div class="dialog-heading"><h3>Solicitar insignia universal</h3><button class="icon-button" id="close-badge-request" type="button">×</button></div><label class="field">Nombre propuesto<input id="badge-request-name" maxlength="40" minlength="2" required=""/></label><label class="field">Motivo<textarea id="badge-request-reason" maxlength="1500" minlength="10" required="" rows="5"></textarea></label><div class="dialog-actions"><button class="button button-secondary" id="cancel-badge-request" type="button">Cancelar</button><button class="button button-primary" type="submit">Enviar solicitud</button></div></form></dialog>
 <dialog class="dialog-card nexus-system-popup" id="nexus-system-popup"><div class="dialog-heading"><h3 id="nexus-system-popup-title">Nexus (App)</h3><button class="icon-button" id="nexus-system-popup-close" type="button">×</button></div><div class="nexus-system-popup-body" id="nexus-system-popup-body"></div><div class="dialog-actions"><button class="button button-primary" id="nexus-system-popup-ok" type="button">Entendido</button></div></dialog>
 <dialog class="dialog-card" id="nexus-confirm-dialog"><div class="dialog-heading"><h3 id="nexus-confirm-title">Confirmar</h3><button class="icon-button" id="nexus-confirm-close" type="button">×</button></div><p class="muted" id="nexus-confirm-body"></p><div class="dialog-actions"><button class="button button-secondary" id="nexus-confirm-cancel" type="button">Cancelar</button><button class="button button-danger" id="nexus-confirm-accept" type="button">Continuar</button></div></dialog>
-<dialog class="dialog-card wide-dialog" id="nexus-whats-new"><div class="dialog-heading"><div><p class="eyebrow">NEXUS · ACTUALIZACIÓN</p><h3>Novedades de la versión 0.11.1</h3></div><button class="icon-button" id="nexus-whats-new-close" type="button">×</button></div><div class="whats-new-content"><p>Condiciones de uso versionadas, bloqueo de usuarios, reportes con evidencia privada y refuerzo de las políticas de acceso.</p><ul><li>Ahora se exige aceptar la versión vigente de las condiciones antes de cargar la cuenta y acceder a los chats.</li><li>Los reportes incluyen el mensaje señalado y hasta cinco mensajes anteriores; los adjuntos se copian a un almacén privado antes de retirarlos del chat.</li><li>Se han reforzado las políticas RLS del contenido principal y el control de bloqueos para MDs y solicitudes de amistad.</li><li>Los mensajes directos todavía no tienen cifrado de extremo a extremo. Consulta el estado de seguridad antes de tratar información sensible.</li></ul></div><div class="dialog-actions"><button class="button button-primary" id="nexus-whats-new-ok" type="button">¡Entendido!</button></div></dialog>
+<dialog class="dialog-card wide-dialog" id="nexus-whats-new"><div class="dialog-heading"><div><p class="eyebrow">NEXUS · ACTUALIZACIÓN</p><h3>Novedades de la versión 0.11.1-alpha2</h3></div><button class="icon-button" id="nexus-whats-new-close" type="button">×</button></div><div class="whats-new-content"><p>Internacionalización inicial de Nexus, selector de idioma y mejora de las ventanas de actualización y de condiciones legales.</p><ul><li>La interfaz incorpora 15 opciones de idioma; Guaraní y Latín se identifican como beta y los textos no traducidos conservan el español.</li><li>El idioma puede elegirse antes de iniciar sesión o desde Configuración; la preferencia se guarda en el perfil.</li><li>La pantalla de condiciones distingue el primer acceso de una actualización de ToS y solicita aceptación cuando cambia la versión o su huella.</li><li>El cifrado Signal Protocol sigue en fase de arquitectura: los MDs todavía no tienen E2EE activo. Consulta E2EE-SIGNAL-ROADMAP-v0.11.1-alpha2.md.</li></ul></div><div class="dialog-actions"><button class="button button-primary" id="nexus-whats-new-ok" type="button">¡Entendido!</button></div></dialog>
 <dialog class="dialog-card wide-dialog markdown-ui-dialog" id="markdown-ui-dialog">
   <div class="dialog-heading"><div><h3>MarkdownUI <span class="tag">BETA</span></h3><p class="muted small-muted">Escribe y previsualiza el formato habitual. No ejecuta HTML ni CSS.</p></div><button class="icon-button" id="markdown-ui-close" type="button" aria-label="Cerrar">×</button></div>
   <div class="markdown-ui-layout">

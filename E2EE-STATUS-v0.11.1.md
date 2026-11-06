@@ -1,39 +1,33 @@
-# Estado del cifrado de extremo a extremo (E2EE) — Nexus v0.11.1-alpha1
+# Estado del cifrado de extremo a extremo (E2EE) — Nexus v0.11.1-alpha2
 
 ## Estado actual: NO IMPLEMENTADO
 
 Los mensajes directos de Nexus **no están cifrados de extremo a extremo** en esta versión. El contenido viaja por HTTPS/TLS y se almacena usando la infraestructura y los permisos del proyecto Supabase, pero eso no impide que el operador del proyecto o una persona con acceso administrativo suficiente al backend pueda acceder técnicamente a esos datos.
 
-No presentes Nexus v0.11.1 como un servicio E2EE y no introduzcas información cuya confidencialidad dependa de E2EE.
+No presentes Nexus como un servicio E2EE y no introduzcas información cuya confidencialidad dependa de E2EE.
 
-## Por qué no se ha añadido un cifrado casero
+## Arquitectura elegida
 
-Un `AES-GCM` aislado en el navegador no basta para ofrecer un protocolo de mensajería E2EE completo. Harían falta, como mínimo:
+Se ha elegido investigar la ruta B: Signal Protocol en los dispositivos, con Supabase como transporte y almacenamiento de ciphertext/prekeys públicas. No se añadirá un homeserver Matrix.
 
-- Identidad criptográfica por dispositivo y un proceso de verificación de claves entre personas.
-- Intercambio seguro de claves, claves de un solo uso y rotación.
-- Un protocolo de ratchet con secreto hacia adelante y recuperación tras compromiso de claves.
-- Añadir y retirar dispositivos sin exponer el historial.
-- Cifrado de adjuntos, imágenes, audio, vídeo y metadatos sensibles.
-- Almacenamiento, copia de seguridad y recuperación de claves sin una puerta trasera del servidor.
-- Pruebas de interoperabilidad, análisis del modelo de amenazas y revisión criptográfica independiente.
-- Una integración explícita con reportes: al denunciar, la persona que reporta debe poder consentir la revelación del mensaje y del contexto al equipo de moderación. El backend no puede leer mensajes cifrados para crear ese contexto por su cuenta.
+La implementación oficial `signalapp/libsignal` presenta obstáculos antes de su integración: declara que el uso fuera de Signal no está soportado, las APIs pueden cambiar, su paquete Node utiliza bindings nativos `.node` y su licencia es AGPL-3.0-only. Debe evaluarse la compatibilidad legal y técnica de cualquier adaptación a navegador/WASM antes de incorporarla.
 
-El JavaScript que sirve la propia web forma parte de la superficie de confianza: una actualización maliciosa o un XSS del mismo origen puede intentar capturar texto antes de cifrarlo o después de descifrarlo. Por eso E2EE en un cliente web también exige una cadena de publicación, protección contra XSS y revisión de dependencias muy estrictas.
+## Bloqueos técnicos
 
-## Siguiente fase recomendada
+- Identidad criptográfica por dispositivo y verificación de claves.
+- PQXDH y Double Ratchet mediante una implementación mantenida; no escribir algoritmos propios.
+- Gestión de prekeys en Supabase con operaciones atómicas y protección contra abuso.
+- Rotación, alta, transferencia, revocación y pérdida de dispositivos.
+- Cifrado del texto, Markdown, menciones, adjuntos, previews y miniaturas.
+- Copia de seguridad cifrada y recuperación sin que el servidor pueda obtener las claves.
+- Reportes voluntarios cifrados para claves de moderación.
+- Notificaciones sin contenido de mensajes.
+- Protección contra XSS y cadena de publicación confiable: un cliente web comprometido puede capturar texto antes de cifrarlo o después de descifrarlo.
 
-1. Seleccionar una implementación de protocolo mantenida y adecuada para navegador y multi-dispositivo. No escribir primitives criptográficas ni un ratchet propio.
-2. Definir el modelo de amenazas y qué metadatos quedan visibles (miembros, hora, tamaño, presencia y notificaciones).
-3. Diseñar el alta y verificación de dispositivos, rotación, revocación, recuperación y cambio de claves.
-4. Diseñar cifrado de adjuntos con claves independientes y carga privada.
-5. Diseñar reportes voluntarios: el cliente descifra el fragmento autorizado y lo sube como evidencia después de mostrar claramente qué se comparte.
-6. Probar con varias cuentas y dispositivos, revisar el protocolo y el código con especialistas independientes y completar pruebas de seguridad antes de activar la función.
+## Criterios de activación
 
-Referencias técnicas para evaluación, no una afirmación de que Nexus ya las integre:
+No habilitar E2EE hasta disponer de una build browser/WASM mantenible, revisión de licencia, pruebas de interoperabilidad, pruebas de mensajes duplicados/perdidos/reordenados/replay, pruebas multi-dispositivo, verificación y revocación de claves, cifrado de archivos y una revisión criptográfica independiente.
 
-- Signal Protocol: https://signal.org/docs/
-- Open E2EE browser threat model: https://docs.open-e2ee.dev/start/browser
-- Open E2EE SDK status: https://docs.open-e2ee.dev/
+Plan detallado: `E2EE-SIGNAL-ROADMAP-v0.11.1-alpha2.md`.
 
-La disponibilidad de una biblioteca no equivale a una auditoría ni a una integración segura. La función deberá permanecer desactivada hasta superar las fases anteriores.
+Referencias técnicas: https://github.com/signalapp/libsignal · https://signal.org/docs/specifications/pqxdh/ · https://signal.org/docs/specifications/doubleratchet/.

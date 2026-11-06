@@ -1,4 +1,4 @@
-/* Nexus v0.11.1-alpha1-hotfix1 front-end. Database RLS and protected RPCs are the security boundary. */
+/* Nexus v0.11.1-alpha2 front-end. Database RLS and protected RPCs are the security boundary. */
 (() => {
   'use strict';
 
@@ -10,8 +10,9 @@
   const authHashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const authQueryParams = new URLSearchParams(location.search);
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
-  const NEXUS_TERMS_VERSION = '2026-11-06-v1';
-  const NEXUS_TERMS_HASH = '88fe87771d333d444807568ec6906441e23e1e6afe37c39fa30ed01f98ba33a0';
+  const NEXUS_TERMS_VERSION = '2026-11-06-v2';
+  const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
+  const NEXUS_RELEASE_ID = '0.11.1-alpha2';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
   let termsAcceptanceBusy = false;
@@ -201,7 +202,7 @@
     node.style.setProperty('--profile-plate-opacity',String(profilePlateOpacity(person?.settings)));
   }
   const dateLabel = value => {
-    try { return new Date(value).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}); }
+    try { return new Date(value).toLocaleTimeString(window.NexusI18n?.intlLocale?.()||'es-ES', {hour:'2-digit', minute:'2-digit'}); }
     catch { return ''; }
   };
   const showAuth = () => { $('#auth-screen').classList.remove('hidden'); $('#app-screen').classList.add('hidden'); };
@@ -367,6 +368,11 @@
     const checkbox=$('#tos-accept-checkbox');
     const button=$('#tos-accept-submit');
     if(!dialog||!checkbox||!button) throw new Error('Falta la pantalla obligatoria de aceptación de condiciones.');
+    const isUpdate=data?.previously_accepted===true;
+    const title=$('#tos-acceptance-title');
+    const summary=$('#tos-acceptance-summary');
+    if(title)title.textContent=isUpdate?'Las condiciones de uso se han actualizado':'Condiciones de uso y privacidad';
+    if(summary)summary.textContent=isUpdate?'Las condiciones de uso se han actualizado desde tu última aceptación. Revisa el documento y acepta la versión vigente para continuar.':'Antes de continuar, debes leer y aceptar las condiciones de uso y privacidad.';
     checkbox.checked=false;button.disabled=true;termsAcceptanceBusy=false;
     if(!dialog.open)dialog.showModal();
     return new Promise(resolve=>{pendingTermsResolver=resolve;});
@@ -412,6 +418,7 @@
       if (error) throw error;
       if (!data || data.id !== user.id) throw new Error('No se pudo recuperar el perfil de esta cuenta. Contacta con el administrador.');
       profile = data;
+      if(profile?.settings?.language&&!window.NexusI18n?.hasExplicitPreference?.())window.NexusI18n?.setLocale(profile.settings.language);
       await loadSystemInboxMessages();
       // Store a privacy-conscious last-seen timestamp for platform moderation/search.
       // This is updated at sign-in and when the tab returns to the foreground.
@@ -1623,7 +1630,7 @@
       if(!id||seen.has(id))continue;seen.add(id);
       online.push({id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url),frame:safeHttpsUrl(meta.profile_frame_url),plate:safeHttpsUrl(meta.profile_plate_url),plateOpacity:Number.isFinite(Number(meta.profile_plate_opacity))?Math.max(0,Math.min(.6,Number(meta.profile_plate_opacity))):.13,deviceType:meta.device_type==='mobile'?'mobile':'desktop',hiddenGlobalBadgeIds:Array.isArray(meta.hidden_global_badge_ids)?meta.hidden_global_badge_ids:[]});
     }
-    contextPresenceMembers=online.sort((a,b)=>a.id===currentUser?.id?-1:b.id===currentUser?.id?1:a.name.localeCompare(b.name,'es'));
+    contextPresenceMembers=online.sort((a,b)=>a.id===currentUser?.id?-1:b.id===currentUser?.id?1:a.name.localeCompare(b.name,window.NexusI18n?.intlLocale?.()||'es'));
     const others=online.filter(item=>item.id!==currentUser?.id);
     const typing=[...typingUsers.values()].filter(item=>item.expires>Date.now());
     const trigger=$('#context-online-trigger');
@@ -1968,7 +1975,7 @@
     return Number.isFinite(a)&&Number.isFinite(b)&&dateA===dateB&&b>=a&&b-a<=5*60*1000;
   }
   function chatDayKey(iso){const date=new Date(iso);return Number.isFinite(date.getTime())?date.toLocaleDateString('sv-SE'):'';}
-  function chatDayLabel(iso){const date=new Date(iso);if(!Number.isFinite(date.getTime()))return 'Fecha desconocida';const today=new Date();const yesterday=new Date();yesterday.setDate(today.getDate()-1);if(date.toLocaleDateString('sv-SE')===today.toLocaleDateString('sv-SE'))return 'Hoy';if(date.toLocaleDateString('sv-SE')===yesterday.toLocaleDateString('sv-SE'))return 'Ayer';return new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date);}
+  function chatDayLabel(iso){const date=new Date(iso);if(!Number.isFinite(date.getTime()))return 'Fecha desconocida';const today=new Date();const yesterday=new Date();yesterday.setDate(today.getDate()-1);if(date.toLocaleDateString('sv-SE')===today.toLocaleDateString('sv-SE'))return 'Hoy';if(date.toLocaleDateString('sv-SE')===yesterday.toLocaleDateString('sv-SE'))return 'Ayer';return new Intl.DateTimeFormat(window.NexusI18n?.intlLocale?.()||'es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date);}
   function rebuildMessageGroups(container=$('#messages-container')){
     if(!container)return;
     unwrapMessageGroups(container);
@@ -4409,6 +4416,7 @@
   $('#use-main-identity').addEventListener('click',()=>activateAltProfile(null));
   function fillSettingsForm() {
     const settings = profile?.settings || {};
+    const languageSelect=$('#language-select-settings');if(languageSelect)languageSelect.value=settings.language||window.NexusI18n?.locale?.()||'es';
     $('#setting-accent').value = settings.accent || '#8d7cff';
     $('#setting-density').value = settings.density || 'comfortable';
     $('#setting-background').value = settings.background || '';
@@ -4460,9 +4468,9 @@
   $('#settings-form').addEventListener('submit', async event => {
     event.preventDefault();
     const previousMessagePageSize=messagePageSize();
-    const settings = {...(profile?.settings||{}),accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,imageCulling:$('#setting-image-culling').checked,nativePopups:$('#setting-native-popups').checked,hoverPlus:$('#setting-hover-plus').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,megacompact:$('#setting-compact-panels').checked&&$('#setting-megacompact').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,voiceSoundsEnabled:$('#setting-voice-sounds').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
+    const settings = {...(profile?.settings||{}),language:$('#language-select-settings')?.value||window.NexusI18n?.locale?.()||'es',accent:$('#setting-accent').value,density:$('#setting-density').value,background:$('#setting-background').value.trim(),themeBg:$('#setting-theme-bg').value,themePanel:$('#setting-theme-panel').value,themeSurface:$('#setting-theme-surface').value,themeText:$('#setting-theme-text').value,themeMuted:$('#setting-theme-muted').value,themeBorder:$('#setting-theme-border').value,messageGroupBg:$('#setting-message-group-bg').value,groupMessages:$('#setting-group-messages').checked,disableMessageGroupWidthFix:$('#setting-disable-message-group-width-fix').checked,disableMarkdownDelay:$('#setting-disable-markdown-delay').checked,imageCulling:$('#setting-image-culling').checked,nativePopups:$('#setting-native-popups').checked,hoverPlus:$('#setting-hover-plus').checked,notifySound:$('#setting-notify-sound').checked,notifyWhileOpen:$('#setting-notify-while-open').checked,composerFont:$('#setting-composer-font').value,customStatus:$('#setting-custom-status').value.trim().slice(0,60),compactPanels:$('#setting-compact-panels').checked,megacompact:$('#setting-compact-panels').checked&&$('#setting-megacompact').checked,voiceCompactMode:$('#setting-voice-compact').checked,voiceNoiseCancellation:$('#setting-voice-noise-cancellation').checked,voiceSoundsEnabled:$('#setting-voice-sounds').checked,notifyDirect:$('#setting-notify-direct').checked,notifyGroup:$('#setting-notify-group').checked,notifyCommunity:$('#setting-notify-community').checked,communityMentionsOnly:$('#setting-community-mentions-only').checked,messagePageSize:Number($('#setting-message-page-size').value)||50,messageFont:$('#setting-message-font').value,boxGlowEnabled:$('#setting-boxglow-enabled').checked,boxGlowColor:$('#setting-boxglow-color').value,boxGlowImage:safeHttpsUrl($('#setting-boxglow-image').value)||'',boxGlowIntensity:Number($('#setting-boxglow-intensity').value)||0};
     const {error} = await client.from('profiles').update({settings}).eq('id',currentUser.id);
-    if (error) showError(error); else { profile.settings = settings; renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
+    if (error) showError(error); else { profile.settings = settings; window.NexusI18n?.setLocale(settings.language); renderIdentity(); applyClientPreferences(); applyComposerFont($('#message-input')); if(voiceSession)renderVoiceParticipants(); if(activeMessageChannel)activeMessageChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(renderContextPresence).catch(()=>{}); if(globalPresenceChannel)globalPresenceChannel.track({user_id:currentUser.id,username:profile.username||'usuario',nickname:profile.nickname||profile.username||'Usuario',avatar_url:safeHttpsUrl(profile.avatar_url),profile_frame_url:safeHttpsUrl(profile.profile_frame_url),profile_plate_url:safeHttpsUrl(profile.profile_plate_url),profile_plate_opacity:profilePlateOpacity(settings),status_text:settings.customStatus,device_type:getDeviceType(),hidden_global_badge_ids:Array.isArray(profile?.settings?.hiddenGlobalBadgeIds)?profile.settings.hiddenGlobalBadgeIds:[],joined_at:new Date().toISOString()}).then(syncGlobalPresence).catch(()=>{}); if(currentContext){if(previousMessagePageSize!==messagePageSize())messageCache.delete(messageContextKey());await loadMessages();}toast('Apariencia guardada.','success'); }
   });
   $('#change-password').addEventListener('click', async () => {
     const recoveryRedirect=new URL(location.href); recoveryRedirect.search=''; recoveryRedirect.hash=''; recoveryRedirect.searchParams.set('recovery','1');
@@ -4646,7 +4654,7 @@
   $('#platform-feedback-form')?.addEventListener('submit',async event=>{event.preventDefault();if(!currentUser)return;const title=$('#platform-feedback-subject').value.trim();const body=$('#platform-feedback-body').value.trim();if(title.length<3||body.length<10){toast('Añade un título y una descripción más detallada.','error');return;}const {error}=await client.from('nexus_platform_feedback').insert({user_id:currentUser.id,feedback_type:activeFeedbackType,title,body});if(error){showError(error,'No se pudo enviar el feedback.');return;}$('#platform-feedback-dialog').close();toast(activeFeedbackType==='bug'?'Error enviado al equipo.':'Sugerencia enviada al equipo.','success');});
 
   // ---------- Platform administration ----------
-  function formatPlatformDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'No disponible';}
+  function formatPlatformDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat(window.NexusI18n?.intlLocale?.()||'es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'No disponible';}
   $('#platform-user-search-form')?.addEventListener('submit',event=>{event.preventDefault();loadPlatformAdminUsers();});
   $('#platform-message-reports-refresh')?.addEventListener('click',loadAdminMessageReports);
   async function loadAdminMessageReports(){
@@ -4665,7 +4673,7 @@
       const card=document.createElement('article');card.className='message-report-card';
       const heading=document.createElement('div');heading.className='message-report-card-heading';
       const title=document.createElement('strong');title.textContent=`Reporte · ${row.status}`;
-      const meta=document.createElement('small');meta.textContent=new Date(row.created_at).toLocaleString('es-ES');heading.append(title,meta);card.append(heading);
+      const meta=document.createElement('small');meta.textContent=new Date(row.created_at).toLocaleString(window.NexusI18n?.intlLocale?.()||'es-ES');heading.append(title,meta);card.append(heading);
       const people=document.createElement('p');people.className='muted small-muted';people.textContent=`Denunciante: @${profiles[row.reporter_id]?.username||'usuario'} · Cuenta señalada: @${profiles[row.reported_user_id]?.username||'usuario'}`;card.append(people);
       const reason=document.createElement('p');reason.textContent=`Motivo: ${row.reason}`;card.append(reason);
       const evidence=document.createElement('div');evidence.className='message-report-evidence';
@@ -4673,7 +4681,7 @@
       for(const item of row.evidence||[]){
         const entry=document.createElement('div');entry.className='message-report-evidence-entry';
         const author=document.createElement('strong');author.textContent=profiles[item.sender_id]?.nickname||profiles[item.sender_id]?.username||'Usuario';
-        const when=document.createElement('small');when.textContent=item.created_at?new Date(item.created_at).toLocaleString('es-ES'):'';
+        const when=document.createElement('small');when.textContent=item.created_at?new Date(item.created_at).toLocaleString(window.NexusI18n?.intlLocale?.()||'es-ES'):'';
         const body=document.createElement('p');body.textContent=String(item.body||'').slice(0,12000);
         if(item.id===row.reported_message_id){const flagged=document.createElement('span');flagged.className='tag tag-admin';flagged.textContent='Mensaje reportado';entry.append(flagged);}
         entry.append(author,when,body);
@@ -4772,7 +4780,7 @@
     $$('[data-mute]').forEach(button=>button.addEventListener('click',()=>adminMute(button.dataset.mute)));
     $$('[data-warn]').forEach(button=>button.addEventListener('click',()=>adminWarn(button.dataset.warn)));
   }
-  function formatAdminDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'Desconocida';}
+  function formatAdminDate(value){if(!value)return 'Nunca';const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat(window.NexusI18n?.intlLocale?.()||'es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date):'Desconocida';}
   async function adminMute(target){const raw=await ask('Silenciar cuenta','Duración en minutos (1 a 525600).','Minutos','60');if(raw===null)return;const minutes=Number(raw);if(!Number.isInteger(minutes)||minutes<1||minutes>525600){toast('Duración no válida.','error');return;}const reason=await ask('Motivo del silencio','El usuario recibirá un MD de Nexus (App).','Motivo','Incumplimiento de las normas.');const {error}=await client.rpc('admin_mute_user',{p_target:target,p_reason:reason||'',p_minutes:minutes});if(error)showError(error,'No se pudo silenciar la cuenta.');else toast('Cuenta silenciada.','success');}
   async function adminWarn(target){const reason=await ask('Enviar advertencia','Se enviará un mensaje del sistema Nexus (App).','Motivo','Revisa las normas de la comunidad.');if(reason===null||reason.trim().length<3)return;const {error}=await client.rpc('admin_warn_user',{p_target:target,p_reason:reason});if(error)showError(error,'No se pudo enviar la advertencia.');else toast('Advertencia enviada.','success');}
   async function adminBan(target) {
@@ -4830,12 +4838,12 @@
     if(show)screen.dataset.startedAt=String(Date.now());
   }
   function markWhatsNewSeen(){
-    if(!currentUser)return;try{localStorage.setItem(`nexus-whats-new-v0.11.1:${currentUser.id}`,'1');}catch{}
+    if(!currentUser)return;try{localStorage.setItem(`nexus-whats-new-${NEXUS_RELEASE_ID}:${currentUser.id}`,'1');}catch{}
     $('#nexus-whats-new')?.close();
   }
   function showWhatsNewOnce(){
     if(!currentUser||!globalAnnouncementsLoaded||systemPopupShowing||activeSystemPopupQueue.length)return;
-    let seen=false;try{seen=localStorage.getItem(`nexus-whats-new-v0.11.1:${currentUser.id}`)==='1';}catch{seen=true;}
+    let seen=false;try{seen=localStorage.getItem(`nexus-whats-new-${NEXUS_RELEASE_ID}:${currentUser.id}`)==='1';}catch{seen=true;}
     if(seen)return;const dialog=$('#nexus-whats-new');if(dialog&&!dialog.open)dialog.showModal();
   }
   ['nexus-whats-new-close','nexus-whats-new-ok'].forEach(id=>$('#'+id)?.addEventListener('click',markWhatsNewSeen));

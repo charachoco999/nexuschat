@@ -830,3 +830,13 @@
 .message-report-evidence-file{font-size:12px;overflow-wrap:anywhere;}
 .message-report-admin-actions{display:flex;gap:7px;flex-wrap:wrap;}
 @media(max-width:620px){.tos-acceptance-dialog{width:calc(100vw - 12px);padding:12px;}.tos-iframe-wrap{height:44vh;}.message-report-card-heading{align-items:flex-start;flex-direction:column;}}
+
+/* v0.11.1-alpha2 language selector */
+.auth-language-field{margin:14px 0 18px;max-width:100%;}
+.language-settings-section{margin-bottom:16px;}
+.language-settings-section select,.auth-language-field select{width:100%;min-height:42px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 12px;}
+@media(max-width:640px){.auth-language-field{margin:10px 0 14px}.language-settings-section{padding:12px}}
+
+/* v0.11.1-alpha2: language selector inside the mandatory legal gate. */
+.tos-language-field{display:block;margin:8px 0 12px;max-width:100%;}.tos-language-field select{width:100%;min-height:42px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 12px;}
+@media(max-width:620px){.tos-language-field{margin:6px 0 10px;}}

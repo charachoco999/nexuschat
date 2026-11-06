@@ -1,3 +1,5 @@
+> **Nexus v0.11.1-alpha2:** selector de 15 variantes de idioma (cobertura parcial en alpha), diálogos ToS diferenciados y popup de novedades versionado. El ToS vigente es `2026-11-06-v2`; los MDs siguen sin E2EE. Consulta `UPGRADE-v0.11.1-alpha2.md`.
+
 > **Nexus v0.11.1-alpha1-hotfix1:** corrige el inicio de sesión de cuentas sin registro de ToS, elimina el error de objeto JSON único usando RPCs con respuestas explícitas, evita el doble arranque de autenticación y recupera de forma segura el perfil propio. No acepta los ToS automáticamente. Requiere `supabase/migrations/20261106_nexus_v0111_tos_login_hotfix.sql`; consulta `UPGRADE-v0.11.1-alpha1-hotfix1.md`.
 
 > **Nexus v0.11.0-alpha1-hotfix3:** valida avisos globales antes de insertarlos y elimina del encabezado del canal las antiguas barras de avisos; los avisos importantes de megagrupo deben aparecer como mensajes del canal. Requiere una migración SQL pequeña; consulta `UPGRADE-v0.11.0-alpha1-hotfix3.md`.
@@ -9,7 +11,7 @@
 > **Base funcional:** v0.11.0-alpha1: añade ImageCulling, foros, Channels+, avisos importantes, solicitudes de insignias, popups temáticos y mejoras de carga. Esta entrega es alpha y requiere la nueva migración SQL. Consulta `UPGRADE-v0.11.0-alpha1.md` antes de actualizar.
 # Nexus — chat y comunidades
 
-## Nexus v0.11.1-alpha1 — Privacidad, condiciones y reportes
+## Base de v0.11.1-alpha1 — Privacidad, condiciones y reportes
 
 Esta entrega incorpora un documento de condiciones versionado, aceptación obligatoria para cuentas nuevas y existentes, bloqueos entre usuarios y reportes de mensajes con contexto y evidencia privada.
 
