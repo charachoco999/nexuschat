@@ -9,10 +9,12 @@ La localización actual es parcial. El selector ofrece 15 variantes contando esp
 | Claves fuente en el catálogo | 101 |
 | Idiomas destino | 14 |
 | Traducciones existentes en el catálogo | 1.414 |
-| Textos únicos visibles detectados en `index.html` | 658 |
-| Textos HTML que no tienen una clave exacta en el catálogo | 577 |
+| Textos únicos visibles detectados en `index.html` | 653 |
+| Textos HTML que no tienen una clave exacta en el catálogo | 576 |
 | Asignaciones de texto dinámico inspeccionadas en `assets/js/app.js` | 389 |
 | Candidatos dinámicos distintos encontrados | 366 |
+| Candidatos únicos combinados (HTML + JavaScript) | 1.003 |
+| Cadenas heredadas sin traducir guardadas en la línea base | 922 |
 
 La auditoría dinámica es una extracción por patrones, no una enumeración exhaustiva de todas las cadenas del proyecto. No cuenta textos construidos mediante datos del servidor ni todos los fragmentos de plantillas. Las cadenas heredadas detectadas se guardan en `scripts/i18n-alpha2-untranslated-baseline.json`: CI permite temporalmente ese legado, pero falla cuando se añade una nueva cadena visible fuera del catálogo. Las cifras sirven para dimensionar el trabajo, no para certificar un porcentaje de traducción total.
 
