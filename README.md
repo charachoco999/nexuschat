@@ -1,3 +1,5 @@
+> **Nexus v0.11.1-alpha1-hotfix1:** corrige el inicio de sesión de cuentas sin registro de ToS, elimina el error de objeto JSON único usando RPCs con respuestas explícitas, evita el doble arranque de autenticación y recupera de forma segura el perfil propio. No acepta los ToS automáticamente. Requiere `supabase/migrations/20261106_nexus_v0111_tos_login_hotfix.sql`; consulta `UPGRADE-v0.11.1-alpha1-hotfix1.md`.
+
 > **Nexus v0.11.0-alpha1-hotfix3:** valida avisos globales antes de insertarlos y elimina del encabezado del canal las antiguas barras de avisos; los avisos importantes de megagrupo deben aparecer como mensajes del canal. Requiere una migración SQL pequeña; consulta `UPGRADE-v0.11.0-alpha1-hotfix3.md`.
 
 > **Nexus v0.11.0-alpha1-hotfix2:** corrige anuncios repetidos, entrega avisos de megagrupo como mensajes reales, mantiene la voz activa al navegar, mejora los tooltips, amplía `glow:` y añade More Sounds y MarkdownUI BETA. Requiere una migración SQL adicional; consulta `UPGRADE-v0.11.0-alpha1-hotfix2.md`.
@@ -19,7 +21,7 @@ Esta entrega incorpora un documento de condiciones versionado, aceptación oblig
 - **E2EE:** todavía **no está implementado**. Los MDs usan HTTPS/TLS y los controles de almacenamiento del proveedor, pero no deben considerarse cifrados de extremo a extremo. Consulta `E2EE-STATUS-v0.11.1.md`.
 - **Seguridad:** consulta `SECURITY-CHECKLIST-v0.11.1.md`. La lista incluye tareas de producción aún pendientes; no es una auditoría ni una certificación.
 
-Para actualizar desde `v0.11.0-alpha1-hotfix3`, ejecuta `supabase/migrations/20261106_nexus_v0111_terms_privacy_blocks_reports.sql` una vez y sigue `UPGRADE-v0.11.1-alpha1.md`. Conserva `assets/js/config.js`.
+Para actualizar desde `v0.11.0-alpha1-hotfix3`, ejecuta `supabase/migrations/20261106_nexus_v0111_terms_privacy_blocks_reports.sql` una vez. Si instalaste la alpha1 original y las cuentas quedan bloqueadas durante el inicio, aplica después `supabase/migrations/20261106_nexus_v0111_tos_login_hotfix.sql` y sigue `UPGRADE-v0.11.1-alpha1-hotfix1.md`. Conserva `assets/js/config.js`.
 
 **Antes de producción:** completa la identidad/contacto del responsable y los plazos de conservación en el ToS, confirma la región/DPA de Supabase, revisa las políticas RLS de todas las tablas y buckets, y obtén revisión jurídica y de seguridad. El documento legal es un borrador operativo, no asesoramiento legal.
 

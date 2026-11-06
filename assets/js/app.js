@@ -1,4 +1,4 @@
-/* Nexus v0.11.1-alpha1 front-end. Database RLS and protected RPCs are the security boundary. */
+/* Nexus v0.11.1-alpha1-hotfix1 front-end. Database RLS and protected RPCs are the security boundary. */
 (() => {
   'use strict';
 
@@ -24,6 +24,9 @@
 
   let currentUser = null;
   let profile = null;
+  // Auth state and getSession can both report the same session during startup.
+  // Guard the entire bootstrap so the mandatory ToS dialog is never opened twice.
+  let appStartupUserId = null;
   let currentView = 'chats';
   let customizationGuideReturnView = 'chats';
   let markdownGuideReturnView = 'chats';
@@ -355,13 +358,11 @@
     : 'Nexus necesita una conexión configurada para activar cuentas y conversaciones.';
 
   async function ensureNexusTermsAccepted() {
-    const {data,error}=await client.from('tos_acceptances')
-      .select('terms_version,terms_hash')
-      .eq('user_id',currentUser.id)
-      .eq('terms_version',NEXUS_TERMS_VERSION)
-      .maybeSingle();
-    if(error) throw new Error(`No se pudo comprobar la aceptación de las condiciones. Ejecuta primero la migración 0.11.1: ${error.message}`);
-    if(data?.terms_hash===NEXUS_TERMS_HASH) return true;
+    // A SECURITY DEFINER RPC returns an explicit status even when no row exists.
+    // This avoids PostgREST single-object coercion errors for new/legacy accounts.
+    const {data,error}=await client.rpc('nexus_terms_acceptance_status');
+    if(error) throw new Error(`No se pudo comprobar la aceptación de las condiciones. Ejecuta la reparación SQL 0.11.1-hotfix1: ${error.message}`);
+    if(data?.accepted===true && data?.terms_version===NEXUS_TERMS_VERSION && data?.terms_hash===NEXUS_TERMS_HASH) return true;
     const dialog=$('#tos-acceptance-dialog');
     const checkbox=$('#tos-accept-checkbox');
     const button=$('#tos-accept-submit');
@@ -378,8 +379,9 @@
     if(termsAcceptanceBusy||!$('#tos-accept-checkbox')?.checked||!currentUser)return;
     termsAcceptanceBusy=true;const button=$('#tos-accept-submit');button.disabled=true;button.textContent='Guardando…';
     try{
-      const {error}=await client.rpc('accept_nexus_terms',{p_terms_version:NEXUS_TERMS_VERSION,p_terms_hash:NEXUS_TERMS_HASH});
+      const {data,error}=await client.rpc('accept_nexus_terms',{p_terms_version:NEXUS_TERMS_VERSION,p_terms_hash:NEXUS_TERMS_HASH});
       if(error)throw error;
+      if(data?.accepted!==true || data?.terms_hash!==NEXUS_TERMS_HASH) throw new Error('Supabase no confirmó el registro de aceptación.');
       const dialog=$('#tos-acceptance-dialog');if(dialog?.open)dialog.close();
       const resolve=pendingTermsResolver;pendingTermsResolver=null;resolve?.(true);
     }catch(error){showError(error,'No se pudo guardar la aceptación. Comprueba la migración de ToS.');}
@@ -394,6 +396,9 @@
   $('#tos-acceptance-dialog')?.addEventListener('cancel',event=>event.preventDefault());
 
   async function startApp(user) {
+    if (!user?.id) return;
+    if (appStartupUserId === user.id) return;
+    appStartupUserId = user.id;
     currentUser = user;
     showNexusLoading(true);
     showApp();
@@ -401,8 +406,11 @@
     try {
       const accepted = await ensureNexusTermsAccepted();
       if (!accepted) { showNexusLoading(false); return; }
-      const {data, error} = await client.from('profiles').select('*').eq('id', user.id).single();
+      // This SECURITY DEFINER RPC reads only the authenticated user's profile,
+      // and repairs a missing legacy profile without exposing auth.users.
+      const {data, error} = await client.rpc('nexus_ensure_current_profile');
       if (error) throw error;
+      if (!data || data.id !== user.id) throw new Error('No se pudo recuperar el perfil de esta cuenta. Contacta con el administrador.');
       profile = data;
       await loadSystemInboxMessages();
       // Store a privacy-conscious last-seen timestamp for platform moderation/search.
@@ -426,10 +434,14 @@
       loadMyReputationStats();
     } catch (error) {
       showNexusLoading(false);
-      showError(error, 'No se pudo cargar el perfil. Comprueba la conexión y que la base de datos esté actualizada.');
-      if(String(error?.message||'').includes('aceptación de las condiciones')||String(error?.message||'').includes('pantalla obligatoria')){
-        await client.auth.signOut();currentUser=null;profile=null;showLoginScreen();
-      }
+      const termsDialog=$('#tos-acceptance-dialog');if(termsDialog?.open)termsDialog.close();
+      showError(error, 'No se pudo cargar la cuenta. Comprueba la conexión y que la reparación SQL 0.11.1-hotfix1 esté aplicada.');
+      // Return to the login screen instead of leaving a blank authenticated shell.
+      // A reload or a fresh sign-in can safely retry the guarded bootstrap.
+      appStartupUserId = null;
+      currentUser = null;
+      profile = null;
+      showLoginScreen();
     }
   }
 
@@ -450,7 +462,7 @@
     messageCache.clear(); typingUsers.clear();
     if (listRefreshTimer) clearTimeout(listRefreshTimer);
     pendingListRefreshes.clear();
-    currentUser = null; profile = null; currentContext = null; replyTarget = null; activeAltProfile = null;
+    currentUser = null; profile = null; appStartupUserId = null; currentContext = null; replyTarget = null; activeAltProfile = null;
     globalAnnouncementsLoaded=false;globalAnnouncementOwnerId=null;globalAnnouncementLoadPromise=null;globalAnnouncementQueuedIds.clear();activeSystemPopupQueue=[];
     notificationItems = []; notificationSeenIds.clear(); renderNotificationPanel();
     showAuth();
@@ -464,7 +476,7 @@
         return;
       }
       if (session?.user && !currentUser) startApp(session.user);
-      if (!session?.user) { currentUser = null; profile = null; showLoginScreen(); }
+      if (!session?.user) { appStartupUserId = null; currentUser = null; profile = null; showLoginScreen(); }
     });
     client.auth.getSession().then(({data}) => {
       if (recoveryMode) showRecoveryScreen();
