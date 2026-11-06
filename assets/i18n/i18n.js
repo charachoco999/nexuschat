@@ -53,7 +53,7 @@
     const translated=CATALOG[source]?.[current];
     if(!translated&&current!=='es'&&source.length>2)missingKeys.add(source);
     const value=translated||source;
-    return value.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g(match,name)=>Object.prototype.hasOwnProperty.call(variables,name)?String(variables[name]):match);
+    return value.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(variables,name)?String(variables[name]):match);
   }
   function translateText(source){
     const dict=dictionary();
