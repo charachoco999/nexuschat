@@ -59,8 +59,8 @@ Fechas, horas y números deben formatearse mediante `Intl.DateTimeFormat`, `Intl
 3. Comprobar desbordamientos por textos más largos y tipografías CJK.
 4. Mantener los códigos de idioma y los nombres de idioma en su forma nativa.
 5. Pedir revisión humana para guaraní y latín beta y para textos legales.
-6. Ejecutar `node scripts/check-i18n.mjs` en cada cambio del catálogo.
-7. Durante la fase de inventario, revisar los textos HTML sin catalogar. Antes de publicar v0.12.0, ejecutar `node scripts/check-i18n.mjs --require-complete` y eliminar las omisiones justificadas una por una.
+6. Ejecutar `node scripts/check-i18n.mjs` en cada cambio del catálogo. El control CI conserva una lista base de las cadenas heredadas de alpha2 y falla si una modificación introduce una nueva cadena visible sin clave traducible.
+7. Durante la fase de inventario, revisar los textos HTML y JavaScript sin catalogar. Antes de publicar v0.12.0, ejecutar `node scripts/check-i18n.mjs --require-complete` y eliminar las omisiones justificadas una por una.
 
 ## Estado de partida auditado
 
