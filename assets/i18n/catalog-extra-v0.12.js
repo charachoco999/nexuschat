@@ -1,4 +1,4 @@
-/* Nexus UI translation catalogue · settings and help phrase batch. */
+/* Nexus UI translation catalogue · legal status note. */
 (() => {
 'use strict';
 const api=window.NexusI18n;
@@ -3827,6 +3827,22 @@ Object.assign(api.catalog, {
     "eu": "Aurrebista",
     "la": "Praevisio",
     "es-jv": "Vista previa"
+  },
+  "La versión legal oficial es la española; la interfaz puede mostrarse en otros idiomas, pero este documento aún no está traducido íntegramente.": {
+    "en": "The official legal version is in Spanish; the interface can be displayed in other languages, but this document has not yet been fully translated.",
+    "sl": "Uradna pravna različica je v španščini; vmesnik je lahko prikazan v drugih jezikih, vendar ta dokument še ni v celoti preveden.",
+    "it": "La versione legale ufficiale è in spagnolo; l'interfaccia può essere visualizzata in altre lingue, ma questo documento non è ancora stato tradotto integralmente.",
+    "fr": "La version juridique officielle est en espagnol ; l'interface peut être affichée dans d'autres langues, mais ce document n'a pas encore été entièrement traduit.",
+    "ja": "正式な法的文書はスペイン語です。インターフェースは他の言語で表示できますが、この文書全体の翻訳はまだ完了していません。",
+    "zh-CN": "正式法律版本为西班牙语；界面可以显示为其他语言，但本文档尚未完成全部翻译。",
+    "de": "Die offizielle rechtliche Fassung ist auf Spanisch; die Oberfläche kann in anderen Sprachen angezeigt werden, dieses Dokument ist jedoch noch nicht vollständig übersetzt.",
+    "pt-PT": "A versão jurídica oficial está em espanhol; a interface pode ser apresentada noutros idiomas, mas este documento ainda não foi totalmente traduzido.",
+    "gn": "Kuatia legal tee oĩ español-pe; interfaz ikatu ojehechauka ambue ñe’ẽme, hákatu ko kuatia ndoje’evéi gueteri opaite.",
+    "ca": "La versió jurídica oficial és en castellà; la interfície es pot mostrar en altres idiomes, però aquest document encara no s'ha traduït íntegrament.",
+    "gl": "A versión xurídica oficial está en castelán; a interface pode mostrarse noutros idiomas, pero este documento aínda non está traducido integramente.",
+    "eu": "Legezko bertsio ofiziala gaztelaniaz dago; interfazea beste hizkuntza batzuetan ager daiteke, baina dokumentu hau ez dago oraindik osorik itzulita.",
+    "la": "Versio iuridica officialis Hispanice est; interfacies aliis linguis ostendi potest, sed hoc documentum nondum totum conversum est.",
+    "es-jv": "La versión jurídica oficial está en español; la interfaz puede mostrarse en otros idiomas, pero este documento todavía no está traducido íntegramente."
   }
 });
 })();
