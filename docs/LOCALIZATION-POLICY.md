@@ -34,6 +34,7 @@ Para atributos se admiten:
 - `data-i18n-title`
 - `data-i18n-aria-label`
 - `data-i18n-alt`
+- `data-i18n-value` (solo para valores iniciales de controles escritos en el código; no para texto introducido por una persona)
 
 ### JavaScript dinámico
 
