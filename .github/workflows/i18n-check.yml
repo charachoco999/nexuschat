@@ -36,7 +36,7 @@ jobs:
           cp docs/LOCALIZATION-POLICY.md dist/nexus-i18n-update/docs/LOCALIZATION-POLICY.md
           cp docs/I18N-AUDIT-v0.11.1-alpha2.md dist/nexus-i18n-update/docs/I18N-AUDIT-v0.11.1-alpha2.md
           cp docs/I18N-v0.12.0-PREVIEW.md dist/nexus-i18n-update/docs/I18N-v0.12.0-PREVIEW.md
-          cp docs/I18N-VERIFICATION-v0.12.0.md dist/nexus-i18n-update/docs/I18N-VERIFICATION-v0.12.0.md
+          if [ -f docs/I18N-VERIFICATION-v0.12.0.md ]; then cp docs/I18N-VERIFICATION-v0.12.0.md dist/nexus-i18n-update/docs/I18N-VERIFICATION-v0.12.0.md; fi
           cat > dist/nexus-i18n-update/INSTALL.md <<'EOF'
           # Nexus localization update v0.12.0
 
