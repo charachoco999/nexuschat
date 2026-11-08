@@ -42,7 +42,7 @@ try {
   process.exit(2);
 }
 
-const extraCatalogMatch = extraCatalogSource.match(/Object\\.assign\\(api\\.catalog, ([\\s\\S]*?)\\);/);
+const extraCatalogMatch = extraCatalogSource.match(/Object\.assign\(api\.catalog, ([\s\S]*?)\);/);
 if (!extraCatalogMatch) {
   console.error('ERROR: Could not locate the extended catalogue in assets/i18n/catalog-extra-v0.12.js.');
   process.exit(2);
