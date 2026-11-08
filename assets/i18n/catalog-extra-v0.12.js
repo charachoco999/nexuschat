@@ -1,4 +1,4 @@
-/* Nexus UI translation catalogue · remaining dynamic UI strings. */
+/* Nexus UI translation catalogue · remaining app validation strings. */
 (() => {
 'use strict';
 const api=window.NexusI18n;
@@ -9027,6 +9027,86 @@ Object.assign(api.catalog, {
     "eu": "Kidea",
     "la": "Sodalis",
     "es-jv": "Miembro"
+  },
+  "Los iconos externos deben usar HTTPS.": {
+    "en": "External icons must use HTTPS.",
+    "sl": "Zunanje ikone morajo uporabljati HTTPS.",
+    "it": "Le icone esterne devono usare HTTPS.",
+    "fr": "Les icônes externes doivent utiliser HTTPS.",
+    "ja": "外部アイコンにはHTTPSを使用してください。",
+    "zh-CN": "外部图标必须使用 HTTPS。",
+    "de": "Externe Symbole müssen HTTPS verwenden.",
+    "pt-PT": "Os ícones externos devem usar HTTPS.",
+    "gn": "Ta’ãnga okápegua oiporu va’erã HTTPS.",
+    "ca": "Les icones externes han d'utilitzar HTTPS.",
+    "gl": "As iconas externas deben usar HTTPS.",
+    "eu": "Kanpoko ikonoek HTTPS erabili behar dute.",
+    "la": "Icones externae HTTPS uti debent.",
+    "es-jv": "Los iconos externos deben usar HTTPS."
+  },
+  "La URL del icono es demasiado larga.": {
+    "en": "The icon URL is too long.",
+    "sl": "URL ikone je predolg.",
+    "it": "L'URL dell'icona è troppo lungo.",
+    "fr": "L'URL de l'icône est trop long.",
+    "ja": "アイコンのURLが長すぎます。",
+    "zh-CN": "图标 URL 太长。",
+    "de": "Die Symbol-URL ist zu lang.",
+    "pt-PT": "O URL do ícone é demasiado longo.",
+    "gn": "Ta’ãnga URL ipukueterei.",
+    "ca": "L'URL de la icona és massa llarg.",
+    "gl": "O URL da icona é demasiado longo.",
+    "eu": "Ikonoaren URLa luzeegia da.",
+    "la": "URL iconis nimis longa est.",
+    "es-jv": "La URL del icono es demasiado larga."
+  },
+  "Eliminar canal": {
+    "en": "Delete channel",
+    "sl": "Izbriši kanal",
+    "it": "Elimina canale",
+    "fr": "Supprimer le salon",
+    "ja": "チャンネルを削除",
+    "zh-CN": "删除频道",
+    "de": "Kanal löschen",
+    "pt-PT": "Eliminar canal",
+    "gn": "Embogue canal",
+    "ca": "Elimina el canal",
+    "gl": "Eliminar canle",
+    "eu": "Ezabatu kanala",
+    "la": "Canalem dele",
+    "es-jv": "Eliminar canal"
+  },
+  "Channels+ · Permisos": {
+    "en": "Channels+ · Permissions",
+    "sl": "Channels+ · Dovoljenja",
+    "it": "Channels+ · Permessi",
+    "fr": "Channels+ · Autorisations",
+    "ja": "Channels+ · 権限",
+    "zh-CN": "Channels+ · 权限",
+    "de": "Channels+ · Berechtigungen",
+    "pt-PT": "Channels+ · Permissões",
+    "gn": "Channels+ · Permiso",
+    "ca": "Channels+ · Permisos",
+    "gl": "Channels+ · Permisos",
+    "eu": "Channels+ · Baimenak",
+    "la": "Channels+ · Permissiones",
+    "es-jv": "Channels+ · Permisos"
+  },
+  "No tienes permiso para crear invitaciones en este megagrupo.": {
+    "en": "You do not have permission to create invitations in this megagroup.",
+    "sl": "V tej megaskupini nimaš dovoljenja za ustvarjanje povabil.",
+    "it": "Non hai il permesso di creare inviti in questo megagruppo.",
+    "fr": "Vous n'avez pas l'autorisation de créer des invitations dans ce mégagroupe.",
+    "ja": "このメガグループで招待を作成する権限がありません。",
+    "zh-CN": "你没有在此大型群组中创建邀请的权限。",
+    "de": "Du hast keine Berechtigung, in dieser Megagruppe Einladungen zu erstellen.",
+    "pt-PT": "Não tens permissão para criar convites neste megagrupo.",
+    "gn": "Ndereguerekói permiso ejapo hag̃ua ñerenói ko megagrupo.",
+    "ca": "No tens permís per crear invitacions en aquest megagrup.",
+    "gl": "Non tes permiso para crear invitacións neste megagrupo.",
+    "eu": "Ez duzu gonbidapenik sortzeko baimenik megatalde honetan.",
+    "la": "Permissionem ad invitationes in hoc circulo magno creandas non habes.",
+    "es-jv": "No tienes permiso para crear invitaciones en este megagrupo."
   }
 });
 })();
