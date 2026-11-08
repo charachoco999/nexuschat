@@ -1,42 +1,27 @@
-# Auditoría de localización · Nexus v0.11.1-alpha2
+# Auditoría de localización de Nexus
 
-## Resultado
+## Arquitectura
 
-La localización actual es parcial. El selector ofrece 15 variantes contando español y la variante de Julio Verne, pero el catálogo no representa toda la interfaz.
+La interfaz utiliza un catálogo español como fuente y un conjunto de catálogos de destino. El runtime carga `assets/i18n/i18n.js` y, a continuación, `assets/i18n/catalog-extra-v0.12.js`.
 
-| Área | Resultado |
-|---|---:|
-| Claves fuente en el catálogo | 101 |
-| Idiomas destino | 14 |
-| Traducciones existentes en el catálogo | 1.414 |
-| Textos únicos visibles detectados en `index.html` | 653 |
-| Textos HTML que no tienen una clave exacta en el catálogo | 576 |
-| Asignaciones de texto dinámico inspeccionadas en `assets/js/app.js` | 389 |
-| Candidatos dinámicos distintos encontrados | 366 |
-| Candidatos únicos combinados (HTML + JavaScript) | 1.003 |
-| Cadenas heredadas sin traducir guardadas en la línea base | 922 |
+La comprobación automática lee ambos catálogos combinados. Esto es importante: analizar solo el catálogo original produce falsos positivos porque el navegador carga también el catálogo ampliado.
 
-La auditoría dinámica es una extracción por patrones, no una enumeración exhaustiva de todas las cadenas del proyecto. No cuenta textos construidos mediante datos del servidor ni todos los fragmentos de plantillas. Las cadenas heredadas detectadas se guardan en `scripts/i18n-alpha2-untranslated-baseline.json`: CI permite temporalmente ese legado, pero falla cuando se añade una nueva cadena visible fuera del catálogo. Las cifras sirven para dimensionar el trabajo, no para certificar un porcentaje de traducción total.
+## Criterios
 
-## Qué debe cubrir v0.11.2 en español
+- Toda clave incorporada al catálogo debe tener una cadena no vacía en los 14 idiomas destino.
+- Los mensajes escritos por usuarios, los nombres elegidos por usuarios, el contenido de perfil, el código, los ejemplos Markdown, las URLs y los adjuntos no se traducen.
+- Las cadenas de interfaz heredadas que todavía no estén inventariadas pueden mostrarse en español como fallback. No se debe confundir cobertura completa de claves con cobertura completa de todas las pantallas.
+- Las cadenas nuevas deben usar `NexusI18n.t()` o los atributos `data-i18n*` documentados.
+- Guaraní y latín están en beta; Julio Verne es una variante lúdica.
+- Los Términos y Condiciones en español continúan siendo la referencia jurídica hasta que las traducciones se revisen por separado.
 
-- Inventariar y normalizar los textos estáticos de todas las secciones.
-- Revisar todos los textos que se generan desde JavaScript: errores, toasts, confirmaciones, menús contextuales, estados vacíos, permisos, cargas, llamadas y multimedia.
-- Unificar terminología: conversación, MD, canal, megagrupo, aliado, identidad alternativa, insignia y permisos.
-- Evitar frases concatenadas que no permitan cambiar el orden de palabras por idioma.
-- Diferenciar mensajes de la interfaz del contenido escrito por usuarios, que nunca debe traducirse.
-- Marcar como intencional el contenido técnico que no se traduce: código, URLs, claves, comandos y nombres elegidos por usuarios.
+## Verificación automatizada
 
-## Qué debe cumplir v0.12.0 antes de publicarse
+El workflow `.github/workflows/i18n-check.yml` ejecuta `node scripts/check-i18n.mjs` en cada push a `main` y en las solicitudes de cambios. El mismo workflow crea el ZIP de actualización y lo publica como artefacto de GitHub Actions.
 
-- Todas las cadenas de interfaz visibles tienen clave fuente española.
-- Cada clave dispone de traducción para inglés, esloveno, italiano, francés, japonés, chino simplificado, alemán, portugués europeo, guaraní, catalán, gallego, euskera, latín y español Julio Verne.
-- El selector, la detección de idioma, los placeholders, los tooltips, los errores y las notificaciones usan el mismo locale.
-- Se ha revisado la interfaz en escritorio y móvil para cada idioma, en particular el ajuste de textos largos y las fuentes CJK.
-- Se ha ejecutado `node scripts/check-i18n.mjs --require-complete`.
-- Guaraní y latín siguen identificados como beta hasta una revisión humana competente. La variante Julio Verne es únicamente un easter egg.
-- Los documentos legales traducidos mantienen una advertencia de que la versión española es la fuente oficial mientras las demás no hayan recibido revisión jurídica.
-
-## Exclusiones necesarias
-
-No se deben traducir mensajes de usuario, nombres de usuario, biografías, texto de perfil elegido por sus titulares, mensajes adjuntos, bloques de código ni contenido Markdown de los usuarios. Una cobertura completa de la interfaz no significa traducir conversaciones privadas.
+Para una declaración de localización completa todavía hace falta:
+1. Ejecutar el workflow y confirmar que termina correctamente.
+2. Completar la auditoría de las cadenas heredadas de HTML y JavaScript que no están en el catálogo.
+3. Revisar visualmente las pantallas en escritorio y móvil, incluidas las escrituras CJK y los textos largos.
+4. Hacer revisión humana de Guaraní y Latín.
+5. Encargar la revisión separada de las traducciones jurídicas antes de ofrecerlas como oficiales.
