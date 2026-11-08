@@ -1,4 +1,4 @@
-/* Nexus UI translation catalogue · remaining app validation strings. */
+/* Nexus UI translation catalogue · final dynamic labels. */
 (() => {
 'use strict';
 const api=window.NexusI18n;
@@ -9107,6 +9107,86 @@ Object.assign(api.catalog, {
     "eu": "Ez duzu gonbidapenik sortzeko baimenik megatalde honetan.",
     "la": "Permissionem ad invitationes in hoc circulo magno creandas non habes.",
     "es-jv": "No tienes permiso para crear invitaciones en este megagrupo."
+  },
+  "Enlace": {
+    "en": "Link",
+    "sl": "Povezava",
+    "it": "Link",
+    "fr": "Lien",
+    "ja": "リンク",
+    "zh-CN": "链接",
+    "de": "Link",
+    "pt-PT": "Ligação",
+    "gn": "Joajuha",
+    "ca": "Enllaç",
+    "gl": "Ligazón",
+    "eu": "Esteka",
+    "la": "Nexus",
+    "es-jv": "Enlace"
+  },
+  "El usuario alternativo debe tener entre 3 y 24 caracteres.": {
+    "en": "The alternate username must be between 3 and 24 characters long.",
+    "sl": "Nadomestno uporabniško ime mora vsebovati od 3 do 24 znakov.",
+    "it": "Il nome utente alternativo deve contenere da 3 a 24 caratteri.",
+    "fr": "Le nom d'utilisateur alternatif doit comporter entre 3 et 24 caractères.",
+    "ja": "代替ユーザー名は3〜24文字で入力してください。",
+    "zh-CN": "备用用户名长度必须为 3 到 24 个字符。",
+    "de": "Der alternative Benutzername muss zwischen 3 und 24 Zeichen lang sein.",
+    "pt-PT": "O nome de utilizador alternativo deve ter entre 3 e 24 caracteres.",
+    "gn": "Puruhára réra ambue oguereko va’erã 3 ha 24 tai mbytépe.",
+    "ca": "El nom d'usuari alternatiu ha de tenir entre 3 i 24 caràcters.",
+    "gl": "O nome de usuario alternativo debe ter entre 3 e 24 caracteres.",
+    "eu": "Ordezko erabiltzaile-izenak 3 eta 24 karaktere artean izan behar ditu.",
+    "la": "Nomen usoris alternum inter 3 et 24 litteras habere debet.",
+    "es-jv": "El usuario alternativo debe tener entre 3 y 24 caracteres."
+  },
+  "usuario": {
+    "en": "user",
+    "sl": "uporabnik",
+    "it": "utente",
+    "fr": "utilisateur",
+    "ja": "ユーザー",
+    "zh-CN": "用户",
+    "de": "Benutzer",
+    "pt-PT": "utilizador",
+    "gn": "puruhára",
+    "ca": "usuari",
+    "gl": "usuario",
+    "eu": "erabiltzailea",
+    "la": "usor",
+    "es-jv": "usuario"
+  },
+  "No se encontró ese usuario.": {
+    "en": "That user was not found.",
+    "sl": "Uporabnika ni bilo mogoče najti.",
+    "it": "L'utente non è stato trovato.",
+    "fr": "Cet utilisateur est introuvable.",
+    "ja": "そのユーザーは見つかりませんでした。",
+    "zh-CN": "未找到该用户。",
+    "de": "Dieser Benutzer wurde nicht gefunden.",
+    "pt-PT": "Esse utilizador não foi encontrado.",
+    "gn": "Puruhára ndojejuhúi.",
+    "ca": "No s'ha trobat aquest usuari.",
+    "gl": "Non se atopou ese usuario.",
+    "eu": "Ez da erabiltzailea aurkitu.",
+    "la": "Usor ille non inventus est.",
+    "es-jv": "No se encontró ese usuario."
+  },
+  "Marca uno o varios megagrupos, o activa todos.": {
+    "en": "Select one or more megagroups, or select all.",
+    "sl": "Označi eno ali več megaskupin ali izberi vse.",
+    "it": "Seleziona uno o più megagruppi oppure selezionali tutti.",
+    "fr": "Sélectionnez un ou plusieurs mégagroupes, ou sélectionnez-les tous.",
+    "ja": "1つ以上のメガグループを選択するか、すべてを選択してください。",
+    "zh-CN": "选择一个或多个大型群组，或选择全部。",
+    "de": "Wähle eine oder mehrere Megagruppen aus oder wähle alle aus.",
+    "pt-PT": "Seleciona um ou vários megagrupos ou seleciona todos.",
+    "gn": "Eiporavo peteĩ térã heta megagrupo, térã opavave.",
+    "ca": "Selecciona un o diversos megagrups, o selecciona'ls tots.",
+    "gl": "Selecciona un ou varios megagrupos, ou selecciónaos todos.",
+    "eu": "Hautatu megatalde bat edo gehiago, edo hautatu guztiak.",
+    "la": "Unum aut plures circulos magnos elige, aut omnes elige.",
+    "es-jv": "Marca uno o varios megagrupos, o activa todos."
   }
 });
 })();
