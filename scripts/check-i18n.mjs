@@ -17,10 +17,12 @@ import path from 'node:path';
 
 const root = process.cwd();
 const i18nPath = path.join(root, 'assets/i18n/i18n.js');
+const extraCatalogPath = path.join(root, 'assets/i18n/catalog-extra-v0.12.js');
 const htmlPath = path.join(root, 'index.html');
 const appPath = path.join(root, 'assets/js/app.js');
 const baselinePath = path.join(root, 'scripts/i18n-alpha2-untranslated-baseline.json');
 const source = fs.readFileSync(i18nPath, 'utf8');
+const extraCatalogSource = fs.readFileSync(extraCatalogPath, 'utf8');
 const html = fs.readFileSync(htmlPath, 'utf8');
 const appSource = fs.readFileSync(appPath, 'utf8');
 const legacyBaseline = new Set(JSON.parse(fs.readFileSync(baselinePath, 'utf8')));
@@ -37,6 +39,18 @@ try {
   catalog = JSON.parse(catalogMatch[1]);
 } catch (error) {
   console.error('ERROR: CATALOG is not valid JSON:', error.message);
+  process.exit(2);
+}
+
+const extraCatalogMatch = extraCatalogSource.match(/Object\\.assign\\(api\\.catalog, ([\\s\\S]*?)\\);/);
+if (!extraCatalogMatch) {
+  console.error('ERROR: Could not locate the extended catalogue in assets/i18n/catalog-extra-v0.12.js.');
+  process.exit(2);
+}
+try {
+  Object.assign(catalog, JSON.parse(extraCatalogMatch[1]));
+} catch (error) {
+  console.error('ERROR: Extended catalogue is not valid JSON:', error.message);
   process.exit(2);
 }
 
