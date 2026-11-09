@@ -1,5 +1,10 @@
 > **Nexus v0.11.1-alpha2:** selector de 15 variantes de idioma (cobertura parcial en alpha), diálogos ToS diferenciados y popup de novedades versionado. El ToS vigente es `2026-11-06-v2`; los MDs siguen sin E2EE. Consulta `UPGRADE-v0.11.1-alpha2.md`.
 
+> **Internacionalización en preparación:** el español seguirá siendo la fuente canónica. La propuesta es cerrar primero el inventario español en v0.11.2 y publicar la cobertura completa de idiomas en v0.12.0. El catálogo alpha2 solo cubre una parte de la interfaz; no debe anunciarse como traducción completa.
+
+Consulta [la política de idiomas](docs/LOCALIZATION-POLICY.md). El runtime ofrece `NexusI18n.t()` y atributos `data-i18n-*`; `node scripts/check-i18n.mjs` valida las claves y evita que el código añada nuevas cadenas de interfaz sin catalogar.
+
+
 > **Nexus v0.11.1-alpha1-hotfix1:** corrige el inicio de sesión de cuentas sin registro de ToS, elimina el error de objeto JSON único usando RPCs con respuestas explícitas, evita el doble arranque de autenticación y recupera de forma segura el perfil propio. No acepta los ToS automáticamente. Requiere `supabase/migrations/20261106_nexus_v0111_tos_login_hotfix.sql`; consulta `UPGRADE-v0.11.1-alpha1-hotfix1.md`.
 
 > **Nexus v0.11.0-alpha1-hotfix3:** valida avisos globales antes de insertarlos y elimina del encabezado del canal las antiguas barras de avisos; los avisos importantes de megagrupo deben aparecer como mensajes del canal. Requiere una migración SQL pequeña; consulta `UPGRADE-v0.11.0-alpha1-hotfix3.md`.

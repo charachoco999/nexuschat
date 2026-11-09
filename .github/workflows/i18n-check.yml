@@ -1,0 +1,59 @@
+name: i18n catalog check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  check-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate every catalog key in every locale
+        run: node scripts/check-i18n.mjs
+
+      - name: Build localization update ZIP
+        run: |
+          set -euo pipefail
+          mkdir -p dist/nexus-i18n-update/assets/i18n
+          mkdir -p dist/nexus-i18n-update/assets/js
+          mkdir -p dist/nexus-i18n-update/scripts
+          mkdir -p dist/nexus-i18n-update/docs
+          cp index.html dist/nexus-i18n-update/index.html
+          cp assets/i18n/i18n.js dist/nexus-i18n-update/assets/i18n/i18n.js
+          cp assets/i18n/catalog-extra-v0.12.js dist/nexus-i18n-update/assets/i18n/catalog-extra-v0.12.js
+          cp assets/js/app.js dist/nexus-i18n-update/assets/js/app.js
+          cp scripts/check-i18n.mjs dist/nexus-i18n-update/scripts/check-i18n.mjs
+          cp scripts/i18n-alpha2-untranslated-baseline.json dist/nexus-i18n-update/scripts/i18n-alpha2-untranslated-baseline.json
+          cp docs/LOCALIZATION-POLICY.md dist/nexus-i18n-update/docs/LOCALIZATION-POLICY.md
+          cp docs/I18N-AUDIT-v0.11.1-alpha2.md dist/nexus-i18n-update/docs/I18N-AUDIT-v0.11.1-alpha2.md
+          cp docs/I18N-v0.12.0-PREVIEW.md dist/nexus-i18n-update/docs/I18N-v0.12.0-PREVIEW.md
+          if [ -f docs/I18N-VERIFICATION-v0.12.0.md ]; then cp docs/I18N-VERIFICATION-v0.12.0.md dist/nexus-i18n-update/docs/I18N-VERIFICATION-v0.12.0.md; fi
+          cat > dist/nexus-i18n-update/INSTALL.md <<'EOF'
+          # Nexus localization update v0.12.0
+
+          1. Back up the current website files.
+          2. Copy the files in this archive to the matching paths in the Nexus web root, replacing those files.
+          3. Keep your existing assets/js/config.js unchanged. It is intentionally not included.
+          4. No Supabase migration is required for this localization update.
+          5. Clear the browser cache or perform a hard refresh after deployment.
+          6. Run `node scripts/check-i18n.mjs` in a local repository checkout to audit locale catalogue coverage.
+
+          The Spanish catalogue is the source. Guarani and Latin remain beta. The Spanish legal text remains the authoritative Terms of Service until translations are reviewed separately.
+          EOF
+          (cd dist/nexus-i18n-update && zip -qr ../nexus-i18n-update-v0.12.0.zip .)
+      - name: Upload localization update ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-i18n-update-v0.12.0
+          path: dist/nexus-i18n-update-v0.12.0.zip
+          if-no-files-found: error
+          retention-days: 30

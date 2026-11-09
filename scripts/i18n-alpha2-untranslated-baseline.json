@@ -21,6 +21,10 @@
   "general",
   ".community-hero { border-radius: 24px; }",
   "CSS",
+<<<<<<< HEAD
   "ALT",
   "Nexus · 0.12.0"
+=======
+  "ALT"
+>>>>>>> 6e48341df433dfa91df0459abb5436cf46312e4f
 ]
