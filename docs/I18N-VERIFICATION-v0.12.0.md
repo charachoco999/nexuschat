@@ -15,9 +15,9 @@ Target locales: `en`, `sl`, `it`, `fr`, `ja`, `zh-CN`, `de`, `pt-PT`, `gn`, `ca`
 
 ## Static UI audit
 
-A scan of visible text in `index.html` and common UI text sinks in `assets/js/app.js` found no remaining ordinary prose strings that stay untranslated across all target locales. The remaining untranslated values are intentional: product/feature names, font family names, Markdown/CSS syntax examples, code fragments, and demonstration values such as sample addresses or channel names.
+A scan of visible text in `index.html` and common UI text sinks in `assets/js/app.js` found 23 values that intentionally remain unchanged in all target locales. They are brand/product or feature identifiers, font family names, Markdown/CSS syntax examples, code fragments, and demonstration values such as sample email addresses or channel names. No ordinary UI prose remains untranslated in this static scan.
 
-This is a static audit, not a substitute for exercising every screen with live data. It does not certify every dynamically composed message or every visual layout.
+The checker now simulates the runtime's exact-key and longest-fragment translation. It fails on any new visible string left untranslated across all locales. Its optional `--require-complete` mode also fails until the 23 deliberate exceptions are removed. This is a static audit, not a substitute for exercising every screen with live data; it does not certify every dynamically composed message or visual layout.
 
 ## Important limitations
 
