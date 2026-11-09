@@ -1,4 +1,4 @@
-/* Nexus v0.11.1-alpha2 front-end. Database RLS and protected RPCs are the security boundary. */
+/* Nexus v0.12.1 front-end hotfix. Database RLS and protected RPCs are the security boundary. */
 (() => {
   'use strict';
 
@@ -12,7 +12,7 @@
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const NEXUS_TERMS_VERSION = '2026-11-06-v2';
   const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
-  const NEXUS_RELEASE_ID = '0.12.0';
+  const NEXUS_RELEASE_ID = '0.12.1';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
   let termsAcceptanceBusy = false;
@@ -4640,9 +4640,15 @@
   ['close-forward-message','cancel-forward-message'].forEach(id=>$('#'+id)?.addEventListener('click',()=>{$('#forward-message-dialog')?.close();pendingForwardMessage=null;}));
 
   // ---------- Nexus (App) inbox and user feedback ----------
+  // Never render system messages as permanent page text. Use the dismissible
+  // modal queue defined below so old/unread notices cannot leak into the layout.
   async function loadSystemInboxMessages(){
-    if(!currentUser)return;try{const {data,error}=await client.from('nexus_system_messages').select('id,title,body,message_type,created_at').eq('user_id',currentUser.id).is('read_at',null).order('created_at',{ascending:true}).limit(8);if(error)throw error;
-      const host=$('#nexus-system-inbox');for(const row of data||[]){const message=document.createElement('p');message.textContent=`${row.title||'Nexus (App)'}: ${row.body}`;host?.append(message);toast(message.textContent,row.message_type==='warning'?'error':'');await client.from('nexus_system_messages').update({read_at:new Date().toISOString()}).eq('id',row.id).eq('user_id',currentUser.id);}
+    if(!currentUser||!client)return;
+    try{
+      const {data,error}=await client.from('nexus_system_messages').select('id,title,body,message_type,created_at').eq('user_id',currentUser.id).is('read_at',null).order('created_at',{ascending:true}).limit(12);
+      if(error)throw error;
+      activeSystemPopupQueue.push(...(data||[]));
+      showSystemInboxQueue();
     }catch(error){console.debug('Buzón de Nexus no disponible:',error.message||error);}
   }
   function openPlatformFeedback(type){activeFeedbackType=type==='bug'?'bug':'suggestion';$('#platform-feedback-type').value=activeFeedbackType;$('#platform-feedback-title').textContent=activeFeedbackType==='bug'?'Reportar un error':'Enviar una sugerencia';$('#platform-feedback-subject').value='';$('#platform-feedback-body').value='';$('#platform-feedback-dialog').showModal();$('#platform-feedback-subject').focus();}
@@ -4902,10 +4908,7 @@
       if(globalAnnouncementsLoaded)showWhatsNewOnce();
     }
   }
-  // The previous inbox rendered warnings as permanent text. Replace it with a queue of dismissible dialogs.
-  loadSystemInboxMessages=async function(){
-    if(!currentUser||!client)return;try{const {data,error}=await client.from('nexus_system_messages').select('id,title,body,message_type,created_at').eq('user_id',currentUser.id).is('read_at',null).order('created_at',{ascending:true}).limit(12);if(error)throw error;activeSystemPopupQueue.push(...(data||[]));showSystemInboxQueue();}catch(error){console.debug('Buzón de Nexus no disponible:',error.message||error);}
-  };
+  // loadSystemInboxMessages above already uses the dismissible modal queue.
   async function loadMyBadgeRequests(){
     const host=$('#my-badge-requests');if(!host||!currentUser||!client)return;
     const {data,error}=await client.from('nexus_badge_requests').select('id,proposed_name,reason,status,admin_note,created_at,updated_at').eq('user_id',currentUser.id).order('created_at',{ascending:false}).limit(12);
