@@ -6,7 +6,7 @@
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <meta content="#10131c" name="theme-color"/>
 <meta content="Nexus, plataforma de chats y comunidades personalizables." name="description"/>
-<title>Nexus — Chat &amp; Communities · v0.11.1-alpha2</title>
+<title>Nexus — Mensajes y comunidades · v0.12.0</title>
 <link href="./manifest.webmanifest" rel="manifest"/>
 <meta content="#141925" name="theme-color"/>
 <link href="./nexus-icon.svg" rel="icon" type="image/svg+xml"/>
@@ -19,11 +19,12 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" rel="stylesheet"/>
 <script defer="" src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 <script defer="" src="assets/js/config.js"></script>
-<script defer="" src="assets/i18n/i18n.js?v=0.11.1-alpha2"></script>
-<script defer="" src="assets/js/app.js?v=0.11.1-alpha2"></script>
+<script defer="" src="assets/i18n/i18n.js?v=0.12.0"></script>
+<script defer="" src="assets/i18n/catalog-extra-v0.12.js?v=0.12.0"></script>
+<script defer="" src="assets/js/app.js?v=0.12.0"></script>
 </head>
 <body>
-<div aria-live="polite" class="nexus-loading-screen hidden" id="nexus-loading-screen"><div class="nexus-loading-logo"><img alt="Nexus" src="nexus-icon.svg"/></div><p class="eyebrow">¿Sabías que...?</p><strong>Este es el único facto curioso en esta versión?</strong><small>Nexus · 0.11.1 alpha2</small></div>
+<div aria-live="polite" class="nexus-loading-screen hidden" id="nexus-loading-screen"><div class="nexus-loading-logo"><img alt="Nexus" src="nexus-icon.svg"/></div><p class="eyebrow">¿Sabías que...?</p><strong>¿Este es el único dato curioso de esta versión?</strong><small>Nexus · 0.12.0</small></div>
 <div aria-live="polite" class="toast-region" id="toast-region"></div>
 <main class="auth-screen" id="auth-screen">
 <section class="auth-card">
@@ -173,7 +174,7 @@
 </div></section>
 <section class="view" id="view-settings"><div class="content-page narrow-page"><div class="page-heading"><div><p class="eyebrow">PREFERENCIAS</p><h1>Configuración</h1><p class="muted">Ajusta la apariencia, notificaciones y rendimiento de Nexus.</p></div></div>
 <form class="surface form-grid" id="settings-form">
-<div class="full-field settings-subsection language-settings-section"><h3>Idioma de Nexus</h3><p class="muted small-muted">Elige el idioma de la interfaz. Guaraní y latín están en beta; los textos todavía no traducidos se mostrarán en español.</p><label class="field">Idioma<select id="language-select-settings" data-nexus-language-select aria-label="Idioma de Nexus"></select></label></div>
+<div class="full-field settings-subsection language-settings-section"><h3>Idioma de Nexus</h3><p class="muted small-muted">Elige el idioma de la interfaz. Guaraní y latín están en beta; los mensajes y el contenido escrito por usuarios se mantienen en su idioma original.</p><label class="field">Idioma<select id="language-select-settings" data-nexus-language-select aria-label="Idioma de Nexus"></select></label></div>
 <label class="field">Color de acento<input id="setting-accent" type="color" value="#8d7cff"/></label>
 <label class="field">Densidad de interfaz<select id="setting-density"><option value="comfortable">Cómoda</option><option value="compact">Compacta</option></select></label>
 <label class="field">Fuente de escritura<select id="setting-composer-font"><option value="default">Predeterminada · DM Sans</option><option value="space">Space Grotesk</option><option value="profile">Mi fuente personalizada</option><option value="serif">Serif</option><option value="mono">Monoespaciada</option></select></label>
@@ -399,7 +400,7 @@ const nexus = true;
 <dialog class="dialog-card wide-dialog" id="badge-request-dialog"><form id="badge-request-form"><div class="dialog-heading"><h3>Solicitar insignia universal</h3><button class="icon-button" id="close-badge-request" type="button">×</button></div><label class="field">Nombre propuesto<input id="badge-request-name" maxlength="40" minlength="2" required=""/></label><label class="field">Motivo<textarea id="badge-request-reason" maxlength="1500" minlength="10" required="" rows="5"></textarea></label><div class="dialog-actions"><button class="button button-secondary" id="cancel-badge-request" type="button">Cancelar</button><button class="button button-primary" type="submit">Enviar solicitud</button></div></form></dialog>
 <dialog class="dialog-card nexus-system-popup" id="nexus-system-popup"><div class="dialog-heading"><h3 id="nexus-system-popup-title">Nexus (App)</h3><button class="icon-button" id="nexus-system-popup-close" type="button">×</button></div><div class="nexus-system-popup-body" id="nexus-system-popup-body"></div><div class="dialog-actions"><button class="button button-primary" id="nexus-system-popup-ok" type="button">Entendido</button></div></dialog>
 <dialog class="dialog-card" id="nexus-confirm-dialog"><div class="dialog-heading"><h3 id="nexus-confirm-title">Confirmar</h3><button class="icon-button" id="nexus-confirm-close" type="button">×</button></div><p class="muted" id="nexus-confirm-body"></p><div class="dialog-actions"><button class="button button-secondary" id="nexus-confirm-cancel" type="button">Cancelar</button><button class="button button-danger" id="nexus-confirm-accept" type="button">Continuar</button></div></dialog>
-<dialog class="dialog-card wide-dialog" id="nexus-whats-new"><div class="dialog-heading"><div><p class="eyebrow">NEXUS · ACTUALIZACIÓN</p><h3>Novedades de la versión 0.11.1-alpha2</h3></div><button class="icon-button" id="nexus-whats-new-close" type="button">×</button></div><div class="whats-new-content"><p>Internacionalización inicial de Nexus, selector de idioma y mejora de las ventanas de actualización y de condiciones legales.</p><ul><li>La interfaz incorpora 15 opciones de idioma; Guaraní y Latín se identifican como beta y los textos no traducidos conservan el español.</li><li>El idioma puede elegirse antes de iniciar sesión o desde Configuración; la preferencia se guarda en el perfil.</li><li>La pantalla de condiciones distingue el primer acceso de una actualización de ToS y solicita aceptación cuando cambia la versión o su huella.</li><li>El cifrado Signal Protocol sigue en fase de arquitectura: los MDs todavía no tienen E2EE activo. Consulta E2EE-SIGNAL-ROADMAP-v0.11.1-alpha2.md.</li></ul></div><div class="dialog-actions"><button class="button button-primary" id="nexus-whats-new-ok" type="button">¡Entendido!</button></div></dialog>
+<dialog class="dialog-card wide-dialog" id="nexus-whats-new"><div class="dialog-heading"><div><p class="eyebrow">NEXUS · ACTUALIZACIÓN</p><h3>Novedades de la versión 0.12.0</h3></div><button class="icon-button" id="nexus-whats-new-close" type="button">×</button></div><div class="whats-new-content"><p>La interfaz de Nexus ya cuenta con traducciones locales para sus textos y controles, sin depender de servicios externos.</p><ul><li>La interfaz incorpora 14 variantes adicionales: inglés, esloveno, italiano, francés, japonés, chino simplificado, alemán, portugués europeo, guaraní (beta), catalán, gallego, euskera, latín (beta) y español Julio Verne.</li><li>El idioma puede elegirse antes de iniciar sesión o desde Configuración; la preferencia se guarda en el perfil.</li><li>Los mensajes, perfiles y demás contenido escrito por usuarios se mantienen en su idioma original. El documento legal oficial continúa en español.</li><li>El sistema traduce la interfaz en el navegador mediante catálogos incluidos en Nexus; no envía mensajes ni datos de perfil a servicios de traducción.</li><li>Guaraní y latín siguen en beta y necesitan revisión humana.</li><li>El cifrado Signal Protocol sigue en fase de arquitectura: los MDs todavía no tienen E2EE activo. Consulta E2EE-SIGNAL-ROADMAP-v0.11.1-alpha2.md.</li></ul></div><div class="dialog-actions"><button class="button button-primary" id="nexus-whats-new-ok" type="button">¡Entendido!</button></div></dialog>
 <dialog class="dialog-card wide-dialog markdown-ui-dialog" id="markdown-ui-dialog">
   <div class="dialog-heading"><div><h3>MarkdownUI <span class="tag">BETA</span></h3><p class="muted small-muted">Escribe y previsualiza el formato habitual. No ejecuta HTML ni CSS.</p></div><button class="icon-button" id="markdown-ui-close" type="button" aria-label="Cerrar">×</button></div>
   <div class="markdown-ui-layout">

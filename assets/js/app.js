@@ -12,7 +12,7 @@
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const NEXUS_TERMS_VERSION = '2026-11-06-v2';
   const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
-  const NEXUS_RELEASE_ID = '0.11.1-alpha2';
+  const NEXUS_RELEASE_ID = '0.12.0';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
   let termsAcceptanceBusy = false;
