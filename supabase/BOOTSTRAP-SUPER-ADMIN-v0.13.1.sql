@@ -4,7 +4,7 @@
 -- This does not use an email address and does not expose any service key.
 do $$
 declare
-  bootstrap_user uuid := 'REPLACE_WITH_YOUR_AUTH_USER_UUID'::uuid;
+  bootstrap_user uuid := '8e22b7df-ab32-49ff-93a4-56e8f05dce36'::uuid;
 begin
   if not exists (select 1 from auth.users where id = bootstrap_user) then
     raise exception 'No existe la cuenta indicada en auth.users. Comprueba el UUID.';
