@@ -9,4 +9,7 @@ window.NEXUS_CONFIG = {
   APP_NAME: "Nexus",
   GIPHY_API_KEY: '88epI1CjbXbeaypqc0FKxFaTVPU8VSQz',
   VAPID_PUBLIC_KEY: 'BC1IkSDn6dGC-9Y82UfELN_r7MofuwDSMhsSK74kyiBtX91203lPKOLc_3hObyfzfA-N_grMrv87xyjCqVLPX1s'
+  NEXUS_EDGE_URL: 'https://api.nexuscollective.app',
+  EDGE_MEDIA_ENABLED: false,
+  EDGE_REALTIME_ENABLED: false,
 };
