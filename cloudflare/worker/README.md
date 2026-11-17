@@ -1,6 +1,6 @@
 # Nexus Edge Worker
 
-Este Worker gestiona R2, enlaces firmados y WebSockets de Nexus. Consulta la guía raíz `CLOUDFLARE-EDGE-MIGRATION-v0.13.0-alpha1.md` para la configuración completa.
+Este Worker gestiona R2, enlaces firmados y WebSockets de Nexus. Consulta la guía raíz `CLOUDFLARE-EDGE-MIGRATION-v0.13.1-alpha1.md` para la configuración completa.
 
 ## Local
 

@@ -844,3 +844,71 @@
 /* v0.11.1-alpha2: language selector inside the mandatory legal gate. */
 .tos-language-field{display:block;margin:8px 0 12px;max-width:100%;}.tos-language-field select{width:100%;min-height:42px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 12px;}
 @media(max-width:620px){.tos-language-field{margin:6px 0 10px;}}
+
+
+/* Nexus v0.13.1-alpha1 · community feedback fixes and admin tools */
+/* Message actions must wrap independently from media controls, never cover them. */
+.message-meta{display:flex;align-items:center;flex-wrap:wrap;min-width:0;row-gap:5px}
+.message-actions{display:flex;align-items:center;justify-content:flex-end;flex:1 1 100%;flex-wrap:wrap;gap:5px;min-width:0;max-width:100%;margin-left:0;position:relative;z-index:2;opacity:.72}
+.message-action-button{flex:0 0 auto;white-space:nowrap;font-size:10px;padding:4px 7px}
+.message-actions .message-delete-button{margin-left:0}
+.nexus-video-card .nexus-video-toolbar{flex-wrap:wrap;align-items:flex-start}
+.nexus-video-card .nexus-video-toolbar>div{flex:1 1 auto;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+.nexus-video-card .nexus-video-toolbar>div .button,.nexus-video-card .nexus-video-toolbar>div a{flex:0 1 auto;white-space:nowrap}
+@media(max-width:760px){.message-actions{justify-content:flex-start;opacity:1}.message-action-button{font-size:10px;padding:5px 7px}.nexus-video-card .nexus-video-toolbar>div{justify-content:flex-start}}
+
+/* Seen receipts: a compact double-check pill with stronger contrast. */
+.message-read-receipt{display:inline-flex;align-items:center;justify-content:flex-end;gap:7px;width:fit-content;max-width:100%;margin:7px 0 2px auto;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 42%,var(--line));border-radius:999px;background:color-mix(in srgb,var(--accent) 13%,var(--panel));color:var(--accent2);font-size:11px;line-height:1.25;text-align:right;box-shadow:0 3px 12px #0002}
+.message-read-receipt strong{font-size:10px;font-weight:800;color:var(--text)}
+.message-read-checks{font-size:14px;line-height:1;font-weight:900;letter-spacing:-4px;padding-right:4px;color:var(--accent2)}
+
+/* Badge names never need an internal scrollbar; keep the hover card non-interactive. */
+.nexus-themed-hover{max-height:none!important;overflow:hidden!important;max-width:min(320px,calc(100vw - 24px))!important;text-align:center!important;white-space:normal!important;overflow-wrap:anywhere;word-break:normal;pointer-events:none}
+
+/* Super Admin controls are intentionally visually distinct from regular staff tools. */
+.tag-super-admin{border-color:#e6b85c66;background:#e6b85c18;color:#f2d38b}
+.platform-admin-member{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);min-width:0}
+.platform-admin-member>div{display:grid;gap:4px;min-width:0}
+.platform-admin-member strong{overflow-wrap:anywhere}
+.platform-admin-member small{color:var(--muted);font-size:10px;overflow-wrap:anywhere}
+.platform-admin-member .button{flex:none}
+#platform-super-admin-tools{border-color:#d5a64a55;background:linear-gradient(140deg,color-mix(in srgb,#d5a64a 6%,var(--panel)),var(--panel))}
+@media(max-width:640px){.platform-admin-member{align-items:flex-start;flex-direction:column}.platform-admin-member .button{width:100%}}
+
+/* Search button, filters and accessible result cards. */
+.message-search-dialog{width:min(860px,calc(100% - 24px));max-height:min(90dvh,900px);overflow:auto}
+.message-search-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.message-search-filters .field{min-width:0}
+.message-search-files-only{align-self:end;min-height:42px}
+.message-search-results{display:grid;gap:7px;margin-top:14px;max-height:42vh;overflow:auto;padding-right:3px}
+.message-search-result{display:grid;gap:7px;width:100%;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);text-align:left;cursor:pointer}
+.message-search-result:hover,.message-search-result:focus-visible{border-color:color-mix(in srgb,var(--accent) 62%,var(--line));background:color-mix(in srgb,var(--accent) 9%,var(--panel));outline:none}
+.message-search-result-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;font-size:10px;color:var(--muted)}
+.message-search-result-meta strong{color:var(--accent2)}
+.message-search-result-meta time{margin-left:auto}
+.message-search-result-excerpt{font-size:12px;line-height:1.45;overflow-wrap:anywhere;color:var(--text)}
+@media(max-width:640px){.message-search-filters{grid-template-columns:minmax(0,1fr)}.message-search-result-meta time{width:100%;margin-left:0}.message-search-results{max-height:48vh}}
+
+/* A visible pastel-pink preset beside the custom accent picker. */
+.accent-setting-field{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;min-width:0}
+.accent-setting-field .field{min-width:0}
+.accent-preset{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);font-size:10px;cursor:pointer;white-space:nowrap}
+.accent-preset:hover{border-color:#f3a9c8;background:#f3a9c814}
+.accent-preset span{width:13px;height:13px;border-radius:50%;background:#f3a9c8;box-shadow:0 0 0 2px #f3a9c833}
+@media(max-width:560px){.accent-setting-field{grid-template-columns:1fr}.accent-preset{justify-self:start}}
+
+/* v0.13.1-alpha1 follow-up: keep hover tips stable and media controls in flow. */
+.nexus-hover-plus .message-badge-icon:hover,.nexus-hover-plus .message-badge-emoji:hover{filter:brightness(1.12);transform:none}
+.nexus-hover-plus .message-badge-icon,.nexus-hover-plus .message-badge-emoji{transition:filter .12s ease}
+.nexus-themed-hover{max-height:none!important;height:auto!important;overflow:visible!important;overflow-y:hidden!important;scrollbar-width:none!important;overscroll-behavior:contain;pointer-events:none!important}
+.nexus-themed-hover::-webkit-scrollbar{display:none!important}
+.message-attachment,.message-attachment-bundle,.message-attachment-bundle-item{position:relative;min-width:0;max-width:100%}
+.message-attachment-bundle-item{display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px;padding:8px 0}
+.message-attachment-bundle-item>a,.message-attachment-bundle-item>small{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.nexus-video-card .nexus-video-toolbar{width:100%;min-width:0;display:flex;flex-wrap:wrap;gap:8px}
+.nexus-video-card .nexus-video-toolbar>strong{flex:1 1 180px;min-width:0}
+.nexus-video-card .nexus-video-toolbar>div{flex:0 1 auto;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.message-audio-card{display:flex;align-items:center;flex-wrap:wrap;gap:9px;max-width:100%;min-width:0}
+.message-audio-card>div{flex:1 1 180px;min-width:0}
+.message-audio-card audio{max-width:100%}
+@media(max-width:760px){.nexus-video-card .nexus-video-toolbar>div{justify-content:flex-start}.message-actions{position:static}.message-audio-card>div{flex-basis:100%}}

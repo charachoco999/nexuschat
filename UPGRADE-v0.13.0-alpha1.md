@@ -1,7 +1,7 @@
-# Actualizar Nexus v0.12.1 → v0.13.0-alpha1
+# Actualizar Nexus v0.12.1 → v0.13.1-alpha1
 
 1. Haz copia del repositorio y backup de Supabase.
-2. Despliega Pages en `chat.nexuscollective.app` y el Worker en `api.nexuscollective.app` siguiendo `CLOUDFLARE-EDGE-MIGRATION-v0.13.0-alpha1.md`.
+2. Despliega Pages en `chat.nexuscollective.app` y el Worker en `api.nexuscollective.app` siguiendo `CLOUDFLARE-EDGE-MIGRATION-v0.13.1-alpha1.md`.
 3. Conserva `assets/js/config.js`; añade `NEXUS_EDGE_URL`, `EDGE_MEDIA_ENABLED` y `EDGE_REALTIME_ENABLED` con ambos booleanos en `false`.
 4. Confirma que la migración de Channels+ `20261104_nexus_v0110_forums_channels_plus_announcements_badges.sql` ya está aplicada y ejecuta una vez `supabase/migrations/20261117_nexus_v013_edge_authorization_and_recipients.sql`.
 5. Crea el Database Webhook para INSERT/UPDATE/DELETE de `public.messages`.

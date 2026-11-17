@@ -1,4 +1,4 @@
-/* Nexus v0.13.0-alpha1. Database RLS and protected RPCs remain the security boundary. */
+/* Nexus v0.13.1-alpha1. Database RLS and protected RPCs remain the security boundary. */
 (() => {
   'use strict';
 
@@ -12,7 +12,7 @@
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const NEXUS_TERMS_VERSION = '2026-11-06-v2';
   const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
-  const NEXUS_RELEASE_ID = '0.13.0-alpha1';
+  const NEXUS_RELEASE_ID = '0.13.1-alpha1';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
   let termsAcceptanceBusy = false;
@@ -124,6 +124,7 @@
   let customNotificationAudio = null;
   let customNotificationAudioLoaded = false;
   let platformAdmin = false;
+  let platformSuperAdmin = false;
   const MESSAGE_CACHE_LIMIT = 200;
   const MESSAGE_CACHE_CONTEXTS = 12;
   const messageCache = new Map();
@@ -529,7 +530,7 @@
     $('#sidebar-community').classList.toggle('hidden', !currentCommunity || !['community','chats'].includes(view));
     if (view === 'profile') { fillProfileForm(); switchProfileMode('main'); renderProfileWidgets(); fillCommunityNickname(); loadCommunityProfileEditor(); renderIdentityAssetLinks(); loadAltProfiles(); $('#profile-plate-opacity').value=String(profilePlateOpacity(profile?.settings)); $('#profile-plate-opacity-value').textContent=`${Math.round(profilePlateOpacity(profile?.settings)*100)}%`; }
     if (view === 'settings') fillSettingsForm();
-    if (view === 'admin' && platformAdmin) { loadPlatformAdminUsers(); loadPlatformFeedback(); loadPlatformBadges(); loadAdminMessageReports(); }
+    if (view === 'admin' && platformAdmin) { loadPlatformAdminUsers(); loadPlatformFeedback(); loadPlatformBadges(); loadAdminMessageReports(); if(platformSuperAdmin)loadPlatformAdmins(); }
     if (view === 'sticker-workshop') loadStickerWorkshopPage();
     renderVoiceDock();
   }
@@ -567,6 +568,190 @@
   $('#markdown-guide-return')?.addEventListener('click', returnFromMarkdownGuide);
   $('#logout-button').addEventListener('click', signOut);
   $('#global-search').addEventListener('click', () => addFriendFlow());
+  let messageSearchCommunities=[];
+  let messageSearchRun=0;
+  $('#message-search')?.addEventListener('click',openMessageSearch);
+  $('#message-search-close')?.addEventListener('click',()=>$('#message-search-dialog')?.close());
+  $('#message-search-community')?.addEventListener('change',()=>{if($('#message-search-community')?.value)$('#message-search-scope').value='channels';loadMessageSearchCommunityOptions();});
+  $('#message-search-form')?.addEventListener('submit',event=>{event.preventDefault();performMessageSearch();});
+  $('#message-search-reset')?.addEventListener('click',()=>{const form=$('#message-search-form');form?.reset();const community=$('#message-search-community');if(community)community.value='';loadMessageSearchCommunityOptions();$('#message-search-results').innerHTML='<p class="empty-state compact">Escribe un término o selecciona filtros para empezar.</p>';});
+  async function openMessageSearch(){
+    const dialog=$('#message-search-dialog');if(!dialog||!currentUser)return;
+    $('#message-search-results').innerHTML='<p class="empty-state compact">Escribe un término o selecciona filtros para empezar.</p>';
+    $('#message-search-query').focus();
+    if(!dialog.open)dialog.showModal();
+    await loadMessageSearchCommunities();
+  }
+  async function loadMessageSearchCommunities(){
+    const select=$('#message-search-community');if(!select||!currentUser)return;
+    select.innerHTML='<option value="">Todos los megagrupos</option>';
+    const {data:memberships,error}=await client.from('community_members').select('community_id').eq('user_id',currentUser.id);
+    if(error){console.warn('No se pudieron cargar los megagrupos para la búsqueda:',error);return;}
+    const ids=[...new Set((memberships||[]).map(row=>row.community_id).filter(Boolean))];
+    const {data:rows,error:communityError}=ids.length?await client.from('communities').select('id,name').in('id',ids).order('name'): {data:[],error:null};
+    if(communityError){console.warn(communityError);return;}
+    messageSearchCommunities=rows||[];
+    select.innerHTML='<option value="">Todos los megagrupos</option>'+messageSearchCommunities.map(row=>`<option value="${row.id}">${escapeHtml(row.name)}</option>`).join('');
+    await loadMessageSearchCommunityOptions();
+  }
+  async function loadMessageSearchCommunityOptions(){
+    const communityId=$('#message-search-community')?.value||'';
+    const channel=$('#message-search-channel');const role=$('#message-search-role');
+    if(!channel||!role)return;
+    channel.innerHTML='<option value="">Todos los canales</option>';role.innerHTML='<option value="">Cualquier rol</option>';
+    channel.disabled=!communityId;role.disabled=!communityId;
+    if(!communityId)return;
+    const [channelsResponse,rolesResponse]=await Promise.all([
+      client.from('channels').select('id,name,type').eq('community_id',communityId).order('name'),
+      client.from('community_roles').select('id,name').eq('community_id',communityId).order('position').order('name')
+    ]);
+    if(channelsResponse.error)console.warn('Canales de búsqueda:',channelsResponse.error);
+    if(rolesResponse.error)console.warn('Roles de búsqueda:',rolesResponse.error);
+    channel.innerHTML='<option value="">Todos los canales</option>'+(channelsResponse.data||[]).map(row=>`<option value="${row.id}"># ${escapeHtml(row.name)}</option>`).join('');
+    role.innerHTML='<option value="">Cualquier rol</option>'+(rolesResponse.data||[]).map(row=>`<option value="${row.id}">${escapeHtml(row.name)}</option>`).join('');
+  }
+  function buildMessageSearchQuery({scope,communityChannelIds,channelId,senderIds,from,to,filesOnly}){
+    let query=client.from('messages').select('id,conversation_id,channel_id,sender_id,body,message_type,attachment,created_at').order('created_at',{ascending:false}).limit(80);
+    if(scope==='conversations')query=query.not('conversation_id','is',null);
+    if(scope==='channels')query=query.not('channel_id','is',null);
+    if(communityChannelIds)query=communityChannelIds.length?query.in('channel_id',communityChannelIds):query.eq('channel_id','00000000-0000-0000-0000-000000000000');
+    if(channelId)query=query.eq('channel_id',channelId);
+    if(senderIds)query=senderIds.length?query.in('sender_id',senderIds):query.eq('sender_id','00000000-0000-0000-0000-000000000000');
+    if(from)query=query.gte('created_at',from);
+    if(to)query=query.lte('created_at',to);
+    if(filesOnly)query=query.not('attachment','is',null);
+    return query;
+  }
+  async function performMessageSearch(){
+    const host=$('#message-search-results');if(!host||!currentUser)return;
+    const run=++messageSearchRun;
+    const term=String($('#message-search-query')?.value||'').trim().slice(0,120);
+    let scope=$('#message-search-scope')?.value||'all';
+    const fromValue=$('#message-search-from')?.value||'';const toValue=$('#message-search-to')?.value||'';
+    const author=String($('#message-search-author')?.value||'').trim().replace(/^@/,'').toLowerCase();
+    const communityId=$('#message-search-community')?.value||'';const channelId=$('#message-search-channel')?.value||'';const roleId=$('#message-search-role')?.value||'';
+    const filesOnly=$('#message-search-files')?.checked||false;
+    if(communityId&&scope==='conversations'){scope='channels';$('#message-search-scope').value='channels';toast(window.NexusI18n?.translate?.('Los filtros de megagrupo se aplican a canales. Se ha cambiado el ámbito a canales.')||'Los filtros de megagrupo se aplican a canales. Se ha cambiado el ámbito a canales.');}
+    if(!term&&!fromValue&&!toValue&&!author&&!communityId&&!channelId&&!roleId&&!filesOnly){toast('Añade una palabra, fecha, persona, megagrupo o filtro de archivos.','error');return;}
+    if(fromValue&&toValue&&fromValue>toValue){toast('La fecha inicial no puede ser posterior a la final.','error');return;}
+    host.innerHTML='<p class="muted small-muted">Buscando mensajes…</p>';
+    try{
+      let senderIds=null;
+      if(author){
+        const [byUsername,byNickname]=await Promise.all([
+          client.from('profiles').select('id').ilike('username',`%${author}%`).limit(80),
+          client.from('profiles').select('id').ilike('nickname',`%${author}%`).limit(80)
+        ]);
+        if(byUsername.error)throw byUsername.error;if(byNickname.error)throw byNickname.error;
+        senderIds=[...new Set([...(byUsername.data||[]),...(byNickname.data||[])].map(row=>row.id))];
+      }
+      if(roleId&&communityId){
+        const {data:roleMembers,error:roleError}=await client.from('member_roles').select('user_id').eq('community_id',communityId).eq('role_id',roleId);
+        if(roleError)throw roleError;
+        const roleIds=new Set((roleMembers||[]).map(row=>row.user_id));
+        senderIds=senderIds===null?[...roleIds]:senderIds.filter(id=>roleIds.has(id));
+      }
+      let communityChannelIds=null;
+      if(communityId){
+        const {data:channels,error:channelsError}=await client.from('channels').select('id').eq('community_id',communityId);
+        if(channelsError)throw channelsError;
+        communityChannelIds=(channels||[]).map(row=>row.id);
+      }
+      const from=fromValue?new Date(`${fromValue}T00:00:00`).toISOString():null;
+      const to=toValue?new Date(`${toValue}T23:59:59.999`).toISOString():null;
+      const base={scope,communityChannelIds,channelId,senderIds,from,to,filesOnly};
+      let rows=[];
+      if(term){
+        const bodyPromise=buildMessageSearchQuery(base).ilike('body',`%${term}%`);
+        const filePromiseList=[
+          buildMessageSearchQuery({...base,filesOnly:true}).filter('attachment->>name','ilike',`%${term}%`),
+          ...Array.from({length:10},(_,index)=>buildMessageSearchQuery({...base,filesOnly:true}).filter(`attachment->items->${index}->>name`,'ilike',`%${term}%`))
+        ];
+        const [bodyResponse,...fileResponses]=await Promise.all([bodyPromise,...filePromiseList]);
+        if(bodyResponse.error)throw bodyResponse.error;
+        rows=[...(bodyResponse.data||[])];
+        for(const response of fileResponses){if(response.error){console.debug('Búsqueda en nombre de adjunto:',response.error.message);continue;}rows.push(...(response.data||[]));}
+      }else{
+        const response=await buildMessageSearchQuery(base);if(response.error)throw response.error;rows=response.data||[];
+      }
+      if(run!==messageSearchRun)return;
+      const unique=new Map();for(const row of rows)unique.set(row.id,row);
+      rows=[...unique.values()].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,80);
+      if(!rows.length){host.innerHTML='<p class="empty-state compact">No se han encontrado mensajes con esos filtros.</p>';return;}
+      const senderIdsForLabels=[...new Set(rows.map(row=>row.sender_id).filter(Boolean))];
+      const [senderResponse,channelResponse]=await Promise.all([
+        senderIdsForLabels.length?client.from('profiles').select('id,username,nickname').in('id',senderIdsForLabels):Promise.resolve({data:[],error:null}),
+        [...new Set(rows.map(row=>row.channel_id).filter(Boolean))].length?client.from('channels').select('id,name,community_id').in('id',[...new Set(rows.map(row=>row.channel_id).filter(Boolean))]):Promise.resolve({data:[],error:null})
+      ]);
+      if(senderResponse.error)throw senderResponse.error;
+      if(channelResponse.error)throw channelResponse.error;
+      const senderProfiles=Object.fromEntries((senderResponse.data||[]).map(row=>[row.id,row]));
+      const channelRows=channelResponse.data||[];
+      const communityIds=[...new Set(channelRows.map(row=>row.community_id))];
+      const communityResponse=communityIds.length?await client.from('communities').select('id,name').in('id',communityIds):{data:[],error:null};
+      if(communityResponse.error)throw communityResponse.error;
+      const communityRows=communityResponse.data||[];
+      const channelMap=new Map(channelRows.map(row=>[row.id,row]));const communityMap=new Map(communityRows.map(row=>[row.id,row.name]));
+      const conversationIds=[...new Set(rows.map(row=>row.conversation_id).filter(Boolean))];
+      const conversationMap=new Map(conversations.filter(row=>conversationIds.includes(row.id)).map(row=>[row.id,row]));
+      const missingConversationIds=conversationIds.filter(id=>!conversationMap.has(id));
+      if(missingConversationIds.length){const {data:extraRows,error:extraError}=await client.from('conversations').select('id,kind,title,icon_url').in('id',missingConversationIds);if(extraError)throw extraError;for(const row of extraRows||[])conversationMap.set(row.id,row);}
+      if(run!==messageSearchRun)return;
+      host.innerHTML=rows.map(row=>{
+        const sender=senderProfiles[row.sender_id]||{};
+        let location='Conversación';
+        if(row.channel_id){const channel=channelMap.get(row.channel_id);location=channel?`# ${channel.name} · ${communityMap.get(channel.community_id)||'Megagrupo'}`:'Canal';}
+        else{const conversation=conversationMap.get(row.conversation_id);location=conversation?.kind==='group'?(conversation.title||'Grupo'):(sender.nickname||sender.username||'Mensaje directo');}
+        const attachmentName=row.attachment?.name||row.attachment?.items?.map(item=>item.name).filter(Boolean).join(', ')||'';
+        const excerpt=String(row.body||'').trim()||(attachmentName?`Archivo: ${attachmentName}`:row.message_type==='poll'?'Encuesta':'Mensaje multimedia');
+        return `<button type="button" class="message-search-result" data-message-search-result="${row.id}"><span class="message-search-result-meta"><strong>@${escapeHtml(sender.username||'usuario')}</strong><span>${escapeHtml(location)}</span><time>${escapeHtml(new Date(row.created_at).toLocaleString(window.NexusI18n?.intlLocale?.()||'es-ES'))}</time></span><span class="message-search-result-excerpt">${escapeHtml(excerpt).slice(0,260)}</span></button>`;
+      }).join('');
+      host.querySelectorAll('[data-message-search-result]').forEach(button=>button.addEventListener('click',()=>{
+        const row=rows.find(item=>item.id===button.dataset.messageSearchResult);
+        if(row)openMessageSearchResult(row);
+      }));
+    }catch(error){if(run!==messageSearchRun)return;console.warn('Búsqueda de mensajes:',error);host.innerHTML='<p class="empty-state compact">No se pudo completar la búsqueda. Comprueba tu acceso al contexto e inténtalo de nuevo.</p>';}
+  }
+  async function openMessageSearchResult(message){
+    $('#message-search-dialog')?.close();
+    if(message.conversation_id){
+      let row=conversations.find(item=>item.id===message.conversation_id);
+      if(!row){
+        const {data:conversation,error}=await client.from('conversations').select('*').eq('id',message.conversation_id).maybeSingle();
+        if(error||!conversation){toast('No puedes abrir esta conversación.','error');return;}
+        const {data:members}=await client.from('conversation_members').select('user_id,personal_name,hidden_at').eq('conversation_id',conversation.id);
+        const otherId=(members||[]).map(item=>item.user_id).find(id=>id!==currentUser.id);const people=await fetchProfiles(otherId?[otherId]:[]);const other=otherId?people[otherId]:null;const mine=(members||[]).find(item=>item.user_id===currentUser.id);
+        row={...conversation,directUserId:conversation.kind==='direct'?otherId:null,hidden_at:mine?.hidden_at||null,displayTitle:mine?.personal_name||conversation.title||other?.nickname||other?.username||(conversation.kind==='group'?'Grupo':'Mensaje directo'),displayAvatar:conversation.icon_url||other?.avatar_url||'',displayFrame:other?.profile_frame_url||''};
+      }
+      await openConversation(row);
+    }else if(message.channel_id){
+      const {data:channel,error}=await client.from('channels').select('*').eq('id',message.channel_id).maybeSingle();
+      if(error||!channel){toast('No tienes acceso a ese canal.','error');return;}
+      const {data:community, error:communityError}=await client.from('communities').select('*').eq('id',channel.community_id).maybeSingle();
+      if(communityError||!community){toast('No tienes acceso a ese megagrupo.','error');return;}
+      await selectCommunity(community);
+      await openCommunityChannel(channel);
+    }
+    await focusMessageInCurrentContext(message);
+  }
+  async function focusMessageInCurrentContext(targetMessage){
+    if(!currentContext||!targetMessage?.id)return;
+    const field=currentContext.type==='conversation'?'conversation_id':'channel_id';
+    const {data:before,error:beforeError}=await client.from('messages').select('*').eq(field,currentContext.id).lte('created_at',targetMessage.created_at).order('created_at',{ascending:false}).order('id',{ascending:false}).limit(25);
+    if(beforeError){showError(beforeError,'No se pudo cargar el contexto del mensaje.');return;}
+    const {data:after,error:afterError}=await client.from('messages').select('*').eq(field,currentContext.id).gt('created_at',targetMessage.created_at).order('created_at',{ascending:true}).order('id',{ascending:true}).limit(25);
+    if(afterError){showError(afterError,'No se pudo cargar el contexto del mensaje.');return;}
+    const rows=[...(before||[]),...(after||[])];const unique=new Map(rows.map(row=>[row.id,row]));const ordered=[...unique.values()].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    if(!ordered.length){toast('El mensaje ya no está disponible.','error');return;}
+    const key=messageContextKey();messageCache.delete(key);saveMessageCache(key,ordered,(before||[]).length===25);
+    const state=messageCache.get(key);const container=$('#messages-container');if(!container)return;
+    renderedMessageIds.clear();renderingMessageIds.clear();container.innerHTML='<button type="button" class="load-older-messages" id="load-older-messages">Cargar mensajes anteriores</button>';
+    $('#load-older-messages')?.addEventListener('click',loadOlderMessages);
+    hasOlderMessages=Boolean(state?.hasOlder);oldestMessageTimestamp=state?.rows?.[0]?.created_at||null;oldestMessageId=state?.rows?.[0]?.id||null;
+    await renderMessageRows(state?.rows||ordered);updateLoadOlderButton();
+    const target=$(`[data-message-id="${targetMessage.id}"]`,container);
+    if(target){target.scrollIntoView({behavior:'smooth',block:'center'});target.classList.add('message-flash');setTimeout(()=>target.classList.remove('message-flash'),1400);}
+  }
   $('#mobile-menu-toggle')?.addEventListener('click',()=>{const app=$('#app-screen');app.classList.toggle('mobile-menu-open');$('#mobile-menu-scrim')?.classList.toggle('hidden',!app.classList.contains('mobile-menu-open'));});
   $('#mobile-menu-scrim')?.addEventListener('click',()=>{$('#app-screen').classList.remove('mobile-menu-open');$('#mobile-menu-scrim').classList.add('hidden');});
   $('#voice-session-dock-mute')?.addEventListener('click',toggleVoiceMute);
@@ -733,17 +918,29 @@
     const ua=navigator.userAgent||'';
     return /Android|iPhone|iPad|iPod|Mobile|IEMobile/i.test(ua)?'mobile':'desktop';
   }
-  function syncGlobalPresence() {
+  function mergePresenceStateIntoIndex(state) {
+    for (const [key, metas] of Object.entries(state || {})) {
+      for (const meta of (Array.isArray(metas) ? metas : [])) {
+        const userId = meta?.user_id || key;
+        if (!userId) continue;
+        onlineUserIds.add(userId);
+        const device = meta?.device_type === 'mobile' ? 'mobile' : 'desktop';
+        // Prefer the most recently active context's metadata over global metadata.
+        onlineDeviceTypes.set(userId, device);
+      }
+    }
+  }
+  function rebuildOnlinePresenceIndex() {
     onlineUserIds.clear();
     onlineDeviceTypes.clear();
-    const state=globalPresenceChannel?.presenceState?.()||{};
-    for(const [key,metas] of Object.entries(state)){
-      const meta=metas?.[0]||{};
-      const userId=meta.user_id||key;
-      if(userId){onlineUserIds.add(userId);onlineDeviceTypes.set(userId,meta.device_type==='mobile'?'mobile':'desktop');}
-    }
+    mergePresenceStateIntoIndex(globalPresenceChannel?.presenceState?.() || {});
+    mergePresenceStateIntoIndex(activeMessageChannel?.presenceState?.() || {});
+    if (voiceSession?.localJoined) mergePresenceStateIntoIndex(voiceSession.channel?.presenceState?.() || {});
+  }
+  function syncGlobalPresence() {
+    rebuildOnlinePresenceIndex();
     refreshFriendPresenceIndicators();
-    if(conversations.length)renderConversationList();
+    if (conversations.length) renderConversationList();
   }
   function subscribeGlobalPresence() {
     if(!client||!currentUser)return;
@@ -1101,6 +1298,9 @@
     replyTarget = null;
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
     activeMessageChannel = null;
+    contextPresenceMembers=[];
+    rebuildOnlinePresenceIndex();
+    refreshFriendPresenceIndicators();
     const pane = $('#conversation-panel');
     pane.style.backgroundImage = '';
     pane.innerHTML = `<div class="welcome-state"><div class="welcome-orb">N</div><p class="eyebrow">BIENVENIDO A NEXUS</p><h2>Tu gente, tus espacios.</h2><p>Abre una conversación o crea una nueva para empezar.</p><button class="button button-primary" id="welcome-new-chat">Nueva conversación</button></div>`;
@@ -1639,12 +1839,20 @@
   function renderContextPresence() {
     const node=$('#context-presence-status');
     const state=activeMessageChannel?.presenceState?.()||voiceSession?.channel?.presenceState?.()||{};
-    const online=[];const seen=new Set();
+    const online=[];const byUser=new Map();
     for(const [key,metas] of Object.entries(state)){
-      const meta=metas?.[0]||{};const id=meta.user_id||key;
-      if(!id||seen.has(id))continue;seen.add(id);
-      online.push({id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url),frame:safeHttpsUrl(meta.profile_frame_url),plate:safeHttpsUrl(meta.profile_plate_url),plateOpacity:Number.isFinite(Number(meta.profile_plate_opacity))?Math.max(0,Math.min(.6,Number(meta.profile_plate_opacity))):.13,deviceType:meta.device_type==='mobile'?'mobile':'desktop',hiddenGlobalBadgeIds:Array.isArray(meta.hidden_global_badge_ids)?meta.hidden_global_badge_ids:[]});
+      for(const meta of (Array.isArray(metas)?metas:[])){
+        const id=meta?.user_id||key;
+        if(!id)continue;
+        byUser.set(id,{id,name:meta.nickname||meta.username||'Miembro',username:meta.username||'',status:String(meta.status_text||'').slice(0,60),avatar:safeHttpsUrl(meta.avatar_url),frame:safeHttpsUrl(meta.profile_frame_url),plate:safeHttpsUrl(meta.profile_plate_url),plateOpacity:Number.isFinite(Number(meta.profile_plate_opacity))?Math.max(0,Math.min(.6,Number(meta.profile_plate_opacity))):.13,deviceType:meta.device_type==='mobile'?'mobile':'desktop',hiddenGlobalBadgeIds:Array.isArray(meta.hidden_global_badge_ids)?meta.hidden_global_badge_ids:[]});
+      }
     }
+    online.push(...byUser.values());
+    // The room channel is authoritative while a conversation is open. Merge it
+    // with global presence so the friend dot remains correct in the chat list.
+    rebuildOnlinePresenceIndex();
+    refreshFriendPresenceIndicators();
+    if(conversations.length)renderConversationList();
     contextPresenceMembers=online.sort((a,b)=>a.id===currentUser?.id?-1:b.id===currentUser?.id?1:a.name.localeCompare(b.name,window.NexusI18n?.intlLocale?.()||'es'));
     const others=online.filter(item=>item.id!==currentUser?.id);
     const typing=[...typingUsers.values()].filter(item=>item.expires>Date.now());
@@ -2850,7 +3058,12 @@
     const seen = (reads || []).filter(row => new Date(row.read_at).getTime() >= messageDate).length;
     if (!seen) return;
     const receipt = document.createElement('small'); receipt.className='message-read-receipt';
-    receipt.textContent = seen === 1 ? 'Visto por 1 persona' : `Visto por ${seen} personas`;
+    receipt.setAttribute('aria-label',seen === 1 ? 'Visto por 1 persona' : `Visto por ${seen} personas`);
+    const checks=document.createElement('span');checks.className='message-read-checks';checks.setAttribute('aria-hidden','true');checks.textContent='✓✓';
+    const pluralSource='Visto por {n} personas';
+    const pluralText=window.NexusI18n?.translate?.(pluralSource)?.replace('{n}',String(seen))||`Visto por ${seen} personas`;
+    const label=document.createElement('strong');label.textContent=seen === 1 ? (window.NexusI18n?.translate?.('Visto por 1 persona')||'Visto por 1 persona') : pluralText;
+    receipt.append(checks,label);
     $('.message-main',latest).append(receipt);
   }
 
@@ -4610,6 +4823,7 @@
     loadMyGlobalBadgeVisibility();
   }
   $('#setting-boxglow-intensity')?.addEventListener('input',event=>{const label=$('#setting-boxglow-intensity-label');if(label)label.textContent=`${event.target.value}%`;});
+  $('#accent-pastel-pink')?.addEventListener('click',()=>{const input=$('#setting-accent');if(!input)return;input.value='#F3A9C8';applyClientTheme({...profile?.settings,accent:'#F3A9C8'});toast(window.NexusI18n?.translate?.('Vista previa aplicada. Guarda los ajustes para conservar el color.')||'Vista previa aplicada. Guarda los ajustes para conservar el color.');});
   function applyClientTheme(settings=profile?.settings||{}){
     const root=document.documentElement.style;
     const color=(value,fallback)=>/^#[0-9a-f]{6}$/i.test(String(value||''))?String(value):fallback;
@@ -4929,12 +5143,43 @@
     const {data,error} = await client.rpc('is_admin');
     if (error) { console.warn('Admin RPC:',error.message); return; }
     isAdmin = Boolean(data);
-    const platformResult=await client.rpc('is_platform_admin');platformAdmin=Boolean(platformResult.data&&!platformResult.error);
+    const [platformResult,superResult]=await Promise.all([client.rpc('is_platform_admin'),client.rpc('is_platform_super_admin')]);
+    platformAdmin=Boolean(platformResult.data&&!platformResult.error);
+    platformSuperAdmin=Boolean(superResult.data&&!superResult.error);
     $('#admin-area')?.classList.add('hidden');
     $('#open-admin-panel')?.classList.toggle('hidden',!platformAdmin);
     $('#view-admin')?.classList.toggle('hidden',!platformAdmin);
+    $('#platform-super-admin-tools')?.classList.toggle('hidden',!platformSuperAdmin);
     if(platformAdmin)loadPlatformBadges();
+    if(platformSuperAdmin)loadPlatformAdmins();
   }
+  async function loadPlatformAdmins(){
+    if(!platformSuperAdmin)return;
+    const host=$('#platform-admin-list');if(!host)return;
+    host.innerHTML='<p class="muted small-muted">Cargando administradores…</p>';
+    const {data,error}=await client.rpc('list_platform_admins');
+    if(error){host.innerHTML='<p class="empty-state compact">No se pudo cargar la lista de administradores.</p>';console.warn('Platform admins:',error);return;}
+    host.innerHTML=(data||[]).map(row=>`<article class="platform-admin-member"><div><strong>${escapeHtml(row.nickname||row.username||'Usuario')}</strong><small>@${escapeHtml(row.username||'usuario')} · ${row.is_super_admin?'SUPER ADMIN':'ADMIN'}</small></div>${row.is_super_admin||row.user_id===currentUser?.id?'<span class="tag">Protegido</span>':`<button type="button" class="button button-danger" data-remove-platform-admin="${row.user_id}">Retirar admin</button>`}</article>`).join('')||'<p class="empty-state compact">Todavía no hay administradores de plataforma.</p>';
+    host.querySelectorAll('[data-remove-platform-admin]').forEach(button=>button.addEventListener('click',async()=>{
+      if(!platformSuperAdmin)return;
+      const target=button.dataset.removePlatformAdmin;
+      if(!(await nexusConfirm('Retirar administrador','Esta cuenta perderá los permisos de administrador de plataforma. No se eliminará su cuenta ni sus datos.','Retirar admin')))return;
+      button.disabled=true;
+      const {error:changeError}=await client.rpc('set_platform_admin_role',{p_user_id:target,p_enabled:false});
+      if(changeError){button.disabled=false;showError(changeError,'No se pudo retirar el administrador.');return;}
+      toast('Administrador retirado.','success');await loadPlatformAdmins();
+    }));
+  }
+  $('#platform-admin-grant-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();if(!platformSuperAdmin)return;
+    const input=$('#platform-admin-grant-username');const username=String(input?.value||'').trim().replace(/^@/,'').toLowerCase();
+    if(username.length<2){toast('Introduce un nombre de usuario válido.','error');return;}
+    const {data:person,error:personError}=await client.from('profiles').select('id,username').eq('username',username).maybeSingle();
+    if(personError||!person){toast('No se encontró esa cuenta. Comprueba el nombre de usuario.','error');return;}
+    const {error:grantError}=await client.rpc('set_platform_admin_role',{p_user_id:person.id,p_enabled:true});
+    if(grantError){showError(grantError,'No se pudo designar al administrador.');return;}
+    input.value='';toast((window.NexusI18n?.translate?.('@{username} ahora es administrador de plataforma.')||'@{username} ahora es administrador de plataforma.').replace('{username}',person.username),'success');await loadPlatformAdmins();
+  });
   async function loadPlatformBadges(){if(!platformAdmin)return;const {data,error}=await client.from('global_badges').select('id,name,icon_url').order('created_at',{ascending:false});if(error){console.warn(error);return;}const host=$('#platform-badge-list');if(!host)return;host.innerHTML=(data||[]).map(item=>`<div class="platform-badge-row"><span>${escapeHtml(item.icon_url)} · ${escapeHtml(item.name)}</span><div class="platform-badge-actions"><input data-platform-badge-user="${item.id}" maxlength="24" placeholder="usuario" aria-label="Usuario para ${escapeHtml(item.name)}"><button type="button" class="button button-secondary" data-platform-badge-assign="${item.id}">Asignar</button><button type="button" class="button button-secondary" data-platform-badge-delete="${item.id}">Eliminar</button></div></div>`).join('')||'<p class="muted small-muted">No hay medallas universales.</p>';host.querySelectorAll('[data-platform-badge-assign]').forEach(button=>button.addEventListener('click',async()=>{if(!platformAdmin)return;const input=host.querySelector(`[data-platform-badge-user="${button.dataset.platformBadgeAssign}"]`);const username=String(input?.value||'').trim().replace(/^@/,'').toLowerCase();if(!username){toast('Escribe el usuario al que quieres asignar la medalla.','error');return;}const {data:person,error:personError}=await client.from('profiles').select('id').eq('username',username).maybeSingle();if(personError||!person){toast('No se encontró ese usuario.','error');return;}const {error:assignError}=await client.from('global_badge_assignments').insert({badge_id:button.dataset.platformBadgeAssign,user_id:person.id,assigned_by:currentUser.id});if(assignError){showError(assignError,'No se pudo asignar la medalla. Puede que el usuario ya la tenga.');return;}messageIdentityCache.clear();globalBadgeCache.delete(person.id);toast(`Medalla asignada a @${username}.`,'success');}));host.querySelectorAll('[data-platform-badge-delete]').forEach(button=>button.addEventListener('click',async()=>{const {error:removeError}=await client.from('global_badges').delete().eq('id',button.dataset.platformBadgeDelete);if(removeError)showError(removeError);else{messageIdentityCache.clear();globalBadgeCache.clear();await loadPlatformBadges();toast('Medalla global eliminada.','success');}}));}
   $('#platform-badge-create')?.addEventListener('submit',async event=>{event.preventDefault();if(!platformAdmin){toast('Solo los administradores de plataforma pueden gestionar estas medallas.','error');return;}const name=$('#platform-badge-name').value.trim();const icon=$('#platform-badge-icon').value.trim();const target=$('#platform-badge-user').value.trim().replace(/^@/,'').toLowerCase();if(name.length<2||!icon){toast('Indica nombre e icono.','error');return;}if(/^https?:/i.test(icon)&&!safeHttpsUrl(icon)){toast('El icono debe usar HTTPS.','error');return;}const {data:badge,error}=await client.from('global_badges').insert({name,icon_url:icon,created_by:currentUser.id}).select('*').single();if(error){showError(error);return;}if(target){const {data:person}=await client.from('profiles').select('id').eq('username',target).maybeSingle();if(!person){toast('Medalla creada, pero no se encontró el usuario indicado.','error');}else{const {error:assignError}=await client.from('global_badge_assignments').insert({badge_id:badge.id,user_id:person.id,assigned_by:currentUser.id});if(assignError)showError(assignError);}}$('#platform-badge-create').reset();messageIdentityCache.clear();globalBadgeCache.clear();await loadPlatformBadges();toast('Medalla global creada.','success');});
   async function loadMyGlobalBadgeVisibility(){const host=$('#global-badge-visibility');if(!host||!currentUser)return;const {data:rows,error}=await client.from('global_badge_assignments').select('badge_id,global_badges(id,name,icon_url)').eq('user_id',currentUser.id);if(error){host.innerHTML='<small class="muted">No se pudieron cargar las medallas.</small>';return;}host.innerHTML=(rows||[]).map(row=>{const badge=row.global_badges;const hidden=(profile?.settings?.hiddenGlobalBadgeIds||[]).includes(row.badge_id);return `<label class="setting-check"><input type="checkbox" data-toggle-global-badge="${row.badge_id}" ${hidden?'':'checked'}> ${escapeHtml(badge?.icon_url||'★')} ${escapeHtml(badge?.name||'Medalla')}</label>`;}).join('')||'<small class="muted">No tienes medallas globales asignadas.</small>';host.querySelectorAll('[data-toggle-global-badge]').forEach(box=>box.addEventListener('change',async()=>{const settings={...(profile?.settings||{})};const ids=new Set(settings.hiddenGlobalBadgeIds||[]);if(box.checked)ids.delete(box.dataset.toggleGlobalBadge);else ids.add(box.dataset.toggleGlobalBadge);settings.hiddenGlobalBadgeIds=[...ids];const {error:saveError}=await client.from('profiles').update({settings}).eq('id',currentUser.id);if(saveError)showError(saveError);else{profile.settings=settings;messageIdentityCache.clear();const presence={user_id:currentUser.id,username:profile?.username||'usuario',nickname:profile?.nickname||profile?.username||'Usuario',avatar_url:safeHttpsUrl(profile?.avatar_url),profile_frame_url:safeHttpsUrl(profile?.profile_frame_url),profile_plate_url:safeHttpsUrl(profile?.profile_plate_url),profile_plate_opacity:profilePlateOpacity(profile?.settings),status_text:String(profile?.settings?.customStatus||'').slice(0,60),device_type:getDeviceType(),hidden_global_badge_ids:settings.hiddenGlobalBadgeIds||[],joined_at:new Date().toISOString()};if(activeMessageChannel)activeMessageChannel.track(presence).then(renderContextPresence).catch(()=>{});if(globalPresenceChannel)globalPresenceChannel.track(presence).then(syncGlobalPresence).catch(()=>{});if(voiceSession?.localJoined)voiceSession.channel.track(presence).then(renderContextPresence).catch(()=>{});if(currentContext)await loadMessages();}}));}

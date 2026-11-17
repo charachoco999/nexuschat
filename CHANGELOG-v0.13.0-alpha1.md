@@ -1,4 +1,4 @@
-# Nexus v0.13.0-alpha1 · Cloudflare Edge
+# Nexus v0.13.1-alpha1 · Cloudflare Edge
 
 ## Novedades
 
@@ -22,6 +22,6 @@
 
 ## Importante
 
-Los interruptores `EDGE_MEDIA_ENABLED` y `EDGE_REALTIME_ENABLED` vienen desactivados en `config.js.example`. Configura Cloudflare, ejecuta la migración SQL y crea el Database Webhook antes de activarlos. Sigue `CLOUDFLARE-EDGE-MIGRATION-v0.13.0-alpha1.md`.
+Los interruptores `EDGE_MEDIA_ENABLED` y `EDGE_REALTIME_ENABLED` vienen desactivados en `config.js.example`. Configura Cloudflare, ejecuta la migración SQL y crea el Database Webhook antes de activarlos. Sigue `CLOUDFLARE-EDGE-MIGRATION-v0.13.1-alpha1.md`.
 
 Esta es una versión alpha: validación estática, pendiente de prueba contra las cuentas reales del proyecto.

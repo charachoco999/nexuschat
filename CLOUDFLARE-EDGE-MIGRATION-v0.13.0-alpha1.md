@@ -1,4 +1,4 @@
-# Nexus v0.13.0-alpha1 · Cloudflare Edge Migration
+# Nexus v0.13.1-alpha1 · Cloudflare Edge Migration
 
 Esta entrega prepara Nexus para publicarse en `https://chat.nexuscollective.app` y añade una primera capa Cloudflare para multimedia y distribución de mensajes.
 

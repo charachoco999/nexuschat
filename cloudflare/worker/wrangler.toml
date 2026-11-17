@@ -5,7 +5,7 @@ workers_dev = true
 
 [vars]
 APP_ORIGIN = "https://chat.nexuscollective.app"
-SUPABASE_URL = "https://nxmirthwcpsdygveobyq.supabase.co"
+SUPABASE_URL = "https://REPLACE_WITH_PROJECT_REF.supabase.co"
 EDGE_PUBLIC_URL = "https://api.nexuscollective.app"
 
 [[r2_buckets]]
