@@ -10,8 +10,9 @@ window.NEXUS_CONFIG = {
   GIPHY_API_KEY: '88epI1CjbXbeaypqc0FKxFaTVPU8VSQz',
   VAPID_PUBLIC_KEY: 'BC1IkSDn6dGC-9Y82UfELN_r7MofuwDSMhsSK74kyiBtX91203lPKOLc_3hObyfzfA-N_grMrv87xyjCqVLPX1s',
   NEXUS_EDGE_URL: 'https://api.nexuscollective.app',
-  EDGE_MEDIA_ENABLED: false,
-  EDGE_REALTIME_ENABLED: false,
+  EDGE_MEDIA_ENABLED: true,
+  EDGE_REALTIME_ENABLED: true,
+  TURNSTILE_SITE_KEY: '0x4AAAAAAGFdMhDVWT1fUck8',
 };
 /*
   comentario
