@@ -1,0 +1,55 @@
+name: Build Nexus Desktop Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/nexus-desktop-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          $nsisDir = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+          if (-not (Test-Path (Join-Path $nsisDir 'makensis.exe'))) {
+            throw "NSIS was not found in $nsisDir"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Build Nexus Desktop installer
+        working-directory: desktop
+        run: npm run build:windows
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Desktop-Windows-0.9.0-alpha.2
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30

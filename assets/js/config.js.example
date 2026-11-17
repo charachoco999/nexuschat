@@ -3,7 +3,12 @@
 // service_role key, una contraseña SMTP ni una API key privada de otro proveedor.
 window.NEXUS_CONFIG = {
   SUPABASE_URL: 'https://TU-PROYECTO.supabase.co',
-  SUPABASE_ANON_KEY: 'TU-CLAVE-PUBLICA',
+  SUPABASE_ANON_KEY: 'TU-PUBLISHABLE-KEY',
+  // Nexus Edge v0.13.0-alpha1. Mantén ambos interruptores en false hasta
+  // desplegar Worker, aplicar SQL y crear el Database Webhook.
+  NEXUS_EDGE_URL: 'https://api.nexuscollective.app',
+  EDGE_MEDIA_ENABLED: false,
+  EDGE_REALTIME_ENABLED: false,
   APP_NAME: 'Nexus',
   // Clave beta pública de GIPHY. GIPHY documenta el uso de Search desde el cliente.
   // Limita la clave a la API y úsala solo para esta integración.

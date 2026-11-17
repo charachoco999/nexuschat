@@ -18,6 +18,7 @@ create table if not exists public.profiles (
   aliases text[] not null default '{}',
   default_name_color text not null default '#a99bff' check (default_name_color ~ '^#[0-9A-Fa-f]{6}$'),
   name_font_url text,
+  message_font_url text,
   name_effect_url text,
   profile_effect_url text,
   profile_plate_url text,
@@ -265,6 +266,7 @@ create table if not exists public.channels (
   name text not null check (length(name) between 1 and 70),
   type text not null default 'text' check (type in ('text','announcements','voice','media')),
   description text not null default '',
+  category text not null default 'General',
   position integer not null default 0,
   created_at timestamptz not null default now()
 );
@@ -359,7 +361,7 @@ create index if not exists messages_reply_to_idx on public.messages(reply_to) wh
 create table if not exists public.message_reactions (
   message_id uuid not null references public.messages(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  emoji text not null check (length(emoji) between 1 and 16),
+  emoji text not null check (length(emoji) between 1 and 80),
   created_at timestamptz not null default now(),
   primary key (message_id,user_id,emoji)
 );
@@ -713,7 +715,7 @@ grant execute on function public.admin_unban_user(uuid) to authenticated;
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values
  ('profile-media','profile-media',true,8388608,array['image/png','image/jpeg','image/webp','image/gif']),
- ('chat-media','chat-media',false,52428800,array['image/png','image/jpeg','image/webp','image/gif','video/mp4','video/webm','application/pdf','text/plain','application/zip'])
+ ('chat-media','chat-media',false,52428800,array['image/png','image/jpeg','image/webp','image/gif','video/mp4','video/webm','audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav','audio/x-wav','application/pdf','text/plain','application/zip'])
 on conflict(id) do update set public=excluded.public,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
 
 -- Storage policies call narrow SECURITY DEFINER helpers rather than querying
@@ -1794,12 +1796,19 @@ begin
 
   if coalesce(array_length(folders,1),0)=2 and folders[1]='personal' then
     if folders[2]=auth.uid()::text then return true; end if;
+    -- A personal asset is shared only after its owner uses it in a visible
+    -- message or a member reacts to a visible message with that asset.
     return exists (
       select 1
         from public.custom_assets a
         join public.messages m on (
           m.attachment->>'custom_asset_id'=a.id::text
           or coalesce(m.formatting->'custom_emojis','[]'::jsonb) @> jsonb_build_array(a.id::text)
+          or exists (
+            select 1 from public.message_reactions r
+             where r.message_id=m.id
+               and r.emoji='custom:' || a.id::text
+          )
         )
        where a.asset_url=p_object_name
          and a.scope='personal'
@@ -1945,6 +1954,16 @@ create policy custom_assets_read_scope on public.custom_assets for select to aut
            or (m.channel_id is not null and exists(select 1 from public.channels ch where ch.id=m.channel_id and public.is_community_member(ch.community_id)))
          )
     )
+    or exists (
+      select 1
+        from public.message_reactions r
+        join public.messages m on m.id=r.message_id
+       where r.emoji='custom:' || custom_assets.id::text
+         and (
+           (m.conversation_id is not null and public.is_conversation_member(m.conversation_id))
+           or (m.channel_id is not null and exists(select 1 from public.channels ch where ch.id=m.channel_id and public.is_community_member(ch.community_id)))
+         )
+    )
   ))
   or (scope='conversation' and exists(select 1 from public.conversation_members cm where cm.conversation_id=scope_id and cm.user_id=auth.uid()))
   or (scope='community' and public.is_community_member(scope_id))
@@ -2035,6 +2054,88 @@ drop trigger if exists nexus_v07_message_assets_guard on public.messages;
 create trigger nexus_v07_message_assets_guard
 before insert or update of attachment,formatting,message_type on public.messages
 for each row execute function public.guard_nexus_v07_message_assets();
+
+
+-- Validate custom emoji reactions server-side. The client picker is not a
+-- security boundary: a caller must not be able to reveal a personal asset by
+-- guessing its UUID and inserting a custom:<uuid> reaction directly.
+create or replace function public.guard_nexus_custom_reaction()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  asset_row public.custom_assets%rowtype;
+  message_row public.messages%rowtype;
+  asset_id uuid;
+  target_community uuid;
+  is_allowed boolean := false;
+begin
+  if new.emoji not like 'custom:%' then return new; end if;
+  if auth.uid() is null or new.user_id<>auth.uid() or public.is_user_banned() then
+    raise exception 'No puedes usar esta reacción.';
+  end if;
+
+  begin
+    asset_id := substring(new.emoji from 8)::uuid;
+  exception when others then
+    raise exception 'La referencia del emoji personalizado no es válida.';
+  end;
+
+  select * into message_row from public.messages where id=new.message_id;
+  if not found then raise exception 'El mensaje de la reacción no existe.'; end if;
+
+  select * into asset_row
+    from public.custom_assets
+   where id=asset_id and asset_type='emoji' and archived_at is null;
+  if not found then raise exception 'El emoji personalizado no existe o está archivado.'; end if;
+
+  if asset_row.scope='personal' then
+    is_allowed := asset_row.owner_id=auth.uid();
+    if not is_allowed then
+      is_allowed := exists (
+        select 1
+          from public.messages m
+         where (
+           m.attachment->>'custom_asset_id'=asset_row.id::text
+           or coalesce(m.formatting->'custom_emojis','[]'::jsonb) @> jsonb_build_array(asset_row.id::text)
+           or exists (
+             select 1 from public.message_reactions r
+              where r.message_id=m.id
+                and r.emoji='custom:' || asset_row.id::text
+           )
+         )
+           and (
+             (m.conversation_id is not null and public.is_conversation_member(m.conversation_id))
+             or (m.channel_id is not null and exists (
+               select 1 from public.channels ch
+                where ch.id=m.channel_id and public.is_community_member(ch.community_id)
+             ))
+           )
+      );
+    end if;
+  elsif asset_row.scope='conversation' then
+    is_allowed := message_row.conversation_id=asset_row.scope_id
+      and public.is_conversation_member(asset_row.scope_id);
+  elsif asset_row.scope='community' and message_row.channel_id is not null then
+    select community_id into target_community
+      from public.channels where id=message_row.channel_id;
+    is_allowed := target_community=asset_row.scope_id
+      and public.is_community_member(asset_row.scope_id);
+  end if;
+
+  if not is_allowed then
+    raise exception 'Este emoji no está disponible en este chat.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists nexus_custom_reaction_guard on public.message_reactions;
+create trigger nexus_custom_reaction_guard
+before insert or update of emoji,message_id,user_id on public.message_reactions
+for each row execute function public.guard_nexus_custom_reaction();
 
 -- ---------------------------------------------------------------------------
 -- Workshop ratings. One rating per user and preset; authors cannot rate their
@@ -2283,5 +2384,70 @@ revoke all on function public.edit_message_with_mentions(uuid,text,jsonb,jsonb) 
 grant execute on function public.edit_message_with_mentions(uuid,text,jsonb,jsonb) to authenticated;
 
 grant usage on schema public to authenticated;
+
+commit;
+
+-- Nexus v0.10 initial schema extensions (same definitions as the upgrade migration).
+-- Nexus v0.10 initial feature migration. Safe to apply once; uses IF NOT EXISTS where possible.
+begin;
+
+-- Channel categories preserve existing channels under the General category.
+alter table public.channels add column if not exists category text not null default 'General';
+update public.channels set category='General' where category is null or btrim(category)='';
+create index if not exists channels_community_category_position_idx on public.channels(community_id,category,position,created_at);
+
+-- Separate message typography from the profile-name font.
+alter table public.profiles add column if not exists message_font_url text;
+
+-- Voice-note uploads. Keep private bucket, membership RLS and the existing 50 MB limit.
+update storage.buckets
+set allowed_mime_types = array[
+  'image/png','image/jpeg','image/webp','image/gif',
+  'video/mp4','video/webm',
+  'audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav','audio/x-wav',
+  'application/pdf','text/plain','application/zip'
+]
+where id='chat-media';
+
+-- Universal badges are managed only by platform administrators (role='admin', not community admins).
+create or replace function public.is_platform_admin()
+returns boolean
+language sql stable security definer
+set search_path=public,auth,pg_temp
+as $$ select exists(select 1 from public.user_roles where user_id=auth.uid() and role='admin'); $$;
+revoke all on function public.is_platform_admin() from public,anon;
+grant execute on function public.is_platform_admin() to authenticated;
+
+create table if not exists public.global_badges(
+  id uuid primary key default gen_random_uuid(),
+  name text not null check(length(name) between 2 and 40),
+  icon_url text not null check(length(icon_url) between 1 and 500),
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now()
+);
+create table if not exists public.global_badge_assignments(
+  badge_id uuid not null references public.global_badges(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  assigned_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  primary key(badge_id,user_id)
+);
+create index if not exists global_badge_assignments_user_idx on public.global_badge_assignments(user_id);
+grant select,insert,delete on public.global_badges to authenticated;
+grant select,insert,delete on public.global_badge_assignments to authenticated;
+alter table public.global_badges enable row level security;
+alter table public.global_badge_assignments enable row level security;
+drop policy if exists global_badges_read_authenticated on public.global_badges;
+create policy global_badges_read_authenticated on public.global_badges for select to authenticated using(true);
+drop policy if exists global_badges_admin_insert on public.global_badges;
+create policy global_badges_admin_insert on public.global_badges for insert to authenticated with check(public.is_platform_admin() and created_by=auth.uid());
+drop policy if exists global_badges_admin_delete on public.global_badges;
+create policy global_badges_admin_delete on public.global_badges for delete to authenticated using(public.is_platform_admin());
+drop policy if exists global_badge_assignments_read_authenticated on public.global_badge_assignments;
+create policy global_badge_assignments_read_authenticated on public.global_badge_assignments for select to authenticated using(true);
+drop policy if exists global_badge_assignments_admin_insert on public.global_badge_assignments;
+create policy global_badge_assignments_admin_insert on public.global_badge_assignments for insert to authenticated with check(public.is_platform_admin() and assigned_by=auth.uid());
+drop policy if exists global_badge_assignments_admin_delete on public.global_badge_assignments;
+create policy global_badge_assignments_admin_delete on public.global_badge_assignments for delete to authenticated using(public.is_platform_admin());
 
 commit;

@@ -1,0 +1,10 @@
+{
+  "name": "nexus-r2-backfill",
+  "private": true,
+  "type": "module",
+  "scripts": { "dry-run": "node migrate.mjs", "migrate": "node migrate.mjs --execute" },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.900.0",
+    "@supabase/supabase-js": "^2.118.0"
+  }
+}

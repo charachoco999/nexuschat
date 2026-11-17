@@ -1,0 +1,25 @@
+name = "nexus-edge"
+main = "src/index.js"
+compatibility_date = "2026-11-17"
+workers_dev = true
+
+[vars]
+APP_ORIGIN = "https://chat.nexuscollective.app"
+SUPABASE_URL = "https://REPLACE_WITH_PROJECT_REF.supabase.co"
+EDGE_PUBLIC_URL = "https://api.nexuscollective.app"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "nexus-edge-media"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "NexusRoomHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NexusRoomHub"]
+
+[[routes]]
+pattern = "api.nexuscollective.app"
+custom_domain = true

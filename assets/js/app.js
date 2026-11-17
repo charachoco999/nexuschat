@@ -1,4 +1,4 @@
-/* Nexus v0.12.1 front-end hotfix. Database RLS and protected RPCs are the security boundary. */
+/* Nexus v0.13.0-alpha1. Database RLS and protected RPCs remain the security boundary. */
 (() => {
   'use strict';
 
@@ -12,7 +12,7 @@
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const NEXUS_TERMS_VERSION = '2026-11-06-v2';
   const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
-  const NEXUS_RELEASE_ID = '0.12.1';
+  const NEXUS_RELEASE_ID = '0.13.0-alpha1';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
   let termsAcceptanceBusy = false;
@@ -71,6 +71,12 @@
   const globalBadgeCache = new Map();
   let activeAltProfile = null;
   let messageNotificationChannel = null;
+  let edgeRoomSocket = null;
+  let edgeNotificationsSocket = null;
+  let edgeRoomReconnectTimer = null;
+  let edgeNotificationsReconnectTimer = null;
+  let edgeRoomGeneration = 0;
+  let edgeNotificationsGeneration = 0;
   let notificationAudioContext = null;
   let notificationItems = [];
   const notificationSeenIds = new Set();
@@ -463,6 +469,9 @@
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
     if (typingStopTimer) clearTimeout(typingStopTimer); typingStopTimer=null; localTypingActive=false;
     if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
+    disconnectEdgeRoom();
+    edgeNotificationsGeneration++;if(edgeNotificationsReconnectTimer){clearTimeout(edgeNotificationsReconnectTimer);edgeNotificationsReconnectTimer=null;}
+    if(edgeNotificationsSocket){try{edgeNotificationsSocket.close(1000,'Signed out');}catch{}edgeNotificationsSocket=null;}
     if (globalPresenceChannel) client.removeChannel(globalPresenceChannel);
     friendsRealtimeChannel = null; inboxRealtimeChannel = null; activeMessageChannel = null; messageNotificationChannel = null; globalPresenceChannel = null;
     onlineUserIds.clear();
@@ -898,6 +907,11 @@
   function subscribeMessageNotifications() {
     if (!client || !currentUser) return;
     if (messageNotificationChannel) client.removeChannel(messageNotificationChannel);
+    messageNotificationChannel=null;
+    if(edgeRealtimeEnabled()){
+      connectEdgeNotifications().catch(error=>console.warn('No se pudo conectar el canal de avisos de Cloudflare:',error));
+      return;
+    }
     messageNotificationChannel=client.channel(`nexus-notifications-${currentUser.id}`,{config:{private:true}})
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>handleIncomingNotification(payload.new).catch(error=>console.warn('No se pudo procesar una notificación:',error)))
       .subscribe();
@@ -1082,6 +1096,7 @@
   }
 
   function resetConversationPanel() {
+    disconnectEdgeRoom();
     currentContext = null;
     replyTarget = null;
     if (activeMessageChannel) client.removeChannel(activeMessageChannel);
@@ -1820,8 +1835,7 @@
     const copied=[];
     for(const item of entries){
       const storageBucket=item.bucket||'chat-media';
-      const {data:blob,error:downloadError}=await client.storage.from(storageBucket).download(item.path);
-      if(downloadError||!blob)throw new Error(`No se pudo copiar ${item.name||'un adjunto'} a las evidencias: ${downloadError?.message||'archivo no disponible'}`);
+      let blob;try{blob=await downloadMediaBlob(storageBucket,item.path);}catch(downloadError){throw new Error(`No se pudo copiar ${item.name||'un adjunto'} a las evidencias: ${downloadError?.message||'archivo no disponible'}`);}
       if(blob.size>50*1024*1024)throw new Error(`El archivo ${item.name||''} supera el límite de 50 MB para evidencias.`);
       if(uploadState.totalBytes+blob.size>100*1024*1024)throw new Error('Los adjuntos del reporte superan el límite total de 100 MB.');
       const cleanName=String(item.name||'archivo').replace(/[^\p{L}\p{N}._-]+/gu,'_').slice(0,100)||'archivo';
@@ -1930,12 +1944,82 @@
     hasOlderMessages=result.hasOlder;
   }
 
+  function edgeApiBase(){return String(cfg.NEXUS_EDGE_URL||'').replace(/\/+$/,'');}
+  function edgeMediaEnabled(){return cfg.EDGE_MEDIA_ENABLED===true&&Boolean(edgeApiBase());}
+  function edgeRealtimeEnabled(){return cfg.EDGE_REALTIME_ENABLED===true&&Boolean(edgeApiBase());}
+  async function edgeAccessToken(){
+    const {data,error}=await client.auth.getSession();
+    if(error)throw error;
+    const token=data?.session?.access_token;
+    if(!token)throw new Error('La sesión de Nexus ha caducado. Vuelve a iniciar sesión.');
+    return token;
+  }
+  async function edgeRequest(path,options={}){
+    if(!edgeApiBase())throw new Error('NEXUS_EDGE_URL no está configurado.');
+    const token=await edgeAccessToken();
+    const headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);
+    let body=options.body;
+    if(body&&typeof body==='object'&&!(body instanceof Blob)&&!(body instanceof ArrayBuffer)&&!(body instanceof FormData)){headers.set('Content-Type','application/json');body=JSON.stringify(body);}
+    const response=await fetch(`${edgeApiBase()}${path}`,{...options,headers,body});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data?.error||`Cloudflare Edge respondió ${response.status}.`);
+    return data;
+  }
+  async function uploadMediaObject(bucket,path,file,contentType){
+    if(edgeMediaEnabled()){
+      const token=await edgeAccessToken();
+      const query=new URLSearchParams({bucket,path});
+      const response=await fetch(`${edgeApiBase()}/api/media/upload?${query}`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':contentType||file.type||'application/octet-stream'},body:file});
+      const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error||`No se pudo subir a R2 (${response.status}).`);
+      return {path:data.path||path,publicUrl:data.publicUrl||null,provider:'r2'};
+    }
+    const {error}=await client.storage.from(bucket).upload(path,file,{contentType:contentType||file.type||'application/octet-stream',upsert:false});
+    if(error)throw error;
+    return {path,publicUrl:null,provider:'supabase'};
+  }
+  async function deleteMediaObject(bucket,path){
+    if(!path)return;
+    if(edgeMediaEnabled()||String(path).startsWith('edge/')){
+      await edgeRequest('/api/media/delete',{method:'POST',body:{bucket,path}});return;
+    }
+    const {error}=await client.storage.from(bucket).remove([path]);if(error)throw error;
+  }
+  async function downloadMediaBlob(bucket,path){
+    const urls=await signedUrlLookup(bucket,[path]);
+    const url=urls.get(path);
+    if(url){const response=await fetch(url);if(!response.ok)throw new Error(`No se pudo descargar el archivo (${response.status}).`);return response.blob();}
+    if(String(path).startsWith('edge/'))throw new Error('El archivo está en Cloudflare R2, pero no se pudo obtener su URL temporal.');
+    const {data,error}=await client.storage.from(bucket).download(path);if(error||!data)throw error||new Error('El archivo no está disponible.');return data;
+  }
   async function signedUrlLookup(bucket, paths) {
     const unique=[...new Set((paths||[]).filter(Boolean))];
     if(!unique.length)return new Map();
-    const {data,error}=await client.storage.from(bucket).createSignedUrls(unique,3600);
-    if(error){console.warn(`No se pudieron firmar archivos de ${bucket}:`,error);return new Map();}
-    return new Map((data||[]).filter(item=>item?.path&&item?.signedUrl).map(item=>[item.path,item.signedUrl]));
+    const urls=new Map();
+    const eligibleForEdge=['chat-media','nexus-assets'].includes(bucket);
+    const edgePaths=eligibleForEdge?unique.filter(path=>edgeMediaEnabled()||String(path).startsWith('edge/')):[];
+    const legacyPaths=new Set(unique.filter(path=>!edgePaths.includes(path)));
+    if(edgePaths.length){
+      for(let offset=0;offset<edgePaths.length;offset+=80){
+        const batch=edgePaths.slice(offset,offset+80);
+        try{
+          const result=await edgeRequest('/api/media/sign',{method:'POST',body:{bucket,paths:batch}});
+          for(const item of result.items||[]){
+            if(item?.path&&item.url)urls.set(item.path,item.url);
+            else if(item?.path&&item.legacy)legacyPaths.add(item.path);
+          }
+        }catch(error){
+          console.warn(`Cloudflare no pudo resolver archivos de ${bucket}:`,error.message||error);
+          for(const path of batch)if(!String(path).startsWith('edge/'))legacyPaths.add(path);
+        }
+      }
+    }
+    const fallback=[...legacyPaths].filter(path=>!String(path).startsWith('edge/'));
+    if(fallback.length){
+      const {data,error}=await client.storage.from(bucket).createSignedUrls(fallback,3600);
+      if(error)console.warn(`No se pudieron firmar archivos antiguos de ${bucket}:`,error);
+      for(const item of data||[])if(item?.path&&item?.signedUrl)urls.set(item.path,item.signedUrl);
+    }
+    return urls;
   }
   function updateLoadOlderButton() {
     const button=$('#load-older-messages');
@@ -2547,7 +2631,7 @@
     if (message.attachment?.kind === 'sticker' && message.attachment?.custom_asset_id) {
       let asset=batchData?.assets?.get(message.attachment.custom_asset_id)||null;
       let signedUrl=asset?.asset_url?batchData?.assetUrls?.get(asset.asset_url):null;
-      if(!batchData){const response=await client.from('custom_assets').select('id,name,asset_url').eq('id',message.attachment.custom_asset_id).maybeSingle();asset=response.data||null;if(asset?.asset_url){const signed=await client.storage.from('nexus-assets').createSignedUrl(asset.asset_url,3600);signedUrl=signed.data?.signedUrl||null;}}
+      if(!batchData){const response=await client.from('custom_assets').select('id,name,asset_url').eq('id',message.attachment.custom_asset_id).maybeSingle();asset=response.data||null;if(asset?.asset_url){const signed=await signedUrlLookup('nexus-assets',[asset.asset_url]);signedUrl=signed.get(asset.asset_url)||null;}}
       if(asset?.asset_url&&signedUrl){const image=document.createElement('img');image.className='message-custom-sticker';image.src=signedUrl;image.alt=asset.name||'Sticker';image.loading='lazy';$('.message-attachment',article).append(image);}
     } else if (message.attachment?.kind === 'gif' && isGiphyMediaUrl(message.attachment.url)) {
       const image=document.createElement('img'); image.className='message-gif'; image.src=message.attachment.url; image.alt=String(message.attachment.alt||'GIF').slice(0,120); image.loading='lazy'; $('.message-attachment',article).append(image);
@@ -2571,7 +2655,7 @@
     }
     if (message.attachment?.path) {
       let signedUrl=batchData?.mediaUrls?.get(message.attachment.path)||null;
-      if(!batchData){const response=await client.storage.from('chat-media').createSignedUrl(message.attachment.path,3600);signedUrl=response.data?.signedUrl||null;}
+      if(!batchData){const signed=await signedUrlLookup('chat-media',[message.attachment.path]);signedUrl=signed.get(message.attachment.path)||null;}
       if (signedUrl) {
         const attachment = $('.message-attachment', article);
         const type = message.attachment.mimetype || '';
@@ -2837,42 +2921,117 @@
     rebuildMessageGroups(container);
     if(nearBottom&&(Number(container.dataset.nexusScrollVersion)||0)===scrollVersionBefore)container.scrollTop=container.scrollHeight;
   }
+  async function openEdgeSocket(kind,id,onPacket,onClose){
+    const ticketResult=await edgeRequest('/api/realtime/ticket',{method:'POST',body:{kind,id}});
+    const base=new URL(edgeApiBase());base.protocol=base.protocol==='https:'?'wss:':'ws:';
+    const socketUrl=`${base.origin}/ws/${encodeURIComponent(kind)}/${encodeURIComponent(id)}?ticket=${encodeURIComponent(ticketResult.ticket)}`;
+    const socket=new WebSocket(socketUrl);
+    socket.addEventListener('message',event=>{try{const payload=JSON.parse(event.data);onPacket?.(payload);}catch(error){console.warn('Evento Edge no válido:',error);}});
+    socket.addEventListener('close',event=>onClose?.(event));
+    await new Promise((resolve,reject)=>{
+      let settled=false;const timer=setTimeout(()=>{if(!settled){settled=true;try{socket.close();}catch{}reject(new Error('Timeout al abrir WebSocket de Cloudflare.'));}},12000);
+      socket.addEventListener('open',()=>{if(!settled){settled=true;clearTimeout(timer);resolve();}},{once:true});
+      socket.addEventListener('error',()=>{if(!settled){settled=true;clearTimeout(timer);reject(new Error('No se pudo abrir el WebSocket de Cloudflare.'));}},{once:true});
+    });
+    return socket;
+  }
+  function handleEdgeRoomPacket(packet,context){
+    if(!packet||packet.type!=='message_event'||currentContext?.id!==context.id||currentContext?.type!==context.type)return;
+    const record=packet.record;
+    if(packet.eventType==='INSERT'&&record?.id){
+      cacheMessage(record);
+      const activeBefore=$('#messages-container');
+      const wasNearBottom=activeBefore?activeBefore.scrollHeight-activeBefore.scrollTop-activeBefore.clientHeight<150:false;
+      const scrollVersionBefore=Number(activeBefore?.dataset.nexusScrollVersion)||0;
+      renderMessageRows([record]).then(()=>{
+        if(record.sender_id===currentUser?.id&&wasNearBottom)requestAnimationFrame(()=>{const active=$('#messages-container');if(active&&currentContext?.id===context.id&&(Number(active.dataset.nexusScrollVersion)||0)===scrollVersionBefore)active.scrollTop=active.scrollHeight;});
+      }).catch(error=>console.warn('No se pudo renderizar el mensaje Edge:',error));
+      if(context.type==='conversation'){
+        scheduleAccountListRefresh('conversations');
+        if(record.sender_id!==currentUser?.id)markConversationRead(record.id).then(()=>renderConversationReadReceipts()).catch(()=>{});
+      }else if(record.sender_id!==currentUser?.id){markChannelRead(context.id).catch(()=>{});}
+      refreshUnreadCounts();
+    }else if(packet.eventType==='UPDATE'&&record?.id){refreshSingleMessage(record);}
+    else if(packet.eventType==='DELETE'&&record?.id){
+      const key=messageContextKey(context);const state=messageCache.get(key);
+      if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==record.id),state.hasOlder);
+      $(`[data-message-id="${record.id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(record.id);rebuildMessageGroups($('#messages-container'));
+    }
+  }
+  async function connectEdgeRoom(context){
+    disconnectEdgeRoom();if(!edgeRealtimeEnabled()||!context)return;
+    const generation=edgeRoomGeneration;const contextKey=`${context.type}:${context.id}`;
+    try{
+      const socket=await openEdgeSocket(context.type,context.id,packet=>handleEdgeRoomPacket(packet,context),()=>{
+        if(generation===edgeRoomGeneration&&currentContext?.id===context.id&&edgeRealtimeEnabled()){
+          const status=$('#connection-status');if(status){status.classList.remove('online');status.innerHTML='<i></i> Reconectando Edge';}
+          if(edgeRoomReconnectTimer)clearTimeout(edgeRoomReconnectTimer);
+          edgeRoomReconnectTimer=setTimeout(()=>connectEdgeRoom(context).catch(error=>console.warn('Reintento Edge fallido:',error)),2500);
+        }
+      });
+      if(generation!==edgeRoomGeneration||currentContext?.id!==context.id){socket.close();return;}
+      edgeRoomSocket=socket;const status=$('#connection-status');if(status){status.classList.add('online');status.innerHTML='<i></i> En directo · Cloudflare';}
+    }catch(error){
+      if(generation===edgeRoomGeneration&&currentContext?.id===context.id){const status=$('#connection-status');if(status){status.classList.remove('online');status.innerHTML='<i></i> Sin conexión Edge';}if(edgeRoomReconnectTimer)clearTimeout(edgeRoomReconnectTimer);edgeRoomReconnectTimer=setTimeout(()=>connectEdgeRoom(context).catch(()=>{}),5000);}
+      throw error;
+    }
+  }
+  function disconnectEdgeRoom(){
+    edgeRoomGeneration++;if(edgeRoomReconnectTimer){clearTimeout(edgeRoomReconnectTimer);edgeRoomReconnectTimer=null;}
+    if(edgeRoomSocket){try{edgeRoomSocket.close(1000,'Context changed');}catch{}edgeRoomSocket=null;}
+  }
+  async function connectEdgeNotifications(){
+    if(!edgeRealtimeEnabled()||!currentUser)return;
+    const generation=++edgeNotificationsGeneration;
+    if(edgeNotificationsReconnectTimer){clearTimeout(edgeNotificationsReconnectTimer);edgeNotificationsReconnectTimer=null;}
+    if(edgeNotificationsSocket){try{edgeNotificationsSocket.close(1000,'Reconnect');}catch{}edgeNotificationsSocket=null;}
+    try{
+      const expectedUser=currentUser.id;
+      const socket=await openEdgeSocket('notifications','global',packet=>{
+        if(packet?.type==='notification'&&packet.message)handleIncomingNotification(packet.message).catch(error=>console.warn('No se pudo procesar el aviso Edge:',error));
+      },()=>{
+        if(generation===edgeNotificationsGeneration&&currentUser?.id===expectedUser&&edgeRealtimeEnabled())edgeNotificationsReconnectTimer=setTimeout(()=>connectEdgeNotifications().catch(()=>{}),3500);
+      });
+      if(generation!==edgeNotificationsGeneration||currentUser?.id!==expectedUser){socket.close();return;}
+      edgeNotificationsSocket=socket;
+    }catch(error){
+      if(generation===edgeNotificationsGeneration&&currentUser&&edgeRealtimeEnabled())edgeNotificationsReconnectTimer=setTimeout(()=>connectEdgeNotifications().catch(()=>{}),5000);
+      throw error;
+    }
+  }
+  async function handleLegacyMessageInsert(message,context){
+    if(!message||currentContext?.id!==context.id)return;
+    cacheMessage(message);
+    const activeBefore=$('#messages-container');
+    const wasNearBottom=activeBefore?activeBefore.scrollHeight-activeBefore.scrollTop-activeBefore.clientHeight<150:false;
+    const scrollVersionBefore=Number(activeBefore?.dataset.nexusScrollVersion)||0;
+    await renderMessageRows([message]);
+    if(message.sender_id===currentUser.id&&wasNearBottom)requestAnimationFrame(()=>{const active=$('#messages-container');if(active&&currentContext?.id===context.id&&(Number(active.dataset.nexusScrollVersion)||0)===scrollVersionBefore)active.scrollTop=active.scrollHeight;});
+    if(context.type==='conversation'){scheduleAccountListRefresh('conversations');if(message.sender_id!==currentUser.id){await markConversationRead(message.id);await renderConversationReadReceipts();}}
+    else if(message.sender_id!==currentUser.id)await markChannelRead(context.id);
+    refreshUnreadCounts();
+  }
+  function handleLegacyMessageDelete(message,context){
+    if(currentContext?.id!==context.id)return;const id=message?.id;if(!id)return;
+    const key=messageContextKey(context);const state=messageCache.get(key);if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==id),state.hasOlder);
+    $(`[data-message-id="${id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(id);rebuildMessageGroups($('#messages-container'));
+  }
+
   function subscribeMessages() {
     if(activeMessageChannel)client.removeChannel(activeMessageChannel);
     if(!currentContext)return;
     const context={...currentContext};
     const field=context.type==='conversation'?'conversation_id':'channel_id';
     typingUsers.clear();localTypingActive=false;if(typingStopTimer)clearTimeout(typingStopTimer);typingStopTimer=null;
-    activeMessageChannel=client.channel(`nexus-${context.type}-${context.id}`,{config:{private:true,presence:{key:currentUser.id},broadcast:{self:false,ack:false}}})
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},async payload=>{
-        if(currentContext?.id!==context.id)return;
-        cacheMessage(payload.new);
-        const activeBefore=$('#messages-container');
-        const wasNearBottom=activeBefore?activeBefore.scrollHeight-activeBefore.scrollTop-activeBefore.clientHeight<150:false;
-        const scrollVersionBefore=Number(activeBefore?.dataset.nexusScrollVersion)||0;
-        // A live insert is a one-row batch too: this keeps reaction, identity,
-        // reply and media resolution on the same path as paginated history.
-        await renderMessageRows([payload.new]);
-        if(payload.new.sender_id===currentUser.id&&wasNearBottom){
-          requestAnimationFrame(()=>{
-            const active=$('#messages-container');
-            if(active&&currentContext?.id===context.id&&(Number(active.dataset.nexusScrollVersion)||0)===scrollVersionBefore)active.scrollTop=active.scrollHeight;
-          });
-        }
-        if(context.type==='conversation'){
-          scheduleAccountListRefresh('conversations');
-          if(payload.new.sender_id!==currentUser.id){await markConversationRead(payload.new.id);await renderConversationReadReceipts();}
-        }else if(payload.new.sender_id!==currentUser.id){await markChannelRead(context.id);}
-        refreshUnreadCounts();
-      })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{if(currentContext?.id===context.id)refreshSingleMessage(payload.new);})
-      .on('postgres_changes',{event:'DELETE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{
-        if(currentContext?.id!==context.id)return;
-        const id=payload.old?.id;if(!id)return;
-        const key=messageContextKey(context);const state=messageCache.get(key);
-        if(state)saveMessageCache(key,state.rows.filter(row=>row.id!==id),state.hasOlder);
-        $(`[data-message-id="${id}"]`,$('#messages-container'))?.remove();renderedMessageIds.delete(id);rebuildMessageGroups($('#messages-container'));
-      })
+    const edgeMode=edgeRealtimeEnabled();
+    const roomChannel=client.channel(`nexus-${context.type}-${context.id}`,{config:{private:true,presence:{key:currentUser.id},broadcast:{self:false,ack:false}}});
+    if(!edgeMode){
+      roomChannel
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},async payload=>handleLegacyMessageInsert(payload.new,context))
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>{if(currentContext?.id===context.id)refreshSingleMessage(payload.new);})
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'messages',filter:`${field}=eq.${context.id}`},payload=>handleLegacyMessageDelete(payload.old,context));
+    }
+    activeMessageChannel=roomChannel
       .on('postgres_changes',{event:'*',schema:'public',table:'message_reactions'},async payload=>{
         const messageId=payload.new?.message_id||payload.old?.message_id;if(!messageId)return;
         const article=$(`[data-message-id="${messageId}"]`,$('#messages-container'));
@@ -2894,6 +3053,7 @@
           catch(error){console.warn('No se pudo publicar presencia:',error);}
         }
       });
+    if(edgeMode)connectEdgeRoom(context).catch(error=>{console.error('No se pudo conectar Nexus Edge Messaging:',error);const status=$('#connection-status');if(status){status.classList.remove('online');status.innerHTML='<i></i> Sin conexión Edge';}});
   }
 
   async function getMentionCandidates() {
@@ -3002,7 +3162,7 @@
       payload[context.type==='conversation'?'conversation_id':'channel_id']=context.id;
       const {error}=await client.from('messages').insert(payload);if(error)throw error;
       input.value='';autoResizeComposer(input);pendingAttachments=[];renderPendingAttachments();$('#attachment-spoiler').checked=false;broadcastTypingState(false);clearReplyTarget();hideEmojiSuggestions();hideMentionSuggestions();toast(uploaded.length?'Mensaje enviado con archivos.':'Mensaje enviado.','success');
-    }catch(error){if(uploaded.length){await client.storage.from('chat-media').remove(uploaded.map(item=>item.path).filter(Boolean)).catch(()=>{});}showError(error,'No se pudo enviar el mensaje.');}
+    }catch(error){if(uploaded.length){await Promise.all(uploaded.map(item=>deleteMediaObject('chat-media',item.path).catch(()=>{})));}showError(error,'No se pudo enviar el mensaje.');}
     finally{input.disabled=false;input.focus();}
   }
 
@@ -3111,13 +3271,14 @@
     const scopeId=scope==='conversation'?currentContext.type==='conversation'?currentContext.id:null:scope==='community'?currentContext.type==='channel'?currentCommunity?.id:null:null;
     if(scope!=='personal'&&!scopeId){toast('Ese ámbito no corresponde al chat actual.','error');return;}
     const ext=({ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'})[file.type];
-    const path=scope==='personal'?`personal/${currentUser.id}/${crypto.randomUUID()}.${ext}`:`${scope}/${scopeId}/${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+    const basePath=scope==='personal'?`personal/${currentUser.id}/${crypto.randomUUID()}.${ext}`:`${scope}/${scopeId}/${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+    const path=edgeMediaEnabled()?`edge/${basePath}`:basePath;
     const button=$('#upload-custom-asset');button.disabled=true;
     try{
-      const {error:upError}=await client.storage.from('nexus-assets').upload(path,file,{contentType:file.type,upsert:false});if(upError)throw upError;
+      await uploadMediaObject('nexus-assets',path,file,file.type);
       const visibility=scope==='personal'?($('#custom-asset-visibility')?.value||'private'):'private';
       const {error:rowError}=await client.from('custom_assets').insert({owner_id:currentUser.id,asset_type:type,scope,scope_id:scopeId,name,asset_url:path,animated:file.type==='image/gif',visibility});
-      if(rowError){await client.storage.from('nexus-assets').remove([path]);throw rowError;}
+      if(rowError){await deleteMediaObject('nexus-assets',path).catch(()=>{});throw rowError;}
       $('#custom-asset-name').value='';$('#custom-asset-file').value='';assetPickerRowsType='';await loadAssetPicker();await loadCustomEmojiCache(true);toast('Recurso subido.','success');
     }catch(error){showError(error,'No se pudo subir el recurso. Comprueba la migración v0.7 y las políticas de Storage.');}
     finally{button.disabled=false;}
@@ -3234,16 +3395,13 @@
     const isConversation = context.type === 'conversation';
     const folder = isConversation ? 'dm' : 'community';
     const safeExtension = (file.name.split('.').pop() || 'bin').replace(/[^a-z0-9]/gi,'').slice(0,8) || 'bin';
-    const path = `${folder}/${context.id}/${crypto.randomUUID()}.${safeExtension}`;
-    const storage = client.storage.from('chat-media');
+    const basePath = `${folder}/${context.id}/${crypto.randomUUID()}.${safeExtension}`;
+    const path = edgeMediaEnabled()?`edge/${basePath}`:basePath;
     if(!options.silent)toast('Subiendo archivo…');
 
     try {
-      const {error: uploadError} = await storage.upload(path, file, {contentType:normalizedMime,upsert:false});
-      if (uploadError) {
-        if (/row-level security|security policy/i.test(uploadError.message || '')) {
-          throw new Error('Supabase ha bloqueado la subida por sus políticas de Storage. Ejecuta el parche supabase/fix-chat-media-rls.sql en el SQL Editor y vuelve a intentarlo.');
-        }
+      try{await uploadMediaObject('chat-media',path,file,normalizedMime);}catch(uploadError){
+        if(/row-level security|security policy/i.test(uploadError.message||''))throw new Error('Supabase ha bloqueado la subida por sus políticas de Storage. Ejecuta el parche supabase/fix-chat-media-rls.sql en el SQL Editor y vuelve a intentarlo.');
         throw uploadError;
       }
       if(options.deferInsert)return {path,name:file.name||'archivo',mimetype:normalizedMime,file};
@@ -3259,7 +3417,7 @@
       payload[isConversation ? 'conversation_id' : 'channel_id'] = context.id;
       const {error: messageError} = await client.from('messages').insert(payload);
       if (messageError) {
-        await storage.remove([path]);
+        await deleteMediaObject('chat-media',path).catch(()=>{});
         throw new Error(`El archivo se subió, pero no se pudo publicar el mensaje: ${messageError.message}`);
       }
       if(currentContext?.id===context.id&&replyTarget?.id===replySnapshot?.id)clearReplyTarget();
@@ -3952,6 +4110,7 @@
     }
     replyTarget = null;
     if (channel.type === 'voice') {
+      disconnectEdgeRoom();
       if (activeMessageChannel) { client.removeChannel(activeMessageChannel); activeMessageChannel = null; }
       currentContext = {type:'channel',id:channel.id,title:`◖ ${channel.name}`,subtitle:`${currentCommunity.name} · ${channelTypeLabel(channel.type)}`,channelType:channel.type,channelDescription:channel.description || '',importantAnnouncementsEnabled:Boolean(channel.important_announcements_enabled),channelPermissions:await getChannelPermissionState(channel.id)};
       renderVoiceDock();
@@ -4234,22 +4393,35 @@
 
   function ownProfileStoragePath(value) {
     const safe=safeHttpsUrl(value);
-    if(!safe || !cfg.SUPABASE_URL) return null;
+    if(!safe) return null;
     try {
-      const assetUrl=new URL(safe), projectUrl=new URL(cfg.SUPABASE_URL);
-      if(assetUrl.host!==projectUrl.host) return null;
+      const assetUrl=new URL(safe);
+      const edgeUrl=edgeApiBase()?new URL(edgeApiBase()):null;
+      const edgeMarker='/media/public/profile-media/';
+      if(edgeUrl&&assetUrl.host===edgeUrl.host&&assetUrl.pathname.includes(edgeMarker)){
+        const objectPath=decodeURIComponent(assetUrl.pathname.slice(assetUrl.pathname.indexOf(edgeMarker)+edgeMarker.length));
+        return objectPath.startsWith(`${currentUser.id}/`)?`edge:${objectPath}`:null;
+      }
+      if(!cfg.SUPABASE_URL)return null;
+      const projectUrl=new URL(cfg.SUPABASE_URL);
+      if(assetUrl.host!==projectUrl.host)return null;
       const marker='/storage/v1/object/public/profile-media/';
       const index=assetUrl.pathname.indexOf(marker);
-      if(index<0) return null;
+      if(index<0)return null;
       const objectPath=decodeURIComponent(assetUrl.pathname.slice(index+marker.length));
-      return objectPath.startsWith(`${currentUser.id}/`) ? objectPath : null;
+      return objectPath.startsWith(`${currentUser.id}/`)?`supabase:${objectPath}`:null;
     } catch { return null; }
   }
   async function removeOwnProfileAsset(value) {
-    const path=ownProfileStoragePath(value);
-    if(!path) return;
-    const {error}=await client.storage.from('profile-media').remove([path]);
-    if(error) console.warn('No se pudo limpiar un archivo de perfil antiguo:',error.message);
+    const source=ownProfileStoragePath(value);
+    if(!source)return;
+    const [provider,path]=source.split(':',2);
+    if(provider==='edge'){
+      await deleteMediaObject('profile-media',`edge/${path}`).catch(error=>console.warn('No se pudo limpiar un archivo R2 antiguo:',error.message||error));
+    }else{
+      const {error}=await client.storage.from('profile-media').remove([path]);
+      if(error)console.warn('No se pudo limpiar un archivo de perfil antiguo:',error.message);
+    }
   }
 
   async function detectProfileAssetMime(file, extension, isFont) {
@@ -4325,33 +4497,30 @@
     // Upload a Blob with an explicit MIME for images AND fonts. This avoids
     // leaking the browser's generic application/octet-stream File.type to Storage.
     const uploadBody = new Blob([file], { type: contentType });
-    const path = `${currentUser.id}/identity-${kind}-${Date.now()}.${extension}`;
-    const storage = client.storage.from('profile-media');
+    const basePath = `${currentUser.id}/identity-${kind}-${Date.now()}.${extension}`;
+    const path = edgeMediaEnabled()?`edge/${basePath}`:basePath;
 
     try {
-      const { error: uploadError } = await storage.upload(path, uploadBody, {
-        contentType,
-        upsert: false,
-        cacheControl: '3600'
-      });
-      if (uploadError) {
-        const message = String(uploadError.message || '');
-        if (/mime type .* not supported/i.test(message)) {
-          throw new Error(`Supabase todavía no permite ${contentType} en el bucket profile-media. Ejecuta la migración 20261101_nexus_v072_profile_asset_mime.sql y vuelve a intentarlo.`);
-        }
-        throw uploadError;
+      let publicUrl;
+      if(edgeMediaEnabled()){
+        const uploaded=await uploadMediaObject('profile-media',path,uploadBody,contentType);
+        publicUrl=uploaded.publicUrl;
+        if(!publicUrl)throw new Error('Cloudflare no devolvió la URL pública del recurso.');
+      }else{
+        const storage=client.storage.from('profile-media');
+        const {error:uploadError}=await storage.upload(basePath,uploadBody,{contentType,upsert:false,cacheControl:'3600'});
+        if(uploadError){const message=String(uploadError.message||'');if(/mime type .* not supported/i.test(message))throw new Error(`Supabase todavía no permite ${contentType} en el bucket profile-media. Ejecuta la migración 20261101_nexus_v072_profile_asset_mime.sql y vuelve a intentarlo.`);throw uploadError;}
+        publicUrl=storage.getPublicUrl(basePath).data.publicUrl;
       }
-
-      const { data } = storage.getPublicUrl(path);
       const previousUrl = profile?.[kind];
-      const { error } = await client.from('profiles').update({ [kind]: data.publicUrl }).eq('id', currentUser.id);
+      const { error } = await client.from('profiles').update({ [kind]: publicUrl }).eq('id', currentUser.id);
       if (error) {
-        await storage.remove([path]);
+        if(edgeMediaEnabled())await deleteMediaObject('profile-media',path).catch(()=>{});else await client.storage.from('profile-media').remove([basePath]);
         throw error;
       }
 
-      profile[kind] = data.publicUrl;
-      if (previousUrl && previousUrl !== data.publicUrl) await removeOwnProfileAsset(previousUrl);
+      profile[kind] = publicUrl;
+      if (previousUrl && previousUrl !== publicUrl) await removeOwnProfileAsset(previousUrl);
       messageIdentityCache.clear();
       renderIdentity();
       renderIdentityAssetLinks();
@@ -4628,10 +4797,10 @@
     const original=pendingForwardMessage;const payload={sender_id:currentUser.id,body:String(original.body||'').slice(0,12000),message_type:original.message_type||'text',formatting:{forwarded_from:{message_id:original.id,original_sender_id:original.sender_id}}};
     payload[kind==='conversation'?'conversation_id':'channel_id']=id;
     if(original.attachment){const attachment={...original.attachment};if(attachment.path){
-      const {data:blob,error:downloadError}=await client.storage.from('chat-media').download(attachment.path);if(downloadError||!blob){showError(downloadError||new Error('No se pudo leer el archivo original.'));return;}
+      let blob;try{blob=await downloadMediaBlob('chat-media',attachment.path);}catch(downloadError){showError(downloadError||new Error('No se pudo leer el archivo original.'));return;}
       if(blob.size>50*1024*1024){toast('El adjunto supera el límite de 50 MB.','error');return;}
       const ext=(String(attachment.name||'archivo').split('.').pop()||'bin').replace(/[^a-z0-9]/gi,'').slice(0,8)||'bin';const path=`${kind==='conversation'?'dm':'community'}/${id}/${crypto.randomUUID()}.${ext}`;
-      const {error:uploadError}=await client.storage.from('chat-media').upload(path,blob,{contentType:attachment.mimetype||blob.type||'application/octet-stream',upsert:false});if(uploadError){showError(uploadError,'No se pudo copiar el adjunto al destino.');return;}attachment.path=path;
+      const destinationPath=edgeMediaEnabled()?`edge/${path}`:path;try{await uploadMediaObject('chat-media',destinationPath,blob,attachment.mimetype||blob.type||'application/octet-stream');}catch(uploadError){showError(uploadError,'No se pudo copiar el adjunto al destino.');return;}attachment.path=destinationPath;
     }payload.attachment=attachment;}
     const button=$('#forward-message-form button[type="submit"]');button.disabled=true;
     try{const {error}=await client.from('messages').insert(payload);if(error)throw error;$('#forward-message-dialog').close();pendingForwardMessage=null;toast('Mensaje reenviado.','success');}
