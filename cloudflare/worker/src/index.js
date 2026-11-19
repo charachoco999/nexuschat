@@ -144,8 +144,17 @@ async function handleMediaUpload(request, env) {
   if (!MEDIA_BUCKETS.has(bucket) || !submittedPath) return json({ error: 'Bucket o ruta no permitidos.' }, 400);
   const path = storagePath(submittedPath);
   const mime = request.headers.get('Content-Type') || 'application/octet-stream';
-  const length = Number(request.headers.get('Content-Length') || 0);
+  const contentLengthHeader = request.headers.get('Content-Length');
+  const sizeParam = url.searchParams.get('size');
+  const length = Number(sizeParam ?? contentLengthHeader ?? NaN);
   if (!allowedMime(bucket, mime)) return json({ error: 'Tipo MIME no permitido.' }, 415);
+  if (!Number.isSafeInteger(length) || length <= 0) {
+    return json({ error: 'No se pudo determinar el tamaño del archivo. Actualiza Nexus e inténtalo de nuevo.' }, 411);
+  }
+  const headerLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
+  if (headerLength > 0 && headerLength !== length) {
+    return json({ error: 'El tamaño declarado no coincide con Content-Length.' }, 400);
+  }
   if (length > maxBytes(bucket)) return json({ error: 'El archivo supera el límite del bucket.' }, 413);
   const allowed = await authorizeMedia(env, auth, bucket, [submittedPath], 'upload');
   if (!allowed[0]) return json({ error: 'No tienes permiso para subir este archivo.' }, 403);
@@ -161,12 +170,31 @@ async function handleMediaUpload(request, env) {
     },
   }));
   const cacheControl = bucket === 'profile-media' ? 'public, max-age=31536000, immutable' : 'private, max-age=300';
+  // A TransformStream does not retain the source stream's known length. R2.put()
+  // therefore rejects it unless it is wrapped in FixedLengthStream.
+  // The stream enforces that the received bytes exactly match the declared size,
+  // without buffering the complete file in Worker memory.
+  const fixedLength = new FixedLengthStream(length);
+  const pipeAbort = new AbortController();
+  const pipePromise = limited.pipeTo(fixedLength.writable, { signal: pipeAbort.signal });
+  const cacheControl = bucket === 'profile-media' ? 'public, max-age=31536000, immutable' : 'private, max-age=300';
   try {
-    await env.MEDIA.put(objectKey(bucket, path), limited, {
-      httpMetadata: { contentType: mime.split(';')[0].trim(), cacheControl },
-      customMetadata: { ownerId: auth.id, bucket, originalPath: path, uploadedAt: new Date().toISOString() },
-    });
+    await Promise.all([
+      env.MEDIA.put(objectKey(bucket, path), fixedLength.readable, {
+        httpMetadata: { contentType: mime.split(';')[0].trim(), cacheControl },
+        customMetadata: { ownerId: auth.id, bucket, originalPath: path, uploadedAt: new Date().toISOString() },
+      }),
+      pipePromise,
+    ]);
   } catch (error) {
+    pipeAbort.abort(error);
+    await pipePromise.catch(() => {});
+    if (observedBytes > maxBytes(bucket)) {
+      return json({ error: 'El archivo supera el límite del bucket.' }, 413);
+    }
+    if (observedBytes !== length) {
+      return json({ error: 'La subida se interrumpió o el tamaño recibido no coincide con el declarado.' }, 400);
+    }
     return json({ error: String(error?.message || 'No se pudo guardar el archivo en R2.') }, 500);
   }
   const publicUrl = bucket === 'profile-media'
@@ -350,7 +378,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return withCors(new Response(null, { status: 204 }), request, env);
-    if (url.pathname === '/health') return json({ ok: true, service: 'nexus-edge', version: '0.13.0-alpha1' });
+    if (url.pathname === '/health') return json({ ok: true, service: 'nexus-edge', version: '0.13.1-alpha1-hotfix1' });
 
     if (url.pathname.startsWith('/media/public/profile-media/')) {
       let path;
