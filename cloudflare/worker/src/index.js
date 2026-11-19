@@ -177,7 +177,6 @@ async function handleMediaUpload(request, env) {
   const fixedLength = new FixedLengthStream(length);
   const pipeAbort = new AbortController();
   const pipePromise = limited.pipeTo(fixedLength.writable, { signal: pipeAbort.signal });
-  const cacheControl = bucket === 'profile-media' ? 'public, max-age=31536000, immutable' : 'private, max-age=300';
   try {
     await Promise.all([
       env.MEDIA.put(objectKey(bucket, path), fixedLength.readable, {
