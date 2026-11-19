@@ -2176,7 +2176,11 @@
   async function uploadMediaObject(bucket,path,file,contentType){
     if(edgeMediaEnabled()){
       const token=await edgeAccessToken();
-      const query=new URLSearchParams({bucket,path});
+      const size=Number(file?.size);
+      if(!Number.isSafeInteger(size)||size<=0)throw new Error('No se pudo determinar el tamaño del archivo.');
+      // R2 requires a known-length stream. Send the Blob/File size as metadata;
+      // the Worker validates it with FixedLengthStream before persisting.
+      const query=new URLSearchParams({bucket,path,size:String(size)});
       const response=await fetch(`${edgeApiBase()}/api/media/upload?${query}`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':contentType||file.type||'application/octet-stream'},body:file});
       const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error||`No se pudo subir a R2 (${response.status}).`);
       return {path:data.path||path,publicUrl:data.publicUrl||null,provider:'r2'};
