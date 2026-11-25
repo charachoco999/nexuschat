@@ -15,7 +15,7 @@
 
 ## Identificación
 - Versión: `2026-11-25-v3`
-- SHA-256: `31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7`
+- SHA-256: `5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9`
 
 La migración y el frontend deben publicarse juntos. Si solo se actualiza uno, la comprobación rechazará la aceptación por discrepancia.
 
