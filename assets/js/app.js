@@ -10,8 +10,8 @@
   const authHashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const authQueryParams = new URLSearchParams(location.search);
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
-  const NEXUS_TERMS_VERSION = '2026-11-06-v2';
-  const NEXUS_TERMS_HASH = 'f0f2322c78f8a4daf53335bf64017f60c74de4230f57d6df9b49a8184fccd8dd';
+  const NEXUS_TERMS_VERSION = '2026-11-25-v3';
+  const NEXUS_TERMS_HASH = '31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7';
   const NEXUS_RELEASE_ID = '0.13.1-alpha1';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
@@ -379,7 +379,7 @@
     const title=$('#tos-acceptance-title');
     const summary=$('#tos-acceptance-summary');
     if(title)title.textContent=isUpdate?'Las condiciones de uso se han actualizado':'Condiciones de uso y privacidad';
-    if(summary)summary.textContent=isUpdate?'Las condiciones de uso se han actualizado desde tu última aceptación. Revisa el documento y acepta la versión vigente para continuar.':'Antes de continuar, debes leer y aceptar las condiciones de uso y privacidad.';
+    if(summary)summary.textContent=isUpdate?'Las condiciones de uso se han actualizado desde tu última aceptación. Revisa el documento y acepta la versión vigente para continuar.':'Antes de continuar, debes aceptar las Condiciones de uso. La información de privacidad explica cómo se tratan tus datos.';
     checkbox.checked=false;button.disabled=true;termsAcceptanceBusy=false;
     if(!dialog.open)dialog.showModal();
     return new Promise(resolve=>{pendingTermsResolver=resolve;});
