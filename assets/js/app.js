@@ -11,7 +11,7 @@
   const authQueryParams = new URLSearchParams(location.search);
   let recoveryMode = authHashParams.get('type') === 'recovery' || authQueryParams.get('recovery') === '1';
   const NEXUS_TERMS_VERSION = '2026-11-25-v3';
-  const NEXUS_TERMS_HASH = '31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7';
+  const NEXUS_TERMS_HASH = '5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9';
   const NEXUS_RELEASE_ID = '0.13.1-alpha1';
   let pendingTermsResolver = null;
   let pendingReportMessage = null;
