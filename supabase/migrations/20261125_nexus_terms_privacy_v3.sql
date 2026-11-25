@@ -13,7 +13,7 @@ declare accepted_time timestamptz;
 begin
   if auth.uid() is null then raise exception 'Debes iniciar sesión para aceptar las condiciones.'; end if;
   if p_terms_version <> '2026-11-25-v3' then raise exception 'La versión de las condiciones no coincide.'; end if;
-  if p_terms_hash <> '31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7' then raise exception 'La huella de las condiciones no coincide.'; end if;
+  if p_terms_hash <> '5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9' then raise exception 'La huella de las condiciones no coincide.'; end if;
   insert into public.tos_acceptances(user_id, terms_version, terms_hash)
   values ((select auth.uid()), p_terms_version, p_terms_hash)
   on conflict (user_id, terms_version)
@@ -41,13 +41,13 @@ begin
     select 1 from public.tos_acceptances t
     where t.user_id=(select auth.uid())
       and t.terms_version='2026-11-25-v3'
-      and t.terms_hash='31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7'
+      and t.terms_hash='5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9'
   ) into is_accepted;
   select t.terms_version,t.accepted_at
     into previous_version,previous_accepted_at
     from public.tos_acceptances t
    where t.user_id=(select auth.uid())
-     and (t.terms_version<>'2026-11-25-v3' or t.terms_hash<>'31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7')
+     and (t.terms_version<>'2026-11-25-v3' or t.terms_hash<>'5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9')
    order by t.accepted_at desc limit 1;
   had_previous:=previous_version is not null;
   return jsonb_build_object(
@@ -56,7 +56,7 @@ begin
     'previous_terms_version',previous_version,
     'previous_accepted_at',previous_accepted_at,
     'terms_version','2026-11-25-v3',
-    'terms_hash','31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7'
+    'terms_hash','5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9'
   );
 end;
 $$;
@@ -71,7 +71,7 @@ as $$
     select 1 from public.tos_acceptances t
     where t.user_id=(select auth.uid())
       and t.terms_version='2026-11-25-v3'
-      and t.terms_hash='31a50f78135ea52ea2faa41645b5f85e0a776f6c4a562eb76285c159d26a59b7'
+      and t.terms_hash='5c0586b5348797c98bfed9a742d6df0d9e42ff89976d16e24b6152198c47e8e9'
   );
 $$;
 revoke all on function public.nexus_has_current_terms() from public,anon;
